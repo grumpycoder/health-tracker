@@ -32,17 +32,7 @@
                     <span class="quick-emoji">@item.Emoji</span> @item.Label
                 </button>
             }
-            @foreach (var item in ComingSoon)
-            {
-                <button class="quick-btn disabled" @onclick="() => Toast(item.Label)">
-                    <span class="quick-emoji">@item.Emoji</span> @item.Label
-                </button>
-            }
         </div>
-        @if (_toast is not null)
-        {
-            <p class="toast">@_toast — coming soon</p>
-        }
     </section>
 
     <section class="card">
@@ -67,19 +57,14 @@
 
     private static readonly (string Emoji, string Label, string Route)[] QuickLinks =
     {
+        ("🏋️", "Start workout", "workout"),
         ("⚖️", "Body measurement", "measurements"),
         ("🍽️", "Meal / snack", "meals"),
         ("💊", "Medication", "medication"),
         ("😴", "Sleep / recovery", "sleep"),
     };
 
-    private static readonly (string Emoji, string Label)[] ComingSoon =
-    {
-        ("🏋️", "Start workout"),
-    };
-
     private DailyLog _log = new() { Date = Today };
-    private string? _toast;
     private bool _saved;
 
     protected override async Task OnInitializedAsync()
@@ -112,8 +97,6 @@
         await db.SaveChangesAsync();
         _saved = true;
     }
-
-    private void Toast(string label) => _toast = label;
 
     private static string Label(DayType dt) => dt switch
     {

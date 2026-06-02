@@ -29,6 +29,8 @@ public class DailyLog : EntityBase
 public class ExerciseDefinition : EntityBase
 {
     public string Name { get; set; } = "";
+    /// <summary>Whether this exercise is tracked by reps or by time held (e.g. planks).</summary>
+    public ExerciseMeasure Measure { get; set; } = ExerciseMeasure.Reps;
     public int? TargetReps { get; set; }
     public int? TargetSets { get; set; }
     public int? TargetDurationSeconds { get; set; }

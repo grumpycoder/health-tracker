@@ -1,0 +1,186 @@
+@page "/routines"
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Routines</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Workout routines</div>
+        <div class="dash-date-sub">Reusable workouts you can start anytime</div>
+    </header>
+
+    <section class="card">
+        <h2>New routine</h2>
+        <div class="field">
+            <input @bind="_newRoutineName" placeholder="e.g. Morning bodyweight" />
+        </div>
+        <button class="save-btn" @onclick="AddRoutine">Create routine</button>
+    </section>
+
+    @foreach (var r in _routines)
+    {
+        <section class="card">
+            <div class="routine-head">
+                <h2>@r.Name</h2>
+                <div class="routine-actions">
+                    <button class="link-btn" @onclick="@(() => Nav.NavigateTo($"workout?routineId={r.Id}"))">Start ▶</button>
+                    <button class="link-btn danger" @onclick="@(() => DeleteRoutine(r))">Delete</button>
+                </div>
+            </div>
+
+            @if (r.Exercises.Count == 0)
+            {
+                <p class="muted">No exercises yet.</p>
+            }
+            else
+            {
+                <ol class="exercise-list">
+                    @foreach (var ex in r.Exercises.OrderBy(e => e.Order))
+                    {
+                        <li>
+                            <span class="ex-name">@ex.ExerciseDefinition?.Name</span>
+                            <span class="muted">@FormatTarget(ex.ExerciseDefinition)</span>
+                        </li>
+                    }
+                </ol>
+            }
+
+            <div class="add-exercise">
+                <div class="field">
+                    <label>Add exercise</label>
+                    <input @bind="_draft[r.Id].Name" placeholder="Exercise name" />
+                </div>
+                <div class="field">
+                    <label>Track by</label>
+                    <select @bind="_draft[r.Id].Measure">
+                        <option value="@ExerciseMeasure.Reps">Reps</option>
+                        <option value="@ExerciseMeasure.Duration">Time (e.g. planks)</option>
+                    </select>
+                </div>
+                <div class="inline-fields">
+                    <div class="field">
+                        <label>Sets</label>
+                        <input type="number" min="1" @bind="_draft[r.Id].Sets" />
+                    </div>
+                    @if (_draft[r.Id].Measure == ExerciseMeasure.Duration)
+                    {
+                        <div class="field">
+                            <label>Time (s)</label>
+                            <input type="number" min="1" @bind="_draft[r.Id].Duration" />
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="field">
+                            <label>Reps</label>
+                            <input type="number" min="1" @bind="_draft[r.Id].Reps" />
+                        </div>
+                    }
+                    <div class="field">
+                        <label>Rest (s)</label>
+                        <input type="number" min="0" @bind="_draft[r.Id].Rest" />
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Notes (equipment / progression)</label>
+                    <input @bind="_draft[r.Id].Notes" placeholder="e.g. incline ~18in" />
+                </div>
+                <button class="save-btn" @onclick="@(() => AddExercise(r))">Add exercise</button>
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    private List<WorkoutRoutine> _routines = new();
+    private string _newRoutineName = "";
+    private readonly Dictionary<Guid, ExerciseDraft> _draft = new();
+
+    private class ExerciseDraft
+    {
+        public string Name { get; set; } = "";
+        public ExerciseMeasure Measure { get; set; } = ExerciseMeasure.Reps;
+        public int Sets { get; set; } = 3;
+        public int Reps { get; set; } = 10;
+        public int Duration { get; set; } = 30;
+        public int Rest { get; set; } = 60;
+        public string? Notes { get; set; }
+    }
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _routines = await db.WorkoutRoutines
+            .Include(r => r.Exercises)
+                .ThenInclude(e => e.ExerciseDefinition)
+            .OrderBy(r => r.Name)
+            .ToListAsync();
+        foreach (var r in _routines)
+            _draft.TryAdd(r.Id, new ExerciseDraft());
+    }
+
+    private async Task AddRoutine()
+    {
+        if (string.IsNullOrWhiteSpace(_newRoutineName)) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.WorkoutRoutines.Add(new WorkoutRoutine { Name = _newRoutineName.Trim() });
+        await db.SaveChangesAsync();
+        _newRoutineName = "";
+        await Load();
+    }
+
+    private async Task DeleteRoutine(WorkoutRoutine r)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.WorkoutRoutines.Remove(r);
+        await db.SaveChangesAsync();
+        await Load();
+    }
+
+    private async Task AddExercise(WorkoutRoutine r)
+    {
+        var d = _draft[r.Id];
+        if (string.IsNullOrWhiteSpace(d.Name)) return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var def = new ExerciseDefinition
+        {
+            Name = d.Name.Trim(),
+            Measure = d.Measure,
+            TargetSets = d.Sets,
+            TargetReps = d.Measure == ExerciseMeasure.Reps ? d.Reps : null,
+            TargetDurationSeconds = d.Measure == ExerciseMeasure.Duration ? d.Duration : null,
+            RestSeconds = d.Rest,
+            EquipmentNotes = d.Notes
+        };
+        db.ExerciseDefinitions.Add(def);
+
+        var nextOrder = r.Exercises.Count;
+        db.RoutineExercises.Add(new RoutineExercise
+        {
+            RoutineId = r.Id,
+            ExerciseDefinitionId = def.Id,
+            Order = nextOrder
+        });
+        await db.SaveChangesAsync();
+
+        _draft[r.Id] = new ExerciseDraft();
+        await Load();
+    }
+
+    private static string FormatTarget(ExerciseDefinition? def)
+    {
+        if (def is null) return "";
+        var parts = new List<string>();
+        if (def.Measure == ExerciseMeasure.Duration && def.TargetDurationSeconds is not null)
+            parts.Add($"{def.TargetDurationSeconds}s × {def.TargetSets}");
+        else if (def.TargetReps is not null)
+            parts.Add($"{def.TargetReps} reps × {def.TargetSets}");
+        if (def.RestSeconds is > 0)
+            parts.Add($"{def.RestSeconds}s rest");
+        return string.Join(" · ", parts);
+    }
+}

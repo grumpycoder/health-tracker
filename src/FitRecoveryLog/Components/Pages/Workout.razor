@@ -1,0 +1,273 @@
+@page "/workout"
+@implements IDisposable
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Workout</PageTitle>
+
+<div class="dashboard">
+
+@if (_state == State.Choosing)
+{
+    <header class="dash-header">
+        <div class="dash-date">Start a workout</div>
+        <div class="dash-date-sub">Pick a routine to begin</div>
+    </header>
+
+    @if (_routines.Count == 0)
+    {
+        <section class="card">
+            <p class="muted">No routines yet.</p>
+            <button class="save-btn" @onclick="@(() => Nav.NavigateTo("routines"))">Create a routine</button>
+        </section>
+    }
+    else
+    {
+        @foreach (var r in _routines)
+        {
+            <section class="card">
+                <div class="routine-head">
+                    <h2>@r.Name</h2>
+                    <button class="save-btn" @onclick="@(() => StartWorkout(r))">Start ▶</button>
+                </div>
+                <p class="muted">@r.Exercises.Count exercise(s)</p>
+            </section>
+        }
+        <section class="card">
+            <button class="link-btn" @onclick="@(() => Nav.NavigateTo("routines"))">Manage routines</button>
+        </section>
+    }
+}
+else if (_state == State.Active)
+{
+    <header class="dash-header timer-head">
+        <div class="dash-date">@Elapsed</div>
+        <div class="dash-date-sub">@_routineName</div>
+    </header>
+
+    @if (_rest > 0)
+    {
+        <section class="card rest-banner">
+            <span>Rest: <strong>@_rest s</strong></span>
+            <button class="link-btn" @onclick="StopRest">Skip</button>
+        </section>
+    }
+
+    @foreach (var ex in _exercises)
+    {
+        <section class="card">
+            <div class="routine-head">
+                <h2>@ex.Def.Name</h2>
+                @if (ex.Def.RestSeconds is > 0)
+                {
+                    <button class="link-btn" @onclick="@(() => StartRest(ex.Def.RestSeconds!.Value))">Rest @ex.Def.RestSeconds s</button>
+                }
+            </div>
+            <table class="set-table">
+                <thead><tr><th>Set</th><th>@(ex.Def.Measure == ExerciseMeasure.Duration ? "Time (s)" : "Reps")</th><th>Done</th></tr></thead>
+                <tbody>
+                    @foreach (var s in ex.Sets)
+                    {
+                        <tr class="@(s.Completed ? "done" : "")">
+                            <td>@s.SetNumber</td>
+                            <td>
+                                @if (ex.Def.Measure == ExerciseMeasure.Duration)
+                                {
+                                    <input type="number" min="0" class="reps-input" @bind="s.DurationSeconds" />
+                                }
+                                else
+                                {
+                                    <input type="number" min="0" class="reps-input" @bind="s.Reps" />
+                                }
+                            </td>
+                            <td><input type="checkbox" @bind="s.Completed" /></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </section>
+    }
+
+    <section class="card">
+        <button class="save-btn finish" @onclick="GoToFeedback">Finish workout</button>
+    </section>
+}
+else // Feedback
+{
+    <header class="dash-header">
+        <div class="dash-date">How did it go?</div>
+        <div class="dash-date-sub">@Elapsed total · optional feedback</div>
+    </header>
+
+    @foreach (var ex in _exercises)
+    {
+        <section class="card">
+            <h2>@ex.Def.Name</h2>
+            <div class="field">
+                <label>Difficulty</label>
+                <select @bind="ex.Feedback.Difficulty">
+                    @foreach (var d in Enum.GetValues<Difficulty>())
+                    {
+                        <option value="@d">@Pretty(d.ToString())</option>
+                    }
+                </select>
+            </div>
+            <div class="chip-row">
+                <button type="button" class="chip @(ex.Feedback.PainOrDiscomfort ? "selected" : "")"
+                        @onclick="@(() => ex.Feedback.PainOrDiscomfort = !ex.Feedback.PainOrDiscomfort)">Pain / discomfort</button>
+                <button type="button" class="chip @(ex.Feedback.BreathingDifficulty ? "selected" : "")"
+                        @onclick="@(() => ex.Feedback.BreathingDifficulty = !ex.Feedback.BreathingDifficulty)">Breathing</button>
+                <button type="button" class="chip @(ex.Feedback.FormIssues ? "selected" : "")"
+                        @onclick="@(() => ex.Feedback.FormIssues = !ex.Feedback.FormIssues)">Form issues</button>
+            </div>
+            <div class="field">
+                <textarea rows="2" @bind="ex.Feedback.Comment" placeholder="Notes (e.g. last set very hard)"></textarea>
+            </div>
+        </section>
+    }
+
+    <section class="card">
+        <div class="field">
+            <label>Total time (minutes)</label>
+            <input type="number" min="0" step="1" @bind="_totalMinutes" />
+        </div>
+        <div class="field">
+            <label>Workout notes</label>
+            <textarea rows="2" @bind="_sessionNotes"></textarea>
+        </div>
+        <button class="save-btn" @onclick="SaveWorkout">Save workout</button>
+    </section>
+}
+
+</div>
+
+@code {
+    [Parameter, SupplyParameterFromQuery] public Guid? RoutineId { get; set; }
+
+    private enum State { Choosing, Active, Feedback }
+    private State _state = State.Choosing;
+
+    private List<WorkoutRoutine> _routines = new();
+    private readonly List<ExVM> _exercises = new();
+    private Guid? _routineId;
+    private string _routineName = "Workout";
+
+    private DateTime _startedAt;
+    private System.Threading.Timer? _timer;
+    private int _rest;
+    private int _totalMinutes;
+    private string? _sessionNotes;
+
+    private string Elapsed
+    {
+        get
+        {
+            var t = _state == State.Active ? DateTime.Now - _startedAt : TimeSpan.FromMinutes(_totalMinutes);
+            return t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"mm\:ss");
+        }
+    }
+
+    private class SetVM { public int SetNumber; public int? Reps; public int? DurationSeconds; public bool Completed; }
+    private class ExVM
+    {
+        public ExerciseDefinition Def = null!;
+        public List<SetVM> Sets = new();
+        public ExerciseFeedback Feedback = new();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _routines = await db.WorkoutRoutines
+            .Include(r => r.Exercises).ThenInclude(e => e.ExerciseDefinition)
+            .OrderBy(r => r.Name).ToListAsync();
+
+        if (RoutineId is { } id && _routines.FirstOrDefault(r => r.Id == id) is { } match)
+            StartWorkout(match);
+    }
+
+    private void StartWorkout(WorkoutRoutine routine)
+    {
+        _exercises.Clear();
+        foreach (var re in routine.Exercises.OrderBy(e => e.Order))
+        {
+            if (re.ExerciseDefinition is null) continue;
+            var def = re.ExerciseDefinition;
+            var vm = new ExVM { Def = def };
+            var sets = def.TargetSets ?? 1;
+            for (var i = 1; i <= sets; i++)
+                vm.Sets.Add(new SetVM
+                {
+                    SetNumber = i,
+                    Reps = def.Measure == ExerciseMeasure.Reps ? def.TargetReps : null,
+                    DurationSeconds = def.Measure == ExerciseMeasure.Duration ? def.TargetDurationSeconds : null
+                });
+            vm.Feedback.ExerciseDefinitionId = re.ExerciseDefinition.Id;
+            _exercises.Add(vm);
+        }
+
+        _routineId = routine.Id;
+        _routineName = routine.Name;
+        _startedAt = DateTime.Now;
+        _state = State.Active;
+        _timer = new System.Threading.Timer(_ => Tick(), null, 1000, 1000);
+    }
+
+    private void Tick()
+    {
+        if (_rest > 0) _rest--;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void StartRest(int seconds) => _rest = seconds;
+    private void StopRest() => _rest = 0;
+
+    private void GoToFeedback()
+    {
+        _timer?.Dispose();
+        _timer = null;
+        _totalMinutes = (int)Math.Round((DateTime.Now - _startedAt).TotalMinutes);
+        _state = State.Feedback;
+    }
+
+    private async Task SaveWorkout()
+    {
+        var session = new WorkoutSession
+        {
+            Date = DateOnly.FromDateTime(_startedAt),
+            RoutineId = _routineId,
+            StartedAt = _startedAt,
+            EndedAt = DateTime.Now,
+            TotalSeconds = _totalMinutes * 60,
+            Notes = _sessionNotes
+        };
+
+        foreach (var ex in _exercises)
+        {
+            foreach (var s in ex.Sets)
+            {
+                session.Sets.Add(new ExerciseSet
+                {
+                    ExerciseDefinitionId = ex.Def.Id,
+                    SetNumber = s.SetNumber,
+                    Reps = s.Reps,
+                    DurationSeconds = s.DurationSeconds,
+                    Completed = s.Completed
+                });
+            }
+            ex.Feedback.ExerciseDefinitionId = ex.Def.Id;
+            session.Feedback.Add(ex.Feedback);
+        }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.WorkoutSessions.Add(session);
+        await db.SaveChangesAsync();
+
+        Nav.NavigateTo("");
+    }
+
+    private static string Pretty(string camel) =>
+        System.Text.RegularExpressions.Regex.Replace(camel, "(?<=.)([A-Z])", " $1");
+
+    public void Dispose() => _timer?.Dispose();
+}

@@ -231,3 +231,33 @@ select.field, .field select {
 .timeline li:last-child { border-bottom: none; }
 .timeline .time { color: var(--muted); font-size: 0.85rem; min-width: 5.5rem; }
 .timeline .entry { flex: 1; }
+
+/* routines + workout */
+.routine-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.routine-head h2 { margin: 0; text-transform: none; letter-spacing: 0; color: var(--text); font-size: 1.1rem; }
+.routine-actions { display: flex; gap: 0.75rem; }
+
+.link-btn { background: none; border: none; color: var(--accent); font-size: 0.9rem; cursor: pointer; padding: 0.25rem; }
+.link-btn.danger { color: #dc2626; }
+
+.exercise-list { margin: 0.5rem 0; padding-left: 1.2rem; }
+.exercise-list li { padding: 0.3rem 0; }
+.ex-name { font-weight: 600; margin-right: 0.5rem; }
+
+.add-exercise { margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.75rem; }
+.inline-fields { display: flex; gap: 0.5rem; }
+.inline-fields .field { flex: 1; }
+
+.timer-head .dash-date { font-variant-numeric: tabular-nums; font-size: 2.4rem; }
+
+.rest-banner { display: flex; align-items: center; justify-content: space-between; background: var(--accent); color: #fff; }
+.rest-banner .link-btn { color: #fff; }
+
+.set-table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+.set-table th, .set-table td { text-align: left; padding: 0.4rem; border-bottom: 1px solid var(--border); }
+.set-table th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; }
+.set-table tr.done { opacity: 0.55; }
+.reps-input { width: 4rem; padding: 0.3rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
+.set-table input[type=checkbox] { width: 1.4rem; height: 1.4rem; }
+
+.save-btn.finish { width: 100%; background: #16a34a; }

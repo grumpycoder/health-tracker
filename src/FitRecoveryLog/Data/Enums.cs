@@ -10,6 +10,13 @@ public enum DayType
     HighWorkload
 }
 
+/// <summary>How an exercise is measured: by repetitions or by time held/performed.</summary>
+public enum ExerciseMeasure
+{
+    Reps = 0,
+    Duration
+}
+
 public enum MealType
 {
     Breakfast = 0,
