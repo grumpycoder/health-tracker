@@ -1,17 +1,30 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<div class="app-shell">
+    <article class="content">
+        @Body
+    </article>
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
-
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
+    <nav class="tabbar">
+        <NavLink class="tab" href="" Match="NavLinkMatch.All">
+            <span class="tab-icon">🏠</span>
+            <span class="tab-label">Dashboard</span>
+        </NavLink>
+        <NavLink class="tab" href="measurements">
+            <span class="tab-icon">⚖️</span>
+            <span class="tab-label">Measure</span>
+        </NavLink>
+        <NavLink class="tab" href="meals">
+            <span class="tab-icon">🍽️</span>
+            <span class="tab-label">Meals</span>
+        </NavLink>
+        <NavLink class="tab" href="sleep">
+            <span class="tab-icon">😴</span>
+            <span class="tab-label">Sleep</span>
+        </NavLink>
+        <NavLink class="tab" href="medication">
+            <span class="tab-icon">💊</span>
+            <span class="tab-label">Meds</span>
+        </NavLink>
+    </nav>
 </div>
