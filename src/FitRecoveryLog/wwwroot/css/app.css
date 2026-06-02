@@ -332,3 +332,8 @@ select.field, .field select {
 }
 
 .history td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.week-nav { display: flex; align-items: center; justify-content: space-between; }
+.week-nav .link-btn:disabled { opacity: 0.4; }
+.focus-list { margin: 0; padding-left: 1.2rem; }
+.focus-list li { padding: 0.25rem 0; }

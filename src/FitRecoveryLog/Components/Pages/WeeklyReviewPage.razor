@@ -1,0 +1,211 @@
+@page "/weekly-review"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Weekly Review</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Weekly review</div>
+        <div class="dash-date-sub">Week of @_start.ToString("MMM d")</div>
+    </header>
+
+    <section class="card week-nav">
+        <button class="link-btn" @onclick="PrevWeek">‹ Previous</button>
+        <span class="muted">@_start.ToString("MMM d") – @_end.AddDays(-1).ToString("MMM d")</span>
+        <button class="link-btn" @onclick="NextWeek" disabled="@(_weekOffset >= 0)">Next ›</button>
+    </section>
+
+    @if (!_loaded)
+    {
+        <section class="card"><p class="muted">Loading…</p></section>
+    }
+    else
+    {
+        <section class="card">
+            <h2>Activity</h2>
+            <table class="history"><tbody>
+                <tr><td>Workouts completed</td><td class="num">@_workouts</td></tr>
+                <tr><td>Avg workout time</td><td class="num">@(_avgWorkoutMin is null ? "—" : $"{_avgWorkoutMin} min")</td></tr>
+                <tr><td>Recovery days</td><td class="num">@_recoveryDays</td></tr>
+                <tr><td>Physical workload sessions</td><td class="num">@_workloadCount</td></tr>
+                <tr><td>Longest workout</td><td class="num">@(_longestMin is null ? "—" : $"{_longestMin} min")</td></tr>
+            </tbody></table>
+        </section>
+
+        <section class="card">
+            <h2>Body</h2>
+            <table class="history"><tbody>
+                <tr><td>Weight change</td><td class="num">@ChangeText(_weightChange, "lbs")</td></tr>
+                <tr><td>Waist change</td><td class="num">@ChangeText(_waistChange, "in")</td></tr>
+            </tbody></table>
+            @if (_weightChange is null && _waistChange is null)
+            {
+                <p class="muted">Need 2+ measurements in the week to show a change.</p>
+            }
+        </section>
+
+        <section class="card">
+            <h2>Sleep</h2>
+            <table class="history"><tbody>
+                <tr><td>Nights logged</td><td class="num">@_sleepNights</td></tr>
+                <tr><td>Avg sleep score</td><td class="num">@(_avgSleepScore is null ? "—" : _avgSleepScore.Value.ToString("0"))</td></tr>
+                <tr><td>Avg hours</td><td class="num">@(_avgSleepHours is null ? "—" : _avgSleepHours.Value.ToString("0.0"))</td></tr>
+            </tbody></table>
+        </section>
+
+        <section class="card">
+            <h2>Nutrition</h2>
+            <table class="history"><tbody>
+                <tr><td>Restaurant meals</td><td class="num">@_restaurantMeals</td></tr>
+                <tr><td>Late meals (after 8pm)</td><td class="num">@_lateMeals</td></tr>
+                <tr><td>Sweet tea total</td><td class="num">@(_sweetTeaOz > 0 ? $"{_sweetTeaOz:0} oz" : "—")</td></tr>
+            </tbody></table>
+        </section>
+
+        <section class="card">
+            <h2>Suggested focus</h2>
+            @if (_focus.Count == 0)
+            {
+                <p class="muted">Nothing flagged — keep it up.</p>
+            }
+            else
+            {
+                <ul class="focus-list">
+                    @foreach (var f in _focus)
+                    {
+                        <li>@f</li>
+                    }
+                </ul>
+            }
+        </section>
+
+        <section class="card">
+            <h2>Your notes / plan for next week</h2>
+            <textarea rows="3" @bind="_userNotes" placeholder="What worked, what to change…"></textarea>
+            <button class="save-btn" @onclick="SaveReview">Save review</button>
+            @if (_saved)
+            {
+                <span class="saved-msg">Saved ✓</span>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private int _weekOffset; // 0 = current week, negative = past
+    private DateOnly _start, _end;
+    private bool _loaded, _saved;
+
+    private int _workouts, _recoveryDays, _workloadCount, _sleepNights, _restaurantMeals, _lateMeals;
+    private int? _avgWorkoutMin, _longestMin;
+    private double? _weightChange, _waistChange, _avgSleepScore, _avgSleepHours;
+    private double _sweetTeaOz;
+    private List<string> _focus = new();
+    private string? _userNotes;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task PrevWeek() { _weekOffset--; await Load(); }
+    private async Task NextWeek() { if (_weekOffset < 0) { _weekOffset++; await Load(); } }
+
+    private async Task Load()
+    {
+        _loaded = false;
+        _saved = false;
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var daysSinceMonday = ((int)today.DayOfWeek + 6) % 7; // Monday = 0
+        _start = today.AddDays(-daysSinceMonday + _weekOffset * 7);
+        _end = _start.AddDays(7);
+        var startDt = _start.ToDateTime(TimeOnly.MinValue);
+        var endDt = _end.ToDateTime(TimeOnly.MinValue);
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var sessions = await db.WorkoutSessions.Where(s => s.Date >= _start && s.Date < _end).ToListAsync();
+        _workouts = sessions.Count;
+        var durations = sessions.Where(s => s.TotalSeconds is > 0).Select(s => s.TotalSeconds!.Value / 60).ToList();
+        _avgWorkoutMin = durations.Count > 0 ? (int)Math.Round(durations.Average()) : null;
+        _longestMin = durations.Count > 0 ? durations.Max() : null;
+
+        _recoveryDays = await db.DailyLogs.CountAsync(l => l.Date >= _start && l.Date < _end
+            && (l.DayType == DayType.Recovery || l.DayType == DayType.ActiveRecovery));
+        _workloadCount = await db.PhysicalWorkloadEntries.CountAsync(w => w.Date >= _start && w.Date < _end);
+
+        var measurements = await db.BodyMeasurements.Where(m => m.Date >= _start && m.Date < _end)
+            .OrderBy(m => m.Date).ToListAsync();
+        _weightChange = Change(measurements.Select(m => m.WeightLbs).ToList());
+        _waistChange = Change(measurements.Select(m => m.WaistInches).ToList());
+
+        var sleeps = await db.SleepEntries.Where(s => s.Date >= _start && s.Date < _end).ToListAsync();
+        _sleepNights = sleeps.Count;
+        var scores = sleeps.Where(s => s.SleepScore is not null).Select(s => (double)s.SleepScore!.Value).ToList();
+        _avgSleepScore = scores.Count > 0 ? scores.Average() : null;
+        var hours = sleeps.Where(s => s.DurationHours is not null).Select(s => s.DurationHours!.Value).ToList();
+        _avgSleepHours = hours.Count > 0 ? hours.Average() : null;
+
+        var meals = await db.MealEntries.Where(m => m.Time >= startDt && m.Time < endDt).ToListAsync();
+        _restaurantMeals = meals.Count(m => m.TagList.Any(t => t.Equals("Restaurant meal", StringComparison.OrdinalIgnoreCase)));
+        _lateMeals = meals.Count(m => m.Time.Hour >= 20);
+        var teas = await db.DrinkEntries.Where(d => d.Time >= startDt && d.Time < endDt
+            && d.Ounces != null && d.Description.ToLower().Contains("tea")).ToListAsync();
+        _sweetTeaOz = teas.Sum(t => t.Ounces!.Value);
+
+        BuildFocus();
+
+        var existing = await db.WeeklyReviews.FirstOrDefaultAsync(w => w.WeekStart == _start);
+        _userNotes = existing?.SuggestedFocus;
+
+        _loaded = true;
+    }
+
+    private void BuildFocus()
+    {
+        _focus = new List<string>();
+        if (_workouts == 0)
+            _focus.Add("No workouts logged this week — aim for a couple of sessions.");
+        if (_avgSleepHours is < 7 || _avgSleepScore is < 70)
+            _focus.Add("Sleep ran low — prioritize earlier nights.");
+        if (_restaurantMeals + _lateMeals >= 4)
+            _focus.Add("Several restaurant / late-evening meals — watch those next week.");
+        if (_weightChange is > 0.5)
+            _focus.Add("Weight ticked up — check portions and evening eating.");
+        if (_weightChange is < -0.3)
+            _focus.Add("Weight trending down — nice, keep the routine.");
+    }
+
+    private async Task SaveReview()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var review = await db.WeeklyReviews.FirstOrDefaultAsync(w => w.WeekStart == _start);
+        var isNew = review is null;
+        review ??= new WeeklyReview { WeekStart = _start };
+
+        review.WorkoutsCompleted = _workouts;
+        review.RecoveryDays = _recoveryDays;
+        review.AverageWorkoutMinutes = _avgWorkoutMin;
+        review.WeightChangeLbs = _weightChange;
+        review.WaistChangeInches = _waistChange;
+        review.BestPerformanceNote = _longestMin is null ? null : $"Longest workout {_longestMin} min";
+        review.NutritionObservations = $"{_restaurantMeals} restaurant, {_lateMeals} late, {_sweetTeaOz:0}oz sweet tea";
+        review.SleepRecoveryObservations = $"{_sleepNights} nights, avg score {_avgSleepScore:0}, {_avgSleepHours:0.0}h";
+        review.SuggestedFocus = _userNotes;
+
+        if (isNew) db.WeeklyReviews.Add(review);
+        await db.SaveChangesAsync();
+        _saved = true;
+    }
+
+    private static double? Change(List<double?> values)
+    {
+        var present = values.Where(v => v is not null).Select(v => v!.Value).ToList();
+        return present.Count >= 2 ? present[^1] - present[0] : null;
+    }
+
+    private static string ChangeText(double? change, string unit)
+    {
+        if (change is null) return "—";
+        var sign = change.Value > 0 ? "+" : "";
+        return $"{sign}{change.Value:0.0} {unit}";
+    }
+}
