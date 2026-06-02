@@ -1,0 +1,134 @@
+@page "/nutrition"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Nutrition Patterns</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Nutrition patterns</div>
+        <div class="dash-date-sub">Counts and links from your meal log</div>
+    </header>
+
+    @if (!_loaded)
+    {
+        <section class="card"><p class="muted">Loading…</p></section>
+    }
+    else if (_mealCount == 0 && _drinkCount == 0)
+    {
+        <section class="card"><p class="muted">Log some meals and drinks and patterns will show up here.</p></section>
+    }
+    else
+    {
+        <section class="card">
+            <h2>Last 7 days</h2>
+            <table class="history">
+                <tbody>
+                    <tr><td>Restaurant meals</td><td class="num">@_restaurantMeals</td></tr>
+                    <tr><td>Late meals (after 8pm)</td><td class="num">@_lateMeals</td></tr>
+                    <tr><td>High-sodium meals</td><td class="num">@_highSodiumMeals</td></tr>
+                    <tr><td>Protein bars</td><td class="num">@_proteinBars</td></tr>
+                    <tr><td>Coffee (cups/day avg)</td><td class="num">@_coffeePerDay.ToString("0.0")</td></tr>
+                    <tr><td>Avg sugar per coffee</td><td class="num">@(_avgCoffeeSugar is null ? "—" : _avgCoffeeSugar.Value.ToString("0.#"))</td></tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card">
+            <h2>Often followed by bloating</h2>
+            @if (_bloating.Count == 0)
+            {
+                <p class="muted">No meals tagged as bloated yet (set satiety to "Bloated" on a meal).</p>
+            }
+            else
+            {
+                <table class="history">
+                    <tbody>
+                        @foreach (var (food, n) in _bloating)
+                        {
+                            <tr><td>@food</td><td class="num">@n×</td></tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </section>
+
+        <section class="card">
+            <h2>Often left you still hungry</h2>
+            @if (_stillHungry.Count == 0)
+            {
+                <p class="muted">No meals marked "Still hungry" yet.</p>
+            }
+            else
+            {
+                <table class="history">
+                    <tbody>
+                        @foreach (var (food, n) in _stillHungry)
+                        {
+                            <tr><td>@food</td><td class="num">@n×</td></tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </section>
+
+        <p class="muted" style="text-align:center;font-size:0.75rem">
+            Links use the last 30 days · counts use the last 7 days
+        </p>
+    }
+</div>
+
+@code {
+    private bool _loaded;
+    private int _mealCount, _drinkCount;
+
+    // Last-7-day counters
+    private int _restaurantMeals, _lateMeals, _highSodiumMeals, _proteinBars;
+    private double _coffeePerDay;
+    private double? _avgCoffeeSugar;
+
+    // Satiety links (last 30 days)
+    private List<(string Food, int Count)> _bloating = new();
+    private List<(string Food, int Count)> _stillHungry = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var now = DateTime.Now;
+        var weekCut = now.Date.AddDays(-6);   // today + previous 6 days = 7 days
+        var monthCut = now.Date.AddDays(-29);
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        // Load entities to memory; tag parsing and grouping run as LINQ-to-objects.
+        var meals = await db.MealEntries.Where(m => m.Time >= monthCut).ToListAsync();
+        var drinks = await db.DrinkEntries.Where(d => d.Time >= monthCut).ToListAsync();
+        _mealCount = meals.Count;
+        _drinkCount = drinks.Count;
+
+        var weekMeals = meals.Where(m => m.Time >= weekCut).ToList();
+        _restaurantMeals = weekMeals.Count(m => HasTag(m, "Restaurant meal"));
+        _lateMeals = weekMeals.Count(m => m.Time.Hour >= 20);
+        _highSodiumMeals = weekMeals.Count(m => HasTag(m, "High sodium"));
+        _proteinBars = weekMeals.Count(m => m.Description.Contains("protein bar", StringComparison.OrdinalIgnoreCase));
+
+        var weekCoffee = drinks.Where(d => d.Time >= weekCut
+            && d.Description.Contains("coffee", StringComparison.OrdinalIgnoreCase)).ToList();
+        _coffeePerDay = weekCoffee.Count / 7.0;
+        var sugars = weekCoffee.Where(c => c.SugarCount is not null).Select(c => (double)c.SugarCount!.Value).ToList();
+        _avgCoffeeSugar = sugars.Count > 0 ? sugars.Average() : null;
+
+        _bloating = LinkByFood(meals, Satiety.Bloated);
+        _stillHungry = LinkByFood(meals, Satiety.StillHungry);
+
+        _loaded = true;
+    }
+
+    private static bool HasTag(MealEntry m, string tag) =>
+        m.TagList.Any(t => string.Equals(t, tag, StringComparison.OrdinalIgnoreCase));
+
+    private static List<(string Food, int Count)> LinkByFood(List<MealEntry> meals, Satiety satiety) =>
+        meals.Where(m => m.Satiety == satiety && !string.IsNullOrWhiteSpace(m.Description))
+            .GroupBy(m => m.Description.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => (Food: g.Key, Count: g.Count()))
+            .OrderByDescending(x => x.Count)
+            .Take(5)
+            .ToList();
+}

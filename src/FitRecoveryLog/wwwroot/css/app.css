@@ -330,3 +330,5 @@ select.field, .field select {
 @media (prefers-color-scheme: dark) {
     .badge.good { background: #0c2a1f; border-color: #1f6b4a; color: #6ee7b7; }
 }
+
+.history td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }

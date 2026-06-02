@@ -1,5 +1,6 @@
 @page "/meals"
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
 
 <PageTitle>Meals & Drinks</PageTitle>
 
@@ -8,6 +9,12 @@
         <div class="dash-date">Meals & drinks</div>
         <div class="dash-date-sub">@DateTime.Now.ToString("dddd, MMM d")</div>
     </header>
+
+    <section class="card">
+        <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("nutrition"))">
+            <span class="quick-emoji">📊</span> Nutrition patterns
+        </button>
+    </section>
 
     <section class="card">
         <h2>Log meal / snack</h2>
@@ -100,25 +107,94 @@
                 @foreach (var m in _todayMeals)
                 {
                     <li>
-                        <span class="time">@m.Time.ToString("h:mm tt")</span>
-                        <span class="entry"><strong>@m.MealType</strong> — @m.Description
-                            @if (m.TagList.Count > 0)
-                            {
-                                <span class="muted"> (@string.Join(", ", m.TagList))</span>
-                            }
-                        </span>
+                        @if (_editMealId == m.Id)
+                        {
+                            <div class="edit-exercise" style="width:100%">
+                                <div class="field">
+                                    <label>Type</label>
+                                    <select @bind="_mealEdit.MealType">
+                                        @foreach (var t in Enum.GetValues<MealType>()) { <option value="@t">@t</option> }
+                                    </select>
+                                </div>
+                                <div class="field"><label>Food</label><input @bind="_mealEdit.Description" /></div>
+                                <div class="field"><label>Portion note</label><input @bind="_mealEdit.PortionNote" /></div>
+                                <div class="field">
+                                    <label>Tags</label>
+                                    <div class="chip-row">
+                                        @foreach (var tag in MealTags)
+                                        {
+                                            <button type="button" class="chip @(_mealEditTags.Contains(tag) ? "selected" : "")"
+                                                    @onclick="() => ToggleEditTag(tag)">@tag</button>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label>Satiety</label>
+                                    <select @bind="_mealEdit.Satiety">
+                                        @foreach (var s in Enum.GetValues<Satiety>()) { <option value="@s">@Pretty(s.ToString())</option> }
+                                    </select>
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="save-btn" @onclick="SaveMealEdit">Save</button>
+                                    <button class="link-btn" @onclick="() => _editMealId = null">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="ex-row" style="width:100%">
+                                <div>
+                                    <span class="time">@m.Time.ToString("h:mm tt")</span>
+                                    <span class="entry"><strong>@m.MealType</strong> — @m.Description
+                                        @if (m.TagList.Count > 0)
+                                        {
+                                            <span class="muted"> (@string.Join(", ", m.TagList))</span>
+                                        }
+                                    </span>
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="link-btn" @onclick="() => StartEditMeal(m)">Edit</button>
+                                    <button class="link-btn danger" @onclick="() => DeleteMeal(m)">Delete</button>
+                                </div>
+                            </div>
+                        }
                     </li>
                 }
                 @foreach (var d in _todayDrinks)
                 {
                     <li>
-                        <span class="time">@d.Time.ToString("h:mm tt")</span>
-                        <span class="entry">🥤 @d.Description
-                            @if (d.Ounces is not null)
-                            {
-                                <span class="muted"> @d.Ounces oz</span>
-                            }
-                        </span>
+                        @if (_editDrinkId == d.Id)
+                        {
+                            <div class="edit-exercise" style="width:100%">
+                                <div class="field"><label>Drink</label><input @bind="_drinkEdit.Description" /></div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Ounces</label><input type="number" @bind="_drinkEdit.Ounces" /></div>
+                                    <div class="field"><label>Sugar</label><input type="number" @bind="_drinkEdit.SugarCount" /></div>
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="save-btn" @onclick="SaveDrinkEdit">Save</button>
+                                    <button class="link-btn" @onclick="() => _editDrinkId = null">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="ex-row" style="width:100%">
+                                <div>
+                                    <span class="time">@d.Time.ToString("h:mm tt")</span>
+                                    <span class="entry">🥤 @d.Description
+                                        @if (d.Ounces is not null)
+                                        {
+                                            <span class="muted"> @d.Ounces oz</span>
+                                        }
+                                    </span>
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="link-btn" @onclick="() => StartEditDrink(d)">Edit</button>
+                                    <button class="link-btn danger" @onclick="() => DeleteDrink(d)">Delete</button>
+                                </div>
+                            </div>
+                        }
                     </li>
                 }
             </ul>
@@ -142,7 +218,91 @@
     private List<MealEntry> _todayMeals = new();
     private List<DrinkEntry> _todayDrinks = new();
 
+    // Inline edit state for today's entries.
+    private Guid? _editMealId;
+    private MealEntry _mealEdit = new();
+    private readonly HashSet<string> _mealEditTags = new();
+    private Guid? _editDrinkId;
+    private DrinkEntry _drinkEdit = new();
+
     protected override async Task OnInitializedAsync() => await LoadToday();
+
+    private void StartEditMeal(MealEntry m)
+    {
+        _editDrinkId = null;
+        _editMealId = m.Id;
+        _mealEdit = new MealEntry
+        {
+            Description = m.Description, MealType = m.MealType,
+            PortionNote = m.PortionNote, Satiety = m.Satiety
+        };
+        _mealEditTags.Clear();
+        foreach (var t in m.TagList) _mealEditTags.Add(t);
+    }
+
+    private void ToggleEditTag(string tag)
+    {
+        if (!_mealEditTags.Add(tag)) _mealEditTags.Remove(tag);
+    }
+
+    private async Task SaveMealEdit()
+    {
+        if (_editMealId is not { } id) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.MealEntries.FindAsync(id);
+        if (e is not null)
+        {
+            e.Description = _mealEdit.Description;
+            e.MealType = _mealEdit.MealType;
+            e.PortionNote = _mealEdit.PortionNote;
+            e.Satiety = _mealEdit.Satiety;
+            e.Tags = CsvField.Join(_mealEditTags);
+            await db.SaveChangesAsync();
+        }
+        _editMealId = null;
+        await LoadToday();
+    }
+
+    private async Task DeleteMeal(MealEntry m)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.MealEntries.FindAsync(m.Id);
+        if (e is not null) { db.MealEntries.Remove(e); await db.SaveChangesAsync(); }
+        if (_editMealId == m.Id) _editMealId = null;
+        await LoadToday();
+    }
+
+    private void StartEditDrink(DrinkEntry d)
+    {
+        _editMealId = null;
+        _editDrinkId = d.Id;
+        _drinkEdit = new DrinkEntry { Description = d.Description, Ounces = d.Ounces, SugarCount = d.SugarCount };
+    }
+
+    private async Task SaveDrinkEdit()
+    {
+        if (_editDrinkId is not { } id) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.DrinkEntries.FindAsync(id);
+        if (e is not null)
+        {
+            e.Description = _drinkEdit.Description;
+            e.Ounces = _drinkEdit.Ounces;
+            e.SugarCount = _drinkEdit.SugarCount;
+            await db.SaveChangesAsync();
+        }
+        _editDrinkId = null;
+        await LoadToday();
+    }
+
+    private async Task DeleteDrink(DrinkEntry d)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.DrinkEntries.FindAsync(d.Id);
+        if (e is not null) { db.DrinkEntries.Remove(e); await db.SaveChangesAsync(); }
+        if (_editDrinkId == d.Id) _editDrinkId = null;
+        await LoadToday();
+    }
 
     private void ToggleMealTag(string tag)
     {

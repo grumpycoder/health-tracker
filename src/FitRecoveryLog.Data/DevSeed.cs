@@ -49,10 +49,16 @@ public static class DevSeed
             new DrinkEntry { Time = At(0, 12, 0), Description = "Sweet tea", Ounces = 16 });
 
         db.MealEntries.AddRange(
+            // Today
             new MealEntry { Time = At(0, 7, 30), MealType = MealType.Breakfast, Description = "Eggs & turkey", PortionNote = "3 eggs, 2 slices", Tags = "High protein,Home-cooked", Satiety = Satiety.Satisfied },
             new MealEntry { Time = At(0, 12, 15), MealType = MealType.Lunch, Description = "Chicken & rice", PortionNote = "1 breast, 1 cup rice", Tags = "High protein", Satiety = Satiety.Full },
             new MealEntry { Time = At(0, 15, 0), MealType = MealType.Snack, Description = "Protein bar", Tags = "High protein", Satiety = Satiety.StillHungry },
-            new MealEntry { Time = At(0, 19, 0), MealType = MealType.Dinner, Description = "Restaurant burger & fries", PortionNote = "large", Tags = "Restaurant meal,High sodium", Satiety = Satiety.Bloated });
+            new MealEntry { Time = At(0, 19, 0), MealType = MealType.Dinner, Description = "Restaurant burger & fries", PortionNote = "large", Tags = "Restaurant meal,High sodium", Satiety = Satiety.Bloated },
+            // Recent history (gives nutrition patterns something to show)
+            new MealEntry { Time = At(2, 20, 30), MealType = MealType.Dinner, Description = "Pizza", Tags = "Restaurant meal,High sodium", Satiety = Satiety.Bloated },
+            new MealEntry { Time = At(3, 8, 0), MealType = MealType.Breakfast, Description = "Mini-Wheats", Tags = "High carb", Satiety = Satiety.StillHungry },
+            new MealEntry { Time = At(4, 21, 0), MealType = MealType.Dinner, Description = "Restaurant burger & fries", Tags = "Restaurant meal,High sodium", Satiety = Satiety.Bloated },
+            new MealEntry { Time = At(5, 15, 0), MealType = MealType.Snack, Description = "Protein bar", Tags = "High protein", Satiety = Satiety.StillHungry });
 
         db.MedicationEntries.AddRange(
             new MedicationEntry { Name = "Testosterone Cypionate", Dose = "100mg / 0.5mL", Frequency = "weekly", TakenAt = At(11, 9, 0), InjectionSite = "Left ventroglute" },
