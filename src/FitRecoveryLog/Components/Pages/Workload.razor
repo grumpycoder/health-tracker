@@ -1,0 +1,137 @@
+@page "/workload"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Physical Workload</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Physical workload</div>
+        <div class="dash-date-sub">Non-workout activity that taxes the body</div>
+    </header>
+
+    <section class="card">
+        <h2>Log activity</h2>
+        <div class="field">
+            <label>Date</label>
+            <input type="date" @bind="_date" />
+        </div>
+        <div class="field">
+            <label>Activity</label>
+            <input @bind="_entry.Activity" placeholder="e.g. Grass cutting" />
+            <div class="chip-row" style="margin-top:0.4rem">
+                @foreach (var a in CommonActivities)
+                {
+                    <button type="button" class="chip @(_entry.Activity == a ? "selected" : "")"
+                            @onclick="() => _entry.Activity = a">@a</button>
+                }
+            </div>
+        </div>
+        <div class="inline-fields">
+            <div class="field">
+                <label>Duration (min)</label>
+                <input type="number" min="0" @bind="_entry.DurationMinutes" />
+            </div>
+            <div class="field">
+                <label>Intensity</label>
+                <select @bind="_entry.Intensity">
+                    @foreach (var i in Enum.GetValues<Intensity>())
+                    {
+                        <option value="@i">@i</option>
+                    }
+                </select>
+            </div>
+        </div>
+        <div class="field">
+            <label>Body areas affected</label>
+            <div class="chip-row">
+                @foreach (var area in BodyAreas)
+                {
+                    <button type="button" class="chip @(_areas.Contains(area) ? "selected" : "")"
+                            @onclick="() => ToggleArea(area)">@area</button>
+                }
+            </div>
+        </div>
+        <div class="field">
+            <label>Notes</label>
+            <textarea rows="2" @bind="_entry.Notes" placeholder="e.g. lifting bags of mulch"></textarea>
+        </div>
+        <button class="save-btn" @onclick="Save">Save activity</button>
+        @if (_saved)
+        {
+            <span class="saved-msg">Saved ✓</span>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Recent</h2>
+        @if (_recent.Count == 0)
+        {
+            <p class="muted">No activity logged yet.</p>
+        }
+        else
+        {
+            <table class="history">
+                <thead><tr><th>Date</th><th>Activity</th><th>Min</th><th>Intensity</th></tr></thead>
+                <tbody>
+                    @foreach (var w in _recent)
+                    {
+                        <tr>
+                            <td>@w.Date.ToString("MMM d")</td>
+                            <td>@w.Activity</td>
+                            <td>@(w.DurationMinutes?.ToString() ?? "—")</td>
+                            <td>@w.Intensity</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+</div>
+
+@code {
+    private static readonly string[] CommonActivities =
+    {
+        "Yard work", "Weed pulling", "Grass cutting", "House maintenance",
+        "Car detailing", "Dog care / lifting", "Walking", "Travel / long driving", "Other"
+    };
+    private static readonly string[] BodyAreas =
+    {
+        "Lower back", "Mid-back", "Shoulders", "Arms", "Core", "Legs", "Knees", "Other"
+    };
+
+    private PhysicalWorkloadEntry _entry = new() { Intensity = Intensity.Moderate };
+    private DateTime _date = DateTime.Now.Date;
+    private readonly HashSet<string> _areas = new();
+    private bool _saved;
+    private List<PhysicalWorkloadEntry> _recent = new();
+
+    protected override async Task OnInitializedAsync() => await LoadRecent();
+
+    private void ToggleArea(string area)
+    {
+        if (!_areas.Add(area)) _areas.Remove(area);
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_entry.Activity)) return;
+        _entry.Date = DateOnly.FromDateTime(_date);
+        _entry.BodyAreasAffected = CsvField.Join(_areas);
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.PhysicalWorkloadEntries.Add(_entry);
+        await db.SaveChangesAsync();
+
+        _saved = true;
+        _entry = new PhysicalWorkloadEntry { Intensity = Intensity.Moderate };
+        _areas.Clear();
+        await LoadRecent();
+    }
+
+    private async Task LoadRecent()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _recent = await db.PhysicalWorkloadEntries
+            .OrderByDescending(w => w.Date).Take(15).ToListAsync();
+    }
+}

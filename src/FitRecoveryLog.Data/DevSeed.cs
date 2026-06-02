@@ -32,6 +32,11 @@ public static class DevSeed
             new SleepEntry { Date = D(1), SleepScore = 81, DurationHours = 7.8 },
             new SleepEntry { Date = D(0), SleepScore = 78, DurationHours = 7.5 });
 
+        db.PhysicalWorkloadEntries.AddRange(
+            new PhysicalWorkloadEntry { Date = D(2), Activity = "Grass cutting", DurationMinutes = 60, Intensity = Intensity.Moderate, BodyAreasAffected = "Lower back,Shoulders", Notes = "push mower, sloped yard" },
+            new PhysicalWorkloadEntry { Date = D(1), Activity = "Yard work", DurationMinutes = 90, Intensity = Intensity.Heavy, BodyAreasAffected = "Lower back,Arms", Notes = "hauled mulch bags" },
+            new PhysicalWorkloadEntry { Date = D(0), Activity = "Dog care / lifting", DurationMinutes = 20, Intensity = Intensity.Light });
+
         db.RecoveryEntries.AddRange(
             new RecoveryEntry { Date = D(1), RecoveryRating = 6, FatigueRating = 5, SorenessLocations = "Lower back,Thighs", SorenessSeverity = SorenessSeverity.Mild },
             new RecoveryEntry { Date = D(0), RecoveryRating = 8, FatigueRating = 3, SorenessSeverity = SorenessSeverity.None });
