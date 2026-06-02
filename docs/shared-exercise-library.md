@@ -101,10 +101,12 @@ only once there's data worth preserving on a device.
 
 ## Suggested phasing
 
-- **Phase 1** (core): move targets to `RoutineExercise`; pick-or-create library
-  exercise on add; unlink-only delete; update workout start + seeder. Wipe dev DBs.
-- **Phase 2** (polish): exercise library management screen (rename/merge/retire,
-  lifetime history per exercise).
+- **Phase 1** (core) — ✅ DONE: targets moved to `RoutineExercise`; pick-or-create
+  library exercise on add (case-insensitive, unique name); remove = unlink only
+  (keeps the library exercise + history); workout start + seeder updated; EF
+  migration `SharedExerciseLibrary`. Dev DBs wiped rather than data-migrated.
+- **Phase 2** (polish) — TODO: exercise library management screen (rename / merge /
+  retire, lifetime history per exercise).
 
 ## Related items this unblocks/absorbs
 

@@ -29,11 +29,7 @@
                     <h2>@item.Name</h2>
                     <span class="badge @item.Rec.Css">@item.Rec.Label</span>
                 </div>
-                @if (!string.IsNullOrEmpty(item.Target))
-                {
-                    <p class="muted" style="margin:0.1rem 0 0.4rem">Current: @item.Target</p>
-                }
-                <p style="margin:0 0 0.5rem">@item.Rationale</p>
+                <p style="margin:0.2rem 0 0.5rem">@item.Rationale</p>
                 <div class="feedback-row">
                     <span class="muted" style="font-size:0.75rem;align-self:center">recent:</span>
                     @foreach (var d in item.RecentDifficulty)
@@ -60,7 +56,6 @@
     private class Suggestion
     {
         public string Name = "";
-        public string Target = "";
         public Rec Rec = Building;
         public string Rationale = "";
         public List<string> RecentDifficulty = new();
@@ -109,7 +104,6 @@
         var s = new Suggestion
         {
             Name = def.Name,
-            Target = FormatTarget(def),
             RecentDifficulty = recent.Take(4)
                 .Select(f => f.Difficulty == Difficulty.Unset ? "—" : Pretty(f.Difficulty.ToString()))
                 .ToList()
@@ -142,15 +136,6 @@
             s.Rationale = "No clear signal yet — keep logging difficulty each workout and a suggestion will sharpen up.";
         }
         return s;
-    }
-
-    private static string FormatTarget(ExerciseDefinition def)
-    {
-        if (def.Measure == ExerciseMeasure.Duration && def.TargetDurationSeconds is not null)
-            return $"{def.TargetDurationSeconds}s × {def.TargetSets}";
-        if (def.TargetReps is not null)
-            return $"{def.TargetReps} reps × {def.TargetSets}";
-        return "";
     }
 
     private static string Pretty(string camel) =>

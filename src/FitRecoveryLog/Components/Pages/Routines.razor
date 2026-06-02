@@ -18,6 +18,13 @@
         <button class="save-btn" @onclick="AddRoutine">Create routine</button>
     </section>
 
+    <datalist id="libraryExercises">
+        @foreach (var name in _libraryNames)
+        {
+            <option value="@name" />
+        }
+    </datalist>
+
     @foreach (var r in _routines)
     {
         <section class="card">
@@ -39,23 +46,18 @@
                     @foreach (var ex in r.Exercises.OrderBy(e => e.Order))
                     {
                         var def = ex.ExerciseDefinition;
+                        var isTime = def?.Measure == ExerciseMeasure.Duration;
                         <li>
-                            @if (def is not null && _editId == def.Id)
+                            @if (_editId == ex.Id)
                             {
                                 <div class="edit-exercise">
-                                    <div class="field">
-                                        <input @bind="_editDraft.Name" placeholder="Exercise name" />
-                                    </div>
-                                    <div class="field">
-                                        <label>Track by</label>
-                                        <select @bind="_editDraft.Measure">
-                                            <option value="@ExerciseMeasure.Reps">Reps</option>
-                                            <option value="@ExerciseMeasure.Duration">Time (e.g. planks)</option>
-                                        </select>
+                                    <div class="ex-name">@def?.Name</div>
+                                    <div class="muted" style="font-size:0.75rem;margin-bottom:0.4rem">
+                                        @(isTime ? "Time-based" : "Reps-based") library exercise · editing this routine's targets
                                     </div>
                                     <div class="inline-fields">
                                         <div class="field"><label>Sets</label><input type="number" min="1" @bind="_editDraft.Sets" /></div>
-                                        @if (_editDraft.Measure == ExerciseMeasure.Duration)
+                                        @if (isTime)
                                         {
                                             <div class="field"><label>Time (s)</label><input type="number" min="1" @bind="_editDraft.Duration" /></div>
                                         }
@@ -65,12 +67,8 @@
                                         }
                                         <div class="field"><label>Rest (s)</label><input type="number" min="0" @bind="_editDraft.Rest" /></div>
                                     </div>
-                                    <div class="field">
-                                        <label>Notes (equipment / progression)</label>
-                                        <input @bind="_editDraft.Notes" placeholder="e.g. incline ~18in" />
-                                    </div>
                                     <div class="routine-actions">
-                                        <button class="save-btn" @onclick="@(() => SaveEdit(def))">Save</button>
+                                        <button class="save-btn" @onclick="@(() => SaveEdit(ex))">Save</button>
                                         <button class="link-btn" @onclick="CancelEdit">Cancel</button>
                                     </div>
                                 </div>
@@ -80,11 +78,11 @@
                                 <div class="ex-row">
                                     <div>
                                         <span class="ex-name">@def?.Name</span>
-                                        <span class="muted">@FormatTarget(def)</span>
+                                        <span class="muted">@FormatTarget(ex, def)</span>
                                     </div>
                                     <div class="routine-actions">
-                                        <button class="link-btn" @onclick="@(() => StartEdit(def!))">Edit</button>
-                                        <button class="link-btn danger" @onclick="@(() => DeleteExercise(ex))">Delete</button>
+                                        <button class="link-btn" @onclick="@(() => StartEdit(ex))">Edit</button>
+                                        <button class="link-btn danger" @onclick="@(() => RemoveExercise(ex))">Remove</button>
                                     </div>
                                 </div>
                             }
@@ -96,10 +94,11 @@
             <div class="add-exercise">
                 <div class="field">
                     <label>Add exercise</label>
-                    <input @bind="_draft[r.Id].Name" placeholder="Exercise name" />
+                    <input @bind="_draft[r.Id].Name" list="libraryExercises"
+                           placeholder="Type to reuse an existing exercise or add new" />
                 </div>
                 <div class="field">
-                    <label>Track by</label>
+                    <label>Track by <span class="muted">(new exercises only)</span></label>
                     <select @bind="_draft[r.Id].Measure">
                         <option value="@ExerciseMeasure.Reps">Reps</option>
                         <option value="@ExerciseMeasure.Duration">Time (e.g. planks)</option>
@@ -129,11 +128,11 @@
                         <input type="number" min="0" @bind="_draft[r.Id].Rest" />
                     </div>
                 </div>
-                <div class="field">
-                    <label>Notes (equipment / progression)</label>
-                    <input @bind="_draft[r.Id].Notes" placeholder="e.g. incline ~18in" />
-                </div>
                 <button class="save-btn" @onclick="@(() => AddExercise(r))">Add exercise</button>
+                @if (_addError is not null)
+                {
+                    <p class="muted" style="margin:0.4rem 0 0">@_addError</p>
+                }
             </div>
         </section>
     }
@@ -141,10 +140,12 @@
 
 @code {
     private List<WorkoutRoutine> _routines = new();
+    private List<string> _libraryNames = new();
     private string _newRoutineName = "";
     private readonly Dictionary<Guid, ExerciseDraft> _draft = new();
+    private string? _addError;
 
-    // Inline edit state: which exercise definition is being edited, and its draft.
+    // Inline edit state: which RoutineExercise is being edited, and its target draft.
     private Guid? _editId;
     private ExerciseDraft _editDraft = new();
 
@@ -156,7 +157,6 @@
         public int Reps { get; set; } = 10;
         public int Duration { get; set; } = 30;
         public int Rest { get; set; } = 60;
-        public string? Notes { get; set; }
     }
 
     protected override async Task OnInitializedAsync() => await Load();
@@ -169,6 +169,7 @@
                 .ThenInclude(e => e.ExerciseDefinition)
             .OrderBy(r => r.Name)
             .ToListAsync();
+        _libraryNames = await db.ExerciseDefinitions.OrderBy(e => e.Name).Select(e => e.Name).ToListAsync();
         foreach (var r in _routines)
             _draft.TryAdd(r.Id, new ExerciseDraft());
     }
@@ -193,28 +194,33 @@
 
     private async Task AddExercise(WorkoutRoutine r)
     {
+        _addError = null;
         var d = _draft[r.Id];
-        if (string.IsNullOrWhiteSpace(d.Name)) return;
+        var name = d.Name.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
 
         await using var db = await DbFactory.CreateDbContextAsync();
-        var def = new ExerciseDefinition
-        {
-            Name = d.Name.Trim(),
-            Measure = d.Measure,
-            TargetSets = d.Sets,
-            TargetReps = d.Measure == ExerciseMeasure.Reps ? d.Reps : null,
-            TargetDurationSeconds = d.Measure == ExerciseMeasure.Duration ? d.Duration : null,
-            RestSeconds = d.Rest,
-            EquipmentNotes = d.Notes
-        };
-        db.ExerciseDefinitions.Add(def);
 
-        var nextOrder = r.Exercises.Count;
+        // Pick-or-create: reuse the library exercise if the name already exists
+        // (case-insensitive), otherwise add a new one.
+        var def = await db.ExerciseDefinitions.FirstOrDefaultAsync(e => e.Name == name);
+        if (def is null)
+        {
+            def = new ExerciseDefinition { Name = name, Measure = d.Measure };
+            db.ExerciseDefinitions.Add(def);
+        }
+
+        // The library exercise's measure wins (an existing one keeps its own).
+        var measure = def.Measure;
         db.RoutineExercises.Add(new RoutineExercise
         {
             RoutineId = r.Id,
             ExerciseDefinitionId = def.Id,
-            Order = nextOrder
+            Order = r.Exercises.Count,
+            TargetSets = d.Sets,
+            TargetReps = measure == ExerciseMeasure.Reps ? d.Reps : null,
+            TargetDurationSeconds = measure == ExerciseMeasure.Duration ? d.Duration : null,
+            RestSeconds = d.Rest
         });
         await db.SaveChangesAsync();
 
@@ -222,70 +228,58 @@
         await Load();
     }
 
-    private void StartEdit(ExerciseDefinition def)
+    private void StartEdit(RoutineExercise ex)
     {
-        _editId = def.Id;
+        _editId = ex.Id;
         _editDraft = new ExerciseDraft
         {
-            Name = def.Name,
-            Measure = def.Measure,
-            Sets = def.TargetSets ?? 1,
-            Reps = def.TargetReps ?? 10,
-            Duration = def.TargetDurationSeconds ?? 30,
-            Rest = def.RestSeconds ?? 60,
-            Notes = def.EquipmentNotes
+            Sets = ex.TargetSets ?? 1,
+            Reps = ex.TargetReps ?? 10,
+            Duration = ex.TargetDurationSeconds ?? 30,
+            Rest = ex.RestSeconds ?? 60
         };
     }
 
     private void CancelEdit() => _editId = null;
 
-    private async Task SaveEdit(ExerciseDefinition def)
+    private async Task SaveEdit(RoutineExercise ex)
     {
-        var d = _editDraft;
-        if (string.IsNullOrWhiteSpace(d.Name)) return;
-
+        var isTime = ex.ExerciseDefinition?.Measure == ExerciseMeasure.Duration;
         await using var db = await DbFactory.CreateDbContextAsync();
-        var entity = await db.ExerciseDefinitions.FindAsync(def.Id);
+        var entity = await db.RoutineExercises.FindAsync(ex.Id);
         if (entity is not null)
         {
-            entity.Name = d.Name.Trim();
-            entity.Measure = d.Measure;
-            entity.TargetSets = d.Sets;
-            entity.TargetReps = d.Measure == ExerciseMeasure.Reps ? d.Reps : null;
-            entity.TargetDurationSeconds = d.Measure == ExerciseMeasure.Duration ? d.Duration : null;
-            entity.RestSeconds = d.Rest;
-            entity.EquipmentNotes = d.Notes;
+            entity.TargetSets = _editDraft.Sets;
+            entity.TargetReps = isTime ? null : _editDraft.Reps;
+            entity.TargetDurationSeconds = isTime ? _editDraft.Duration : null;
+            entity.RestSeconds = _editDraft.Rest;
             await db.SaveChangesAsync();
         }
-
         _editId = null;
         await Load();
     }
 
-    private async Task DeleteExercise(RoutineExercise re)
+    private async Task RemoveExercise(RoutineExercise ex)
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        // Remove the routine's link and the (1:1) exercise definition it created.
-        var join = await db.RoutineExercises.FindAsync(re.Id);
+        // Unlink from the routine only — keep the library exercise (and its history).
+        var join = await db.RoutineExercises.FindAsync(ex.Id);
         if (join is not null) db.RoutineExercises.Remove(join);
-        var def = await db.ExerciseDefinitions.FindAsync(re.ExerciseDefinitionId);
-        if (def is not null) db.ExerciseDefinitions.Remove(def);
         await db.SaveChangesAsync();
 
-        if (_editId == re.ExerciseDefinitionId) _editId = null;
+        if (_editId == ex.Id) _editId = null;
         await Load();
     }
 
-    private static string FormatTarget(ExerciseDefinition? def)
+    private static string FormatTarget(RoutineExercise ex, ExerciseDefinition? def)
     {
-        if (def is null) return "";
         var parts = new List<string>();
-        if (def.Measure == ExerciseMeasure.Duration && def.TargetDurationSeconds is not null)
-            parts.Add($"{def.TargetDurationSeconds}s × {def.TargetSets}");
-        else if (def.TargetReps is not null)
-            parts.Add($"{def.TargetReps} reps × {def.TargetSets}");
-        if (def.RestSeconds is > 0)
-            parts.Add($"{def.RestSeconds}s rest");
+        if (def?.Measure == ExerciseMeasure.Duration && ex.TargetDurationSeconds is not null)
+            parts.Add($"{ex.TargetDurationSeconds}s × {ex.TargetSets}");
+        else if (ex.TargetReps is not null)
+            parts.Add($"{ex.TargetReps} reps × {ex.TargetSets}");
+        if (ex.RestSeconds is > 0)
+            parts.Add($"{ex.RestSeconds}s rest");
         return string.Join(" · ", parts);
     }
 }

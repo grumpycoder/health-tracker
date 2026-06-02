@@ -27,6 +27,10 @@ public class AppDbContext : DbContext
     {
         modelBuilder.Entity<DailyLog>().HasIndex(x => x.Date).IsUnique();
         modelBuilder.Entity<BodyMeasurement>().HasIndex(x => x.Date);
+
+        // Library exercises are unique by name, matched case-insensitively.
+        modelBuilder.Entity<ExerciseDefinition>().Property(e => e.Name).UseCollation("NOCASE");
+        modelBuilder.Entity<ExerciseDefinition>().HasIndex(e => e.Name).IsUnique();
         modelBuilder.Entity<WorkoutSession>().HasIndex(x => x.Date);
 
         modelBuilder.Entity<WorkoutRoutine>()

@@ -67,9 +67,9 @@ else if (_state == State.Active)
         <section class="card">
             <div class="routine-head">
                 <h2>@ex.Def.Name</h2>
-                @if (ex.Def.RestSeconds is > 0)
+                @if (ex.Rest is > 0)
                 {
-                    <button class="link-btn" @onclick="@(() => StartRest(ex.Def.RestSeconds!.Value))">Rest @ex.Def.RestSeconds s</button>
+                    <button class="link-btn" @onclick="@(() => StartRest(ex.Rest!.Value))">Rest @ex.Rest s</button>
                 }
             </div>
             <table class="set-table">
@@ -180,6 +180,7 @@ else // Feedback
     private class ExVM
     {
         public ExerciseDefinition Def = null!;
+        public int? Rest;   // this routine's rest prescription
         public List<SetVM> Sets = new();
         public ExerciseFeedback Feedback = new();
     }
@@ -202,14 +203,14 @@ else // Feedback
         {
             if (re.ExerciseDefinition is null) continue;
             var def = re.ExerciseDefinition;
-            var vm = new ExVM { Def = def };
-            var sets = def.TargetSets ?? 1;
+            var vm = new ExVM { Def = def, Rest = re.RestSeconds };
+            var sets = re.TargetSets ?? 1;
             for (var i = 1; i <= sets; i++)
                 vm.Sets.Add(new SetVM
                 {
                     SetNumber = i,
-                    Reps = def.Measure == ExerciseMeasure.Reps ? def.TargetReps : null,
-                    DurationSeconds = def.Measure == ExerciseMeasure.Duration ? def.TargetDurationSeconds : null
+                    Reps = def.Measure == ExerciseMeasure.Reps ? re.TargetReps : null,
+                    DurationSeconds = def.Measure == ExerciseMeasure.Duration ? re.TargetDurationSeconds : null
                 });
             vm.Feedback.ExerciseDefinitionId = re.ExerciseDefinition.Id;
             _exercises.Add(vm);

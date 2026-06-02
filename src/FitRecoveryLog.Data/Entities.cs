@@ -25,16 +25,16 @@ public class DailyLog : EntityBase
 // Workouts
 // ---------------------------------------------------------------------------
 
-/// <summary>A reusable, named definition of an exercise (e.g. "Incline push-ups").</summary>
+/// <summary>
+/// A library exercise — the canonical, reusable identity of an exercise
+/// (e.g. "Incline push-ups"). Shared across routines so history and progression
+/// accumulate. Per-routine targets live on <see cref="RoutineExercise"/>.
+/// </summary>
 public class ExerciseDefinition : EntityBase
 {
     public string Name { get; set; } = "";
     /// <summary>Whether this exercise is tracked by reps or by time held (e.g. planks).</summary>
     public ExerciseMeasure Measure { get; set; } = ExerciseMeasure.Reps;
-    public int? TargetReps { get; set; }
-    public int? TargetSets { get; set; }
-    public int? TargetDurationSeconds { get; set; }
-    public int? RestSeconds { get; set; }
     public string? EquipmentNotes { get; set; }
     public string? ProgressionNotes { get; set; }
 }
@@ -47,7 +47,11 @@ public class WorkoutRoutine : EntityBase
     public List<RoutineExercise> Exercises { get; set; } = new();
 }
 
-/// <summary>Join row placing an ExerciseDefinition into a WorkoutRoutine at an order.</summary>
+/// <summary>
+/// Places a library exercise into a routine at an order, with this routine's own
+/// prescription (sets/reps/time/rest). The same exercise can be prescribed
+/// differently in different routines.
+/// </summary>
 public class RoutineExercise : EntityBase
 {
     public Guid RoutineId { get; set; }
@@ -57,6 +61,12 @@ public class RoutineExercise : EntityBase
     public ExerciseDefinition? ExerciseDefinition { get; set; }
 
     public int Order { get; set; }
+
+    // Per-routine prescription (moved off ExerciseDefinition).
+    public int? TargetSets { get; set; }
+    public int? TargetReps { get; set; }
+    public int? TargetDurationSeconds { get; set; }
+    public int? RestSeconds { get; set; }
 }
 
 /// <summary>A performed workout, from start tap to finish.</summary>

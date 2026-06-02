@@ -61,23 +61,24 @@ public static class DevSeed
             new LabResult { Date = D(18), LabName = "PSA", Value = 1.2, Unit = "ng/mL" },
             new LabResult { Date = D(18), LabName = "A1C", Value = 5.4, Unit = "%" });
 
-        // A routine so the Workout screen has something to start.
-        var pushups = new ExerciseDefinition { Name = "Incline push-ups", Measure = ExerciseMeasure.Reps, TargetSets = 3, TargetReps = 20, RestSeconds = 60, EquipmentNotes = "incline ~18in" };
-        var lunges = new ExerciseDefinition { Name = "Lunges", Measure = ExerciseMeasure.Reps, TargetSets = 3, TargetReps = 12, RestSeconds = 60 };
-        var plank = new ExerciseDefinition { Name = "Plank", Measure = ExerciseMeasure.Duration, TargetSets = 3, TargetDurationSeconds = 45, RestSeconds = 45 };
-        var glutes = new ExerciseDefinition { Name = "Glute bridges", Measure = ExerciseMeasure.Reps, TargetSets = 3, TargetReps = 15, RestSeconds = 45 };
+        // Library exercises (shared identities) + a routine that prescribes targets.
+        var pushups = new ExerciseDefinition { Name = "Incline push-ups", Measure = ExerciseMeasure.Reps, EquipmentNotes = "incline ~18in" };
+        var lunges = new ExerciseDefinition { Name = "Lunges", Measure = ExerciseMeasure.Reps };
+        var plank = new ExerciseDefinition { Name = "Plank", Measure = ExerciseMeasure.Duration };
+        var glutes = new ExerciseDefinition { Name = "Glute bridges", Measure = ExerciseMeasure.Reps };
         db.ExerciseDefinitions.AddRange(pushups, lunges, plank, glutes);
 
         var routine = new WorkoutRoutine { Name = "Morning bodyweight" };
         db.WorkoutRoutines.Add(routine);
-        db.RoutineExercises.AddRange(
-            new RoutineExercise { RoutineId = routine.Id, ExerciseDefinitionId = pushups.Id, Order = 0 },
-            new RoutineExercise { RoutineId = routine.Id, ExerciseDefinitionId = lunges.Id, Order = 1 },
-            new RoutineExercise { RoutineId = routine.Id, ExerciseDefinitionId = plank.Id, Order = 2 },
-            new RoutineExercise { RoutineId = routine.Id, ExerciseDefinitionId = glutes.Id, Order = 3 });
+        var rxPush = new RoutineExercise { RoutineId = routine.Id, ExerciseDefinitionId = pushups.Id, Order = 0, TargetSets = 3, TargetReps = 20, RestSeconds = 60 };
+        var rxLunge = new RoutineExercise { RoutineId = routine.Id, ExerciseDefinitionId = lunges.Id, Order = 1, TargetSets = 3, TargetReps = 12, RestSeconds = 60 };
+        var rxPlank = new RoutineExercise { RoutineId = routine.Id, ExerciseDefinitionId = plank.Id, Order = 2, TargetSets = 3, TargetDurationSeconds = 45, RestSeconds = 45 };
+        var rxGlute = new RoutineExercise { RoutineId = routine.Id, ExerciseDefinitionId = glutes.Id, Order = 3, TargetSets = 3, TargetReps = 15, RestSeconds = 45 };
+        db.RoutineExercises.AddRange(rxPush, rxLunge, rxPlank, rxGlute);
 
-        // Completed sessions (drive the workout-duration trend).
-        var defs = new[] { pushups, lunges, plank, glutes };
+        // Completed sessions (drive the workout-duration trend). Sets follow the
+        // routine's prescription; reps vs time comes from the library exercise.
+        var prescriptions = new[] { (pushups, rxPush), (lunges, rxLunge), (plank, rxPlank), (glutes, rxGlute) };
         WorkoutSession Session(int daysAgo, int durMin)
         {
             var s = new WorkoutSession
@@ -85,15 +86,14 @@ public static class DevSeed
                 Date = D(daysAgo), RoutineId = routine.Id,
                 StartedAt = At(daysAgo, 17, 0), EndedAt = At(daysAgo, 17, durMin), TotalSeconds = durMin * 60
             };
-            // Record each exercise's sets so the history detail has content.
-            foreach (var def in defs)
-                for (var i = 1; i <= (def.TargetSets ?? 1); i++)
+            foreach (var (def, rx) in prescriptions)
+                for (var i = 1; i <= (rx.TargetSets ?? 1); i++)
                     s.Sets.Add(new ExerciseSet
                     {
                         ExerciseDefinitionId = def.Id,
                         SetNumber = i,
-                        Reps = def.Measure == ExerciseMeasure.Reps ? def.TargetReps : null,
-                        DurationSeconds = def.Measure == ExerciseMeasure.Duration ? def.TargetDurationSeconds : null,
+                        Reps = def.Measure == ExerciseMeasure.Reps ? rx.TargetReps : null,
+                        DurationSeconds = def.Measure == ExerciseMeasure.Duration ? rx.TargetDurationSeconds : null,
                         Completed = true
                     });
             return s;
