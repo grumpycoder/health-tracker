@@ -1,0 +1,241 @@
+@page "/export"
+@using System.Text
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@using Microsoft.Maui.Storage
+@using Microsoft.Maui.ApplicationModel.DataTransfer
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Export</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Export data</div>
+        <div class="dash-date-sub">Back up or share your log</div>
+    </header>
+
+    <section class="card">
+        <h2>Full backup (JSON)</h2>
+        <p class="muted" style="margin:0 0 0.6rem">Every record, machine-readable — good for backups.</p>
+        <button class="save-btn" disabled="@_busy" @onclick="ExportJson">Export JSON</button>
+    </section>
+
+    <section class="card">
+        <h2>Report (Markdown)</h2>
+        <p class="muted" style="margin:0 0 0.6rem">Readable summary you can keep or convert to PDF.</p>
+        <button class="save-btn" disabled="@_busy" @onclick="ExportMarkdown">Export Markdown</button>
+    </section>
+
+    <section class="card">
+        <h2>Spreadsheet (CSV)</h2>
+        <div class="field">
+            <label>Category</label>
+            <select @bind="_csvCategory">
+                @foreach (var c in Categories)
+                {
+                    <option value="@c">@c</option>
+                }
+            </select>
+        </div>
+        <button class="save-btn" disabled="@_busy" @onclick="ExportCsv">Export @_csvCategory CSV</button>
+    </section>
+
+    @if (_status is not null)
+    {
+        <section class="card"><p class="muted">@_status</p></section>
+    }
+</div>
+
+@code {
+    private static readonly string[] Categories =
+        { "Body measurements", "Meals", "Drinks", "Workouts", "Sleep", "Recovery", "Medications", "Labs", "Workload" };
+
+    private string _csvCategory = "Body measurements";
+    private bool _busy;
+    private string? _status;
+
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        WriteIndented = true,
+        ReferenceHandler = ReferenceHandler.IgnoreCycles,
+        Converters = { new JsonStringEnumConverter() }
+    };
+
+    private async Task ExportJson()
+    {
+        await Run("fitrecoverylog-backup.json", async db =>
+        {
+            var data = new
+            {
+                exportedAt = DateTime.Now,
+                dailyLogs = await db.DailyLogs.ToListAsync(),
+                bodyMeasurements = await db.BodyMeasurements.ToListAsync(),
+                meals = await db.MealEntries.ToListAsync(),
+                drinks = await db.DrinkEntries.ToListAsync(),
+                sleep = await db.SleepEntries.ToListAsync(),
+                recovery = await db.RecoveryEntries.ToListAsync(),
+                physicalWorkload = await db.PhysicalWorkloadEntries.ToListAsync(),
+                medications = await db.MedicationEntries.ToListAsync(),
+                medicationSchedules = await db.MedicationSchedules.ToListAsync(),
+                labs = await db.LabResults.ToListAsync(),
+                exercises = await db.ExerciseDefinitions.ToListAsync(),
+                routines = await db.WorkoutRoutines.ToListAsync(),
+                routineExercises = await db.RoutineExercises.ToListAsync(),
+                workoutSessions = await db.WorkoutSessions.ToListAsync(),
+                exerciseSets = await db.ExerciseSets.ToListAsync(),
+                exerciseFeedback = await db.ExerciseFeedback.ToListAsync(),
+                weeklyReviews = await db.WeeklyReviews.ToListAsync(),
+            };
+            return JsonSerializer.Serialize(data, JsonOpts);
+        });
+    }
+
+    private async Task ExportMarkdown()
+    {
+        await Run("fitrecoverylog-report.md", async db =>
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"# Fit Recovery Log — export");
+            sb.AppendLine($"_Generated {DateTime.Now:yyyy-MM-dd HH:mm}_\n");
+
+            var weight = await db.BodyMeasurements.OrderByDescending(m => m.Date).Take(30).ToListAsync();
+            sb.AppendLine("## Body measurements");
+            sb.AppendLine("| Date | Weight | Waist |");
+            sb.AppendLine("|---|---|---|");
+            foreach (var m in weight)
+                sb.AppendLine($"| {m.Date:yyyy-MM-dd} | {m.WeightLbs?.ToString("0.0") ?? "—"} | {m.WaistInches?.ToString("0.0") ?? "—"} |");
+
+            var sessions = await db.WorkoutSessions.OrderByDescending(s => s.Date).Take(30).ToListAsync();
+            sb.AppendLine("\n## Workouts");
+            sb.AppendLine("| Date | Minutes |");
+            sb.AppendLine("|---|---|");
+            foreach (var s in sessions)
+                sb.AppendLine($"| {s.Date:yyyy-MM-dd} | {(s.TotalSeconds is { } t ? (t / 60).ToString() : "—")} |");
+
+            var sleep = await db.SleepEntries.OrderByDescending(s => s.Date).Take(30).ToListAsync();
+            sb.AppendLine("\n## Sleep");
+            sb.AppendLine("| Date | Hours | Score |");
+            sb.AppendLine("|---|---|---|");
+            foreach (var s in sleep)
+                sb.AppendLine($"| {s.Date:yyyy-MM-dd} | {s.DurationHours?.ToString("0.0") ?? "—"} | {s.SleepScore?.ToString() ?? "—"} |");
+
+            var meds = await db.MedicationEntries.OrderByDescending(m => m.TakenAt).Take(50).ToListAsync();
+            sb.AppendLine("\n## Medications");
+            sb.AppendLine("| When | Name | Dose | Site |");
+            sb.AppendLine("|---|---|---|---|");
+            foreach (var m in meds)
+                sb.AppendLine($"| {m.TakenAt:yyyy-MM-dd HH:mm} | {m.Name} | {m.Dose} | {m.InjectionSite} |");
+
+            var labs = await db.LabResults.OrderByDescending(l => l.Date).Take(50).ToListAsync();
+            sb.AppendLine("\n## Labs");
+            sb.AppendLine("| Date | Lab | Value | Unit |");
+            sb.AppendLine("|---|---|---|---|");
+            foreach (var l in labs)
+                sb.AppendLine($"| {l.Date:yyyy-MM-dd} | {l.LabName} | {l.Value?.ToString("0.##")} | {l.Unit} |");
+
+            return sb.ToString();
+        });
+    }
+
+    private async Task ExportCsv()
+    {
+        var cat = _csvCategory;
+        var file = $"fitrecoverylog-{cat.ToLower().Replace(' ', '-')}.csv";
+        await Run(file, db => BuildCsv(db, cat));
+    }
+
+    private static async Task<string> BuildCsv(AppDbContext db, string category)
+    {
+        var sb = new StringBuilder();
+        switch (category)
+        {
+            case "Body measurements":
+                sb.AppendLine("Date,Weight,Waist,Chest,Arms,Thighs,Notes");
+                foreach (var m in await db.BodyMeasurements.OrderBy(x => x.Date).ToListAsync())
+                    sb.AppendLine(Row(m.Date.ToString("yyyy-MM-dd"), m.WeightLbs, m.WaistInches, m.ChestInches, m.ArmsInches, m.ThighsInches, m.ClothingFitNotes));
+                break;
+            case "Meals":
+                sb.AppendLine("Time,Type,Description,Portion,Tags,Satiety");
+                foreach (var m in await db.MealEntries.OrderBy(x => x.Time).ToListAsync())
+                    sb.AppendLine(Row(m.Time.ToString("yyyy-MM-dd HH:mm"), m.MealType, m.Description, m.PortionNote, m.Tags, m.Satiety));
+                break;
+            case "Drinks":
+                sb.AppendLine("Time,Description,Ounces,Sugar");
+                foreach (var d in await db.DrinkEntries.OrderBy(x => x.Time).ToListAsync())
+                    sb.AppendLine(Row(d.Time.ToString("yyyy-MM-dd HH:mm"), d.Description, d.Ounces, d.SugarCount));
+                break;
+            case "Workouts":
+                sb.AppendLine("Date,Minutes,Notes");
+                foreach (var s in await db.WorkoutSessions.OrderBy(x => x.Date).ToListAsync())
+                    sb.AppendLine(Row(s.Date.ToString("yyyy-MM-dd"), s.TotalSeconds is { } t ? t / 60 : (int?)null, s.Notes));
+                break;
+            case "Sleep":
+                sb.AppendLine("Date,Hours,Score,Interruptions,Notes");
+                foreach (var s in await db.SleepEntries.OrderBy(x => x.Date).ToListAsync())
+                    sb.AppendLine(Row(s.Date.ToString("yyyy-MM-dd"), s.DurationHours, s.SleepScore, s.Interruptions, s.Notes));
+                break;
+            case "Recovery":
+                sb.AppendLine("Date,Recovery,Fatigue,Soreness,Severity,Notes");
+                foreach (var r in await db.RecoveryEntries.OrderBy(x => x.Date).ToListAsync())
+                    sb.AppendLine(Row(r.Date.ToString("yyyy-MM-dd"), r.RecoveryRating, r.FatigueRating, r.SorenessLocations, r.SorenessSeverity, r.Notes));
+                break;
+            case "Medications":
+                sb.AppendLine("When,Name,Dose,Frequency,Site,Notes");
+                foreach (var m in await db.MedicationEntries.OrderBy(x => x.TakenAt).ToListAsync())
+                    sb.AppendLine(Row(m.TakenAt.ToString("yyyy-MM-dd HH:mm"), m.Name, m.Dose, m.Frequency, m.InjectionSite, m.ReactionNotes));
+                break;
+            case "Labs":
+                sb.AppendLine("Date,Lab,Value,Unit,Notes");
+                foreach (var l in await db.LabResults.OrderBy(x => x.Date).ToListAsync())
+                    sb.AppendLine(Row(l.Date.ToString("yyyy-MM-dd"), l.LabName, l.Value, l.Unit, l.Notes));
+                break;
+            case "Workload":
+                sb.AppendLine("Date,Activity,Minutes,Intensity,BodyAreas,Notes");
+                foreach (var w in await db.PhysicalWorkloadEntries.OrderBy(x => x.Date).ToListAsync())
+                    sb.AppendLine(Row(w.Date.ToString("yyyy-MM-dd"), w.Activity, w.DurationMinutes, w.Intensity, w.BodyAreasAffected, w.Notes));
+                break;
+        }
+        return sb.ToString();
+    }
+
+    private static string Row(params object?[] cells) =>
+        string.Join(",", cells.Select(Csv));
+
+    private static string Csv(object? v)
+    {
+        var s = v?.ToString() ?? "";
+        if (s.Contains(',') || s.Contains('"') || s.Contains('\n'))
+            s = "\"" + s.Replace("\"", "\"\"") + "\"";
+        return s;
+    }
+
+    private async Task Run(string fileName, Func<AppDbContext, Task<string>> build)
+    {
+        _busy = true;
+        _status = null;
+        try
+        {
+            string content;
+            await using (var db = await DbFactory.CreateDbContextAsync())
+                content = await build(db);
+
+            var path = Path.Combine(FileSystem.CacheDirectory, fileName);
+            await File.WriteAllTextAsync(path, content);
+
+            await Share.Default.RequestAsync(new ShareFileRequest
+            {
+                Title = "Fit Recovery Log export",
+                File = new ShareFile(path)
+            });
+            _status = $"Exported {fileName} ({content.Length:N0} chars).";
+        }
+        catch (Exception ex)
+        {
+            _status = $"Export failed: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}
