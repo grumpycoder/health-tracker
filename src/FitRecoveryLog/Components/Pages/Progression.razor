@@ -6,7 +6,7 @@
 <div class="dashboard">
     <header class="dash-header">
         <div class="dash-date">Progression</div>
-        <div class="dash-date-sub">When to push, hold, or back off</div>
+        <div class="dash-date-sub">When to push, hold, or back off · last @RecentDays days</div>
     </header>
 
     @if (!_loaded)
@@ -16,8 +16,8 @@
     else if (_items.Count == 0)
     {
         <section class="card">
-            <p class="muted">No suggestions yet. Finish a workout and rate each exercise's
-            difficulty — after a few sessions, guidance shows up here.</p>
+            <p class="muted">No recent exercises to evaluate. Finish a workout in the last
+            @RecentDays days and rate each exercise's difficulty — guidance shows up here.</p>
         </section>
     }
     else
@@ -47,6 +47,7 @@
 </div>
 
 @code {
+    private const int RecentDays = 30; // only evaluate exercises trained this recently
     private bool _loaded;
     private List<Suggestion> _items = new();
 
@@ -75,17 +76,19 @@
             .ToListAsync();
         var defs = (await db.ExerciseDefinitions.ToListAsync()).ToDictionary(d => d.Id);
 
-        // Flatten to feedback ordered most-recent-first, grouped per exercise.
+        // Keep each feedback's session date so we can filter by recency and order it.
+        var cutoff = DateOnly.FromDateTime(DateTime.Now).AddDays(-RecentDays);
         var byExercise = sessions
-            .SelectMany(s => s.Feedback)
-            .GroupBy(f => f.ExerciseDefinitionId);
+            .SelectMany(s => s.Feedback.Select(f => (s.Date, Feedback: f)))
+            .GroupBy(x => x.Feedback.ExerciseDefinitionId);
 
         foreach (var grp in byExercise)
         {
             if (!defs.TryGetValue(grp.Key, out var def)) continue;
-            // sessions are already newest-first, so feedback enumerates newest-first too
-            var recent = grp.ToList();
-            _items.Add(Evaluate(def, recent));
+            var ordered = grp.OrderByDescending(x => x.Date).ToList(); // newest first
+            // Skip exercises not trained within the recency window (e.g. abandoned routines).
+            if (ordered[0].Date < cutoff) continue;
+            _items.Add(Evaluate(def, ordered.Select(x => x.Feedback).ToList()));
         }
 
         // Surface the most actionable suggestions first.
