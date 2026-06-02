@@ -47,6 +47,10 @@ public static class MauiProgram
 			var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 			using var db = factory.CreateDbContext();
 			db.Database.Migrate();
+#if DEBUG
+			// Populate an empty database with sample data for development.
+			DevSeed.SeedIfEmpty(db);
+#endif
 		}
 
 		return app;
