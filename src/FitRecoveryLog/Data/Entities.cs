@@ -9,8 +9,8 @@ namespace FitRecoveryLog.Data;
 public abstract class EntityBase
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
-    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime UpdatedAt { get; set; } = DateTime.Now;
 }
 
 /// <summary>One row per calendar day: the planned day type and a freeform note.</summary>
@@ -64,8 +64,8 @@ public class WorkoutSession : EntityBase
     public Guid? RoutineId { get; set; }
     public WorkoutRoutine? Routine { get; set; }
 
-    public DateTimeOffset? StartedAt { get; set; }
-    public DateTimeOffset? EndedAt { get; set; }
+    public DateTime? StartedAt { get; set; }
+    public DateTime? EndedAt { get; set; }
     /// <summary>Total elapsed time; auto-saved from start/end but manually adjustable.</summary>
     public int? TotalSeconds { get; set; }
     public string? Notes { get; set; }
@@ -113,7 +113,7 @@ public class ExerciseFeedback : EntityBase
 
 public class MealEntry : EntityBase
 {
-    public DateTimeOffset Time { get; set; } = DateTimeOffset.Now;
+    public DateTime Time { get; set; } = DateTime.Now;
     public MealType MealType { get; set; } = MealType.Snack;
     public string Description { get; set; } = "";
     public string? PortionNote { get; set; }
@@ -129,7 +129,7 @@ public class MealEntry : EntityBase
 /// <summary>Drinks tracked separately so we can total tea/coffee/soda intake easily.</summary>
 public class DrinkEntry : EntityBase
 {
-    public DateTimeOffset Time { get; set; } = DateTimeOffset.Now;
+    public DateTime Time { get; set; } = DateTime.Now;
     public string Description { get; set; } = "";
     public double? Ounces { get; set; }
     /// <summary>For coffee: number of sugar cubes/teaspoons added.</summary>
@@ -207,7 +207,7 @@ public class MedicationEntry : EntityBase
     public string Name { get; set; } = "";
     public string? Dose { get; set; }
     public string? Frequency { get; set; }
-    public DateTimeOffset TakenAt { get; set; } = DateTimeOffset.Now;
+    public DateTime TakenAt { get; set; } = DateTime.Now;
     /// <summary>For injections (e.g. TRT): the site used.</summary>
     public string? InjectionSite { get; set; }
     public string? ReactionNotes { get; set; }

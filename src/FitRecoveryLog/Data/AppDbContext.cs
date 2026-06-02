@@ -67,7 +67,7 @@ public class AppDbContext : DbContext
         foreach (var entry in ChangeTracker.Entries<EntityBase>())
         {
             if (entry.State == EntityState.Modified)
-                entry.Entity.UpdatedAt = DateTimeOffset.Now;
+                entry.Entity.UpdatedAt = DateTime.Now;
         }
     }
 }

@@ -8,6 +8,15 @@ public static class MauiProgram
 {
 	public static MauiApp CreateMauiApp()
 	{
+		// Write any unhandled exception to a file we can inspect during development.
+		var crashLog = Path.Combine(FileSystem.AppDataDirectory, "crash.log");
+		void Log(string source, Exception? ex) =>
+			File.AppendAllText(crashLog, $"[{DateTime.Now:HH:mm:ss}] {source}: {ex}\n\n");
+
+		AppDomain.CurrentDomain.UnhandledException += (_, e) => Log("AppDomain", e.ExceptionObject as Exception);
+		TaskScheduler.UnobservedTaskException += (_, e) => Log("TaskScheduler", e.Exception);
+		File.AppendAllText(crashLog, $"[{DateTime.Now:HH:mm:ss}] ---- app started, logging active ({crashLog}) ----\n");
+
 		var builder = MauiApp.CreateBuilder();
 		builder
 			.UseMauiApp<App>()
@@ -26,6 +35,7 @@ public static class MauiProgram
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();
 		builder.Logging.AddDebug();
+		builder.Logging.AddProvider(new FileLoggerProvider(crashLog));
 #endif
 
 		var app = builder.Build();

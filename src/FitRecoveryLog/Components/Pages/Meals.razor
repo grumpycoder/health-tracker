@@ -151,7 +151,7 @@
 
     private async Task SaveMeal()
     {
-        _meal.Time = DateTimeOffset.Now;
+        _meal.Time = DateTime.Now;
         _meal.Tags = CsvField.Join(_mealTags);
         await using var db = await DbFactory.CreateDbContextAsync();
         db.MealEntries.Add(_meal);
@@ -165,7 +165,7 @@
 
     private async Task SaveDrink()
     {
-        _drink.Time = DateTimeOffset.Now;
+        _drink.Time = DateTime.Now;
         await using var db = await DbFactory.CreateDbContextAsync();
         db.DrinkEntries.Add(_drink);
         await db.SaveChangesAsync();
@@ -177,7 +177,7 @@
 
     private async Task LoadToday()
     {
-        var start = DateTimeOffset.Now.Date;
+        var start = DateTime.Now.Date;
         var end = start.AddDays(1);
         await using var db = await DbFactory.CreateDbContextAsync();
         _todayMeals = await db.MealEntries
