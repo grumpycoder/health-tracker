@@ -325,3 +325,8 @@ select.field, .field select {
     .badge.warn { background: #3a1414; border-color: #7f1d1d; color: #fca5a5; }
 }
 .feedback-comment { margin: 0.5rem 0 0; font-style: italic; }
+
+.badge.good { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+@media (prefers-color-scheme: dark) {
+    .badge.good { background: #0c2a1f; border-color: #1f6b4a; color: #6ee7b7; }
+}

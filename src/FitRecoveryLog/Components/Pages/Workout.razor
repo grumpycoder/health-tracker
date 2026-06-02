@@ -18,6 +18,9 @@
         <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("workout-history"))">
             <span class="quick-emoji">📋</span> Workout history
         </button>
+        <button class="quick-btn wide" style="margin-top:0.6rem" @onclick="@(() => Nav.NavigateTo("progression"))">
+            <span class="quick-emoji">💡</span> Progression suggestions
+        </button>
     </section>
 
     @if (_routines.Count == 0)

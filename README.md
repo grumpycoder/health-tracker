@@ -66,11 +66,23 @@ Implemented:
 - Sleep & Recovery logger (sleep metrics, recovery/fatigue, soreness locations)
 - Medication & Labs logger (incl. TRT injection sites; common labs)
 - Workout tracking: routines, live-timer sessions, rep/time exercises, feedback
+- Workout history (per-session sets + feedback detail)
+- Trend charts (weight, waist, sleep, workout duration, drinks by type)
+- Progression suggestions (rule-based heuristic — see below)
 - Persistent bottom tab navigation
 - EF Core migrations (data survives schema changes)
+- DEBUG-only sample-data seeder for empty databases
 
-Not yet built: physical workload logger, trend charts, weekly review,
-progression suggestions, export, HealthKit.
+Not yet built: physical workload logger, weekly review, export, HealthKit.
+
+### Progression suggestions
+
+Currently a transparent rule-based heuristic over self-rated difficulty + pain
+(`Components/Pages/Progression.razor`, `Evaluate`): pain in the last 2 sessions →
+ease off; 2+ consecutive "Easy" → progress; latest Hard/Very hard → hold; else
+keep building. **Planned for a later AI phase:** replace `Evaluate` with a
+model-driven recommendation fed richer signals (reps/time trend, set completion,
+soreness, fatigue, comments). The `Suggestion` shape is kept stable as the seam.
 
 ## Notes
 

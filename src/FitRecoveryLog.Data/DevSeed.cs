@@ -99,12 +99,27 @@ public static class DevSeed
             return s;
         }
 
-        var recent = Session(1, 34);
-        recent.Feedback.Add(new ExerciseFeedback { ExerciseDefinitionId = pushups.Id, Difficulty = Difficulty.Hard, Comment = "Last set on push-ups was very hard" });
-        recent.Feedback.Add(new ExerciseFeedback { ExerciseDefinitionId = plank.Id, Difficulty = Difficulty.VeryHard, BreathingDifficulty = true });
+        // Build sessions with a feedback trend per exercise so progression
+        // suggestions have a clear signal:
+        //   push-ups  -> consistently Easy   => suggest progressing
+        //   lunges    -> consistently Hard    => hold current level
+        //   glutes    -> Moderate             => keep building
+        //   plank     -> pain in last session => caution / recover
+        var dayPlan = new[] { (13, 25), (9, 30), (5, 27), (1, 34) };
+        var sessions = new List<WorkoutSession>();
+        for (var i = 0; i < dayPlan.Length; i++)
+        {
+            var (daysAgo, dur) = dayPlan[i];
+            var s = Session(daysAgo, dur);
+            var isLast = i == dayPlan.Length - 1;
+            s.Feedback.Add(new ExerciseFeedback { ExerciseDefinitionId = pushups.Id, Difficulty = Difficulty.Easy, Comment = isLast ? "Felt easy, ready for more" : null });
+            s.Feedback.Add(new ExerciseFeedback { ExerciseDefinitionId = lunges.Id, Difficulty = Difficulty.Hard });
+            s.Feedback.Add(new ExerciseFeedback { ExerciseDefinitionId = glutes.Id, Difficulty = Difficulty.Moderate });
+            s.Feedback.Add(new ExerciseFeedback { ExerciseDefinitionId = plank.Id, Difficulty = Difficulty.Moderate, PainOrDiscomfort = isLast, BreathingDifficulty = isLast });
+            sessions.Add(s);
+        }
 
-        db.WorkoutSessions.AddRange(
-            Session(13, 25), Session(9, 30), Session(5, 27), recent);
+        db.WorkoutSessions.AddRange(sessions);
 
         db.SaveChanges();
     }

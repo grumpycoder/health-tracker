@@ -1,0 +1,155 @@
+@page "/progression"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Progression</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Progression</div>
+        <div class="dash-date-sub">When to push, hold, or back off</div>
+    </header>
+
+    @if (!_loaded)
+    {
+        <section class="card"><p class="muted">Loading…</p></section>
+    }
+    else if (_items.Count == 0)
+    {
+        <section class="card">
+            <p class="muted">No suggestions yet. Finish a workout and rate each exercise's
+            difficulty — after a few sessions, guidance shows up here.</p>
+        </section>
+    }
+    else
+    {
+        @foreach (var item in _items)
+        {
+            <section class="card">
+                <div class="routine-head">
+                    <h2>@item.Name</h2>
+                    <span class="badge @item.Rec.Css">@item.Rec.Label</span>
+                </div>
+                @if (!string.IsNullOrEmpty(item.Target))
+                {
+                    <p class="muted" style="margin:0.1rem 0 0.4rem">Current: @item.Target</p>
+                }
+                <p style="margin:0 0 0.5rem">@item.Rationale</p>
+                <div class="feedback-row">
+                    <span class="muted" style="font-size:0.75rem;align-self:center">recent:</span>
+                    @foreach (var d in item.RecentDifficulty)
+                    {
+                        <span class="badge">@d</span>
+                    }
+                </div>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    private bool _loaded;
+    private List<Suggestion> _items = new();
+
+    private record Rec(string Label, string Css);
+    private static readonly Rec Progress = new("Ready to progress", "good");
+    private static readonly Rec Hold = new("Hold this level", "");
+    private static readonly Rec Caution = new("Ease off", "warn");
+    private static readonly Rec Building = new("Keep building", "");
+
+    private class Suggestion
+    {
+        public string Name = "";
+        public string Target = "";
+        public Rec Rec = Building;
+        public string Rationale = "";
+        public List<string> RecentDifficulty = new();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var sessions = await db.WorkoutSessions
+            .Include(s => s.Feedback)
+            .OrderByDescending(s => s.Date).ThenByDescending(s => s.StartedAt)
+            .ToListAsync();
+        var defs = (await db.ExerciseDefinitions.ToListAsync()).ToDictionary(d => d.Id);
+
+        // Flatten to feedback ordered most-recent-first, grouped per exercise.
+        var byExercise = sessions
+            .SelectMany(s => s.Feedback)
+            .GroupBy(f => f.ExerciseDefinitionId);
+
+        foreach (var grp in byExercise)
+        {
+            if (!defs.TryGetValue(grp.Key, out var def)) continue;
+            // sessions are already newest-first, so feedback enumerates newest-first too
+            var recent = grp.ToList();
+            _items.Add(Evaluate(def, recent));
+        }
+
+        // Surface the most actionable suggestions first.
+        _items = _items
+            .OrderBy(i => i.Rec == Caution ? 0 : i.Rec == Progress ? 1 : i.Rec == Hold ? 2 : 3)
+            .ThenBy(i => i.Name)
+            .ToList();
+        _loaded = true;
+    }
+
+    // FUTURE (AI phase): this rule-based Evaluate is the seam where a model-driven
+    // recommendation can plug in — feeding richer signals (reps/time trend, set
+    // completion, soreness from RecoveryEntry, breathing/fatigue, workout-duration
+    // trend, free-text comments) instead of only difficulty + pain. Keep the
+    // Suggestion shape stable so the UI doesn't change.
+    private static Suggestion Evaluate(ExerciseDefinition def, List<ExerciseFeedback> recent)
+    {
+        var s = new Suggestion
+        {
+            Name = def.Name,
+            Target = FormatTarget(def),
+            RecentDifficulty = recent.Take(4)
+                .Select(f => f.Difficulty == Difficulty.Unset ? "—" : Pretty(f.Difficulty.ToString()))
+                .ToList()
+        };
+
+        // Pain/discomfort in the last two sessions overrides everything.
+        if (recent.Take(2).Any(f => f.PainOrDiscomfort))
+        {
+            s.Rec = Caution;
+            s.Rationale = "Pain or discomfort reported recently — back off, reduce load, or take a recovery day before pushing again.";
+            return s;
+        }
+
+        var easyStreak = recent.TakeWhile(f => f.Difficulty == Difficulty.Easy).Count();
+        var latest = recent.FirstOrDefault()?.Difficulty ?? Difficulty.Unset;
+
+        if (easyStreak >= 2)
+        {
+            s.Rec = Progress;
+            s.Rationale = $"Rated easy {easyStreak} workouts in a row — bump up reps/time, add a set, or move to a harder variation.";
+        }
+        else if (latest is Difficulty.Hard or Difficulty.VeryHard)
+        {
+            s.Rec = Hold;
+            s.Rationale = "Still challenging at the current level — hold here until it feels easier before progressing.";
+        }
+        else
+        {
+            s.Rec = Building;
+            s.Rationale = "No clear signal yet — keep logging difficulty each workout and a suggestion will sharpen up.";
+        }
+        return s;
+    }
+
+    private static string FormatTarget(ExerciseDefinition def)
+    {
+        if (def.Measure == ExerciseMeasure.Duration && def.TargetDurationSeconds is not null)
+            return $"{def.TargetDurationSeconds}s × {def.TargetSets}";
+        if (def.TargetReps is not null)
+            return $"{def.TargetReps} reps × {def.TargetSets}";
+        return "";
+    }
+
+    private static string Pretty(string camel) =>
+        System.Text.RegularExpressions.Regex.Replace(camel, "(?<=.)([A-Z])", " $1");
+}
