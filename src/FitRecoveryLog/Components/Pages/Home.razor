@@ -1,0 +1,126 @@
+@page "/"
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Dashboard</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">@Today.ToString("dddd")</div>
+        <div class="dash-date-sub">@Today.ToString("MMMM d, yyyy")</div>
+    </header>
+
+    <section class="card">
+        <h2>Today's plan</h2>
+        <div class="daytype-grid">
+            @foreach (var dt in DayTypes)
+            {
+                <button class="daytype-btn @(_log.DayType == dt ? "selected" : "")"
+                        @onclick="() => SetDayType(dt)">
+                    @Label(dt)
+                </button>
+            }
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Quick log</h2>
+        <div class="quick-grid">
+            @foreach (var item in QuickLinks)
+            {
+                <button class="quick-btn" @onclick="@(() => Nav.NavigateTo(item.Route))">
+                    <span class="quick-emoji">@item.Emoji</span> @item.Label
+                </button>
+            }
+            @foreach (var item in ComingSoon)
+            {
+                <button class="quick-btn disabled" @onclick="() => Toast(item.Label)">
+                    <span class="quick-emoji">@item.Emoji</span> @item.Label
+                </button>
+            }
+        </div>
+        @if (_toast is not null)
+        {
+            <p class="toast">@_toast — coming soon</p>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Daily note</h2>
+        <textarea class="note" rows="3" placeholder="How are you feeling today?"
+                  @bind="_log.Note" @bind:event="oninput"></textarea>
+        <button class="save-btn" @onclick="SaveLog">Save</button>
+        @if (_saved)
+        {
+            <span class="saved-msg">Saved ✓</span>
+        }
+    </section>
+</div>
+
+@code {
+    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.Now);
+
+    private static readonly DayType[] DayTypes =
+    {
+        DayType.Workout, DayType.Recovery, DayType.ActiveRecovery, DayType.HighWorkload
+    };
+
+    private static readonly (string Emoji, string Label, string Route)[] QuickLinks =
+    {
+        ("⚖️", "Body measurement", "measurements"),
+        ("🍽️", "Meal / snack", "meals"),
+        ("💊", "Medication", "medication"),
+        ("😴", "Sleep / recovery", "sleep"),
+    };
+
+    private static readonly (string Emoji, string Label)[] ComingSoon =
+    {
+        ("🏋️", "Start workout"),
+    };
+
+    private DailyLog _log = new() { Date = Today };
+    private string? _toast;
+    private bool _saved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var existing = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == Today);
+        if (existing is not null)
+            _log = existing;
+    }
+
+    private async Task SetDayType(DayType dt)
+    {
+        _log.DayType = dt;
+        await SaveLog();
+    }
+
+    private async Task SaveLog()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var existing = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == _log.Date);
+        if (existing is null)
+        {
+            db.DailyLogs.Add(_log);
+        }
+        else
+        {
+            existing.DayType = _log.DayType;
+            existing.Note = _log.Note;
+        }
+        await db.SaveChangesAsync();
+        _saved = true;
+    }
+
+    private void Toast(string label) => _toast = label;
+
+    private static string Label(DayType dt) => dt switch
+    {
+        DayType.Workout => "Workout",
+        DayType.Recovery => "Recovery",
+        DayType.ActiveRecovery => "Active recovery",
+        DayType.HighWorkload => "High workload",
+        _ => dt.ToString()
+    };
+}

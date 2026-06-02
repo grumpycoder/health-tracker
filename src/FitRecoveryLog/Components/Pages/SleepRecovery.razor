@@ -1,0 +1,157 @@
+@page "/sleep"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Sleep & Recovery</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Sleep & recovery</div>
+        <div class="dash-date-sub">@DateTime.Now.ToString("dddd, MMM d")</div>
+    </header>
+
+    <section class="card">
+        <h2>Sleep</h2>
+        <div class="field">
+            <label>Date</label>
+            <input type="date" @bind="_date" />
+        </div>
+        <div class="field">
+            <label>Duration (hours)</label>
+            <input type="number" step="0.25" @bind="_sleep.DurationHours" placeholder="e.g. 7.5" />
+        </div>
+        <div class="field">
+            <label>Sleep score</label>
+            <input type="number" step="1" @bind="_sleep.SleepScore" placeholder="0-100" />
+        </div>
+        <div class="field">
+            <label>Interruptions</label>
+            <input type="number" step="1" @bind="_sleep.Interruptions" placeholder="e.g. 2" />
+        </div>
+        <div class="field">
+            <label>Notes</label>
+            <textarea rows="2" @bind="_sleep.Notes" placeholder="e.g. woke at 3am, dog"></textarea>
+        </div>
+        <button class="save-btn" @onclick="SaveSleep">Save sleep</button>
+        @if (_sleepSaved)
+        {
+            <span class="saved-msg">Saved ✓</span>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Recovery & soreness</h2>
+        <div class="field">
+            <label>Recovery rating (1-10)</label>
+            <input type="number" min="1" max="10" @bind="_recovery.RecoveryRating" />
+        </div>
+        <div class="field">
+            <label>Fatigue rating (1-10)</label>
+            <input type="number" min="1" max="10" @bind="_recovery.FatigueRating" />
+        </div>
+        <div class="field">
+            <label>Soreness locations</label>
+            <div class="chip-row">
+                @foreach (var loc in SorenessLocations)
+                {
+                    <button type="button"
+                            class="chip @(_soreLocs.Contains(loc) ? "selected" : "")"
+                            @onclick="() => ToggleLoc(loc)">@loc</button>
+                }
+            </div>
+        </div>
+        <div class="field">
+            <label>Soreness severity</label>
+            <select @bind="_recovery.SorenessSeverity">
+                @foreach (var s in Enum.GetValues<SorenessSeverity>())
+                {
+                    <option value="@s">@s</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label>Notes</label>
+            <textarea rows="2" @bind="_recovery.Notes"
+                      placeholder="e.g. yard work yesterday, lower back tight"></textarea>
+        </div>
+        <button class="save-btn" @onclick="SaveRecovery">Save recovery</button>
+        @if (_recoverySaved)
+        {
+            <span class="saved-msg">Saved ✓</span>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Recent sleep</h2>
+        @if (_recentSleep.Count == 0)
+        {
+            <p class="muted">No sleep entries yet.</p>
+        }
+        else
+        {
+            <table class="history">
+                <thead><tr><th>Date</th><th>Hours</th><th>Score</th></tr></thead>
+                <tbody>
+                    @foreach (var s in _recentSleep)
+                    {
+                        <tr>
+                            <td>@s.Date.ToString("MMM d")</td>
+                            <td>@(s.DurationHours?.ToString("0.0") ?? "—")</td>
+                            <td>@(s.SleepScore?.ToString() ?? "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+</div>
+
+@code {
+    private static readonly string[] SorenessLocations =
+        { "Lower back", "Mid-back", "Thighs", "Shoulders", "Core", "Other" };
+
+    private DateTime _date = DateTime.Now.Date;
+    private SleepEntry _sleep = new();
+    private RecoveryEntry _recovery = new();
+    private readonly HashSet<string> _soreLocs = new();
+    private bool _sleepSaved, _recoverySaved;
+    private List<SleepEntry> _recentSleep = new();
+
+    protected override async Task OnInitializedAsync() => await LoadRecent();
+
+    private void ToggleLoc(string loc)
+    {
+        if (!_soreLocs.Add(loc)) _soreLocs.Remove(loc);
+    }
+
+    private async Task SaveSleep()
+    {
+        _sleep.Date = DateOnly.FromDateTime(_date);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.SleepEntries.Add(_sleep);
+        await db.SaveChangesAsync();
+
+        _sleepSaved = true;
+        _sleep = new SleepEntry();
+        await LoadRecent();
+    }
+
+    private async Task SaveRecovery()
+    {
+        _recovery.Date = DateOnly.FromDateTime(_date);
+        _recovery.SorenessLocations = CsvField.Join(_soreLocs);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.RecoveryEntries.Add(_recovery);
+        await db.SaveChangesAsync();
+
+        _recoverySaved = true;
+        _recovery = new RecoveryEntry();
+        _soreLocs.Clear();
+    }
+
+    private async Task LoadRecent()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _recentSleep = await db.SleepEntries
+            .OrderByDescending(s => s.Date).Take(10).ToListAsync();
+    }
+}

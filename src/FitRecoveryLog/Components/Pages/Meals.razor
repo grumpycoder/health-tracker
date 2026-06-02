@@ -1,0 +1,193 @@
+@page "/meals"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Meals & Drinks</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Meals & drinks</div>
+        <div class="dash-date-sub">@DateTime.Now.ToString("dddd, MMM d")</div>
+    </header>
+
+    <section class="card">
+        <h2>Log meal / snack</h2>
+        <div class="field">
+            <label>Type</label>
+            <select @bind="_meal.MealType">
+                @foreach (var t in Enum.GetValues<MealType>())
+                {
+                    <option value="@t">@t</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label>Food</label>
+            <input @bind="_meal.Description" placeholder="e.g. Eggs, turkey, rice" list="commonFoods" />
+            <datalist id="commonFoods">
+                @foreach (var f in CommonFoods)
+                {
+                    <option value="@f" />
+                }
+            </datalist>
+        </div>
+        <div class="field">
+            <label>Portion note</label>
+            <input @bind="_meal.PortionNote" placeholder="e.g. 2 eggs, 1 cup rice" />
+        </div>
+        <div class="field">
+            <label>Tags</label>
+            <div class="chip-row">
+                @foreach (var tag in MealTags)
+                {
+                    <button type="button"
+                            class="chip @(_mealTags.Contains(tag) ? "selected" : "")"
+                            @onclick="() => ToggleMealTag(tag)">@tag</button>
+                }
+            </div>
+        </div>
+        <div class="field">
+            <label>Satiety</label>
+            <select @bind="_meal.Satiety">
+                @foreach (var s in Enum.GetValues<Satiety>())
+                {
+                    <option value="@s">@Pretty(s.ToString())</option>
+                }
+            </select>
+        </div>
+        <button class="save-btn" @onclick="SaveMeal">Save meal</button>
+        @if (_mealSaved)
+        {
+            <span class="saved-msg">Saved ✓</span>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Log drink</h2>
+        <div class="field">
+            <label>Drink</label>
+            <input @bind="_drink.Description" placeholder="e.g. Sweet tea, coffee" list="commonDrinks" />
+            <datalist id="commonDrinks">
+                @foreach (var d in CommonDrinks)
+                {
+                    <option value="@d" />
+                }
+            </datalist>
+        </div>
+        <div class="field">
+            <label>Ounces</label>
+            <input type="number" step="1" @bind="_drink.Ounces" placeholder="e.g. 16" />
+        </div>
+        <div class="field">
+            <label>Sugar (cubes / tsp)</label>
+            <input type="number" step="1" @bind="_drink.SugarCount" placeholder="e.g. 2" />
+        </div>
+        <button class="save-btn" @onclick="SaveDrink">Save drink</button>
+        @if (_drinkSaved)
+        {
+            <span class="saved-msg">Saved ✓</span>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Today</h2>
+        @if (_todayMeals.Count == 0 && _todayDrinks.Count == 0)
+        {
+            <p class="muted">Nothing logged yet today.</p>
+        }
+        else
+        {
+            <ul class="timeline">
+                @foreach (var m in _todayMeals)
+                {
+                    <li>
+                        <span class="time">@m.Time.ToString("h:mm tt")</span>
+                        <span class="entry"><strong>@m.MealType</strong> — @m.Description
+                            @if (m.TagList.Count > 0)
+                            {
+                                <span class="muted"> (@string.Join(", ", m.TagList))</span>
+                            }
+                        </span>
+                    </li>
+                }
+                @foreach (var d in _todayDrinks)
+                {
+                    <li>
+                        <span class="time">@d.Time.ToString("h:mm tt")</span>
+                        <span class="entry">🥤 @d.Description
+                            @if (d.Ounces is not null)
+                            {
+                                <span class="muted"> @d.Ounces oz</span>
+                            }
+                        </span>
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+</div>
+
+@code {
+    private static readonly string[] CommonFoods =
+        { "Eggs", "Turkey", "Chicken", "Rice", "Mini-Wheats", "Protein bar", "Banana" };
+    private static readonly string[] CommonDrinks =
+        { "Sweet tea", "Coke Zero", "Coffee", "Water" };
+    private static readonly string[] MealTags =
+        { "High protein", "High carb", "High sodium", "Sweet drink", "Restaurant meal", "Home-cooked", "Recovery meal" };
+
+    private MealEntry _meal = new();
+    private DrinkEntry _drink = new();
+    private readonly HashSet<string> _mealTags = new();
+    private bool _mealSaved, _drinkSaved;
+
+    private List<MealEntry> _todayMeals = new();
+    private List<DrinkEntry> _todayDrinks = new();
+
+    protected override async Task OnInitializedAsync() => await LoadToday();
+
+    private void ToggleMealTag(string tag)
+    {
+        if (!_mealTags.Add(tag)) _mealTags.Remove(tag);
+    }
+
+    private async Task SaveMeal()
+    {
+        _meal.Time = DateTimeOffset.Now;
+        _meal.Tags = CsvField.Join(_mealTags);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.MealEntries.Add(_meal);
+        await db.SaveChangesAsync();
+
+        _mealSaved = true;
+        _meal = new MealEntry();
+        _mealTags.Clear();
+        await LoadToday();
+    }
+
+    private async Task SaveDrink()
+    {
+        _drink.Time = DateTimeOffset.Now;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.DrinkEntries.Add(_drink);
+        await db.SaveChangesAsync();
+
+        _drinkSaved = true;
+        _drink = new DrinkEntry();
+        await LoadToday();
+    }
+
+    private async Task LoadToday()
+    {
+        var start = DateTimeOffset.Now.Date;
+        var end = start.AddDays(1);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _todayMeals = await db.MealEntries
+            .Where(m => m.Time >= start && m.Time < end)
+            .OrderBy(m => m.Time).ToListAsync();
+        _todayDrinks = await db.DrinkEntries
+            .Where(d => d.Time >= start && d.Time < end)
+            .OrderBy(d => d.Time).ToListAsync();
+    }
+
+    private static string Pretty(string camel) =>
+        System.Text.RegularExpressions.Regex.Replace(camel, "(?<=.)([A-Z])", " $1");
+}

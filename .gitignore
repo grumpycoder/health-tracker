@@ -1,0 +1,37 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+
+# .NET
+*.user
+*.userosscache
+*.suo
+*.cache
+project.lock.json
+project.fragment.lock.json
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+
+# MAUI / iOS build artifacts
+*.binlog
+*.ipa
+*.app/
+*.dSYM/
+Platforms/iOS/*.mobileprovision
+
+# macOS
+.DS_Store
+
+# Local SQLite databases (app data lives on-device, not in the repo)
+*.db
+*.db3
+*.sqlite

@@ -1,0 +1,109 @@
+@page "/measurements"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Body Measurements</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Body measurements</div>
+        <div class="dash-date-sub">Weight, waist & more</div>
+    </header>
+
+    <section class="card">
+        <h2>New entry</h2>
+        <EditForm Model="_entry" OnValidSubmit="Save">
+            <div class="field">
+                <label>Date</label>
+                <input type="date" @bind="_dateInput" />
+            </div>
+            <div class="field">
+                <label>Weight (lbs)</label>
+                <input type="number" step="0.1" @bind="_entry.WeightLbs" placeholder="e.g. 185.4" />
+            </div>
+            <div class="field">
+                <label>Waist (in)</label>
+                <input type="number" step="0.1" @bind="_entry.WaistInches" placeholder="e.g. 34.0" />
+            </div>
+            <div class="field">
+                <label>Chest (in)</label>
+                <input type="number" step="0.1" @bind="_entry.ChestInches" />
+            </div>
+            <div class="field">
+                <label>Arms (in)</label>
+                <input type="number" step="0.1" @bind="_entry.ArmsInches" />
+            </div>
+            <div class="field">
+                <label>Thighs (in)</label>
+                <input type="number" step="0.1" @bind="_entry.ThighsInches" />
+            </div>
+            <div class="field">
+                <label>Clothing fit notes</label>
+                <textarea rows="2" @bind="_entry.ClothingFitNotes"
+                          placeholder="e.g. belt one notch tighter"></textarea>
+            </div>
+            <button class="save-btn" type="submit">Save measurement</button>
+            @if (_saved)
+            {
+                <span class="saved-msg">Saved ✓</span>
+            }
+        </EditForm>
+    </section>
+
+    <section class="card">
+        <h2>History</h2>
+        @if (_history.Count == 0)
+        {
+            <p class="muted">No measurements yet.</p>
+        }
+        else
+        {
+            <table class="history">
+                <thead>
+                    <tr><th>Date</th><th>Weight</th><th>Waist</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var m in _history)
+                    {
+                        <tr>
+                            <td>@m.Date.ToString("MMM d")</td>
+                            <td>@(m.WeightLbs?.ToString("0.0") ?? "—")</td>
+                            <td>@(m.WaistInches?.ToString("0.0") ?? "—")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+</div>
+
+@code {
+    private BodyMeasurement _entry = new() { Date = DateOnly.FromDateTime(DateTime.Now) };
+    private List<BodyMeasurement> _history = new();
+    private bool _saved;
+
+    // <input type="date"> binds to DateTime; bridge it to the entity's DateOnly.
+    private DateTime _dateInput = DateTime.Now.Date;
+
+    protected override async Task OnInitializedAsync() => await LoadHistory();
+
+    private async Task LoadHistory()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _history = await db.BodyMeasurements
+            .OrderByDescending(x => x.Date)
+            .Take(20)
+            .ToListAsync();
+    }
+
+    private async Task Save()
+    {
+        _entry.Date = DateOnly.FromDateTime(_dateInput);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.BodyMeasurements.Add(_entry);
+        await db.SaveChangesAsync();
+
+        _saved = true;
+        _entry = new BodyMeasurement { Date = DateOnly.FromDateTime(_dateInput) };
+        await LoadHistory();
+    }
+}

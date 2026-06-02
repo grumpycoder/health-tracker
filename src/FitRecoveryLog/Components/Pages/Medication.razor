@@ -1,0 +1,194 @@
+@page "/medication"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Medication & Labs</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Medication & labs</div>
+        <div class="dash-date-sub">@DateTime.Now.ToString("dddd, MMM d")</div>
+    </header>
+
+    <section class="card">
+        <h2>Log medication / injection</h2>
+        <div class="field">
+            <label>Medication</label>
+            <input @bind="_med.Name" placeholder="e.g. Testosterone Cypionate" list="commonMeds" />
+            <datalist id="commonMeds">
+                @foreach (var m in CommonMeds)
+                {
+                    <option value="@m" />
+                }
+            </datalist>
+        </div>
+        <div class="field">
+            <label>Dose</label>
+            <input @bind="_med.Dose" placeholder="e.g. 100mg / 0.5mL" />
+        </div>
+        <div class="field">
+            <label>Frequency</label>
+            <input @bind="_med.Frequency" placeholder="e.g. weekly" />
+        </div>
+        <div class="field">
+            <label>Date / time taken</label>
+            <input type="datetime-local" @bind="_takenAt" />
+        </div>
+        <div class="field">
+            <label>Injection site (if applicable)</label>
+            <select @bind="_med.InjectionSite">
+                <option value="">— none —</option>
+                @foreach (var s in InjectionSites)
+                {
+                    <option value="@s">@s</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label>Reaction / soreness notes</label>
+            <textarea rows="2" @bind="_med.ReactionNotes"></textarea>
+        </div>
+        <button class="save-btn" @onclick="SaveMed">Save medication</button>
+        @if (_medSaved)
+        {
+            <span class="saved-msg">Saved ✓</span>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Log lab result</h2>
+        <div class="field">
+            <label>Date</label>
+            <input type="date" @bind="_labDate" />
+        </div>
+        <div class="field">
+            <label>Lab</label>
+            <input @bind="_lab.LabName" placeholder="e.g. Total Testosterone" list="commonLabs" />
+            <datalist id="commonLabs">
+                @foreach (var l in CommonLabs)
+                {
+                    <option value="@l" />
+                }
+            </datalist>
+        </div>
+        <div class="field">
+            <label>Value</label>
+            <input type="number" step="0.01" @bind="_lab.Value" />
+        </div>
+        <div class="field">
+            <label>Unit</label>
+            <input @bind="_lab.Unit" placeholder="e.g. ng/dL, %" list="commonUnits" />
+            <datalist id="commonUnits">
+                <option value="ng/dL" /><option value="pg/mL" /><option value="%" />
+                <option value="g/dL" /><option value="mg/dL" />
+            </datalist>
+        </div>
+        <button class="save-btn" @onclick="SaveLab">Save lab</button>
+        @if (_labSaved)
+        {
+            <span class="saved-msg">Saved ✓</span>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Recent medications</h2>
+        @if (_recentMeds.Count == 0)
+        {
+            <p class="muted">No medications logged yet.</p>
+        }
+        else
+        {
+            <ul class="timeline">
+                @foreach (var m in _recentMeds)
+                {
+                    <li>
+                        <span class="time">@m.TakenAt.ToString("MMM d, h:mm tt")</span>
+                        <span class="entry"><strong>@m.Name</strong> @m.Dose
+                            @if (!string.IsNullOrWhiteSpace(m.InjectionSite))
+                            {
+                                <span class="muted"> @@ @m.InjectionSite</span>
+                            }
+                        </span>
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Recent labs</h2>
+        @if (_recentLabs.Count == 0)
+        {
+            <p class="muted">No labs logged yet.</p>
+        }
+        else
+        {
+            <table class="history">
+                <thead><tr><th>Date</th><th>Lab</th><th>Value</th></tr></thead>
+                <tbody>
+                    @foreach (var l in _recentLabs)
+                    {
+                        <tr>
+                            <td>@l.Date.ToString("MMM d")</td>
+                            <td>@l.LabName</td>
+                            <td>@(l.Value?.ToString("0.##")) @l.Unit</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+</div>
+
+@code {
+    private static readonly string[] CommonMeds =
+        { "Testosterone Cypionate", "Vitamin D", "Fish oil" };
+    private static readonly string[] InjectionSites =
+        { "Left delt", "Right delt", "Left glute", "Right glute", "Left quad", "Right quad", "Left ventroglute", "Right ventroglute" };
+    private static readonly string[] CommonLabs =
+        { "Total Testosterone", "Free Testosterone", "Hematocrit", "Hemoglobin", "PSA", "A1C", "Lipids - Total", "Lipids - LDL", "Lipids - HDL" };
+
+    private MedicationEntry _med = new();
+    private LabResult _lab = new();
+    private DateTime _takenAt = DateTime.Now;
+    private DateTime _labDate = DateTime.Now.Date;
+    private bool _medSaved, _labSaved;
+
+    private List<MedicationEntry> _recentMeds = new();
+    private List<LabResult> _recentLabs = new();
+
+    protected override async Task OnInitializedAsync() => await LoadRecent();
+
+    private async Task SaveMed()
+    {
+        _med.TakenAt = _takenAt;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.MedicationEntries.Add(_med);
+        await db.SaveChangesAsync();
+
+        _medSaved = true;
+        _med = new MedicationEntry();
+        _takenAt = DateTime.Now;
+        await LoadRecent();
+    }
+
+    private async Task SaveLab()
+    {
+        _lab.Date = DateOnly.FromDateTime(_labDate);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.LabResults.Add(_lab);
+        await db.SaveChangesAsync();
+
+        _labSaved = true;
+        _lab = new LabResult();
+        await LoadRecent();
+    }
+
+    private async Task LoadRecent()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _recentMeds = await db.MedicationEntries
+            .OrderByDescending(m => m.TakenAt).Take(10).ToListAsync();
+        _recentLabs = await db.LabResults
+            .OrderByDescending(l => l.Date).Take(10).ToListAsync();
+    }
+}
