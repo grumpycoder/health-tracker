@@ -60,6 +60,10 @@ public static class DevSeed
             new MealEntry { Time = At(4, 21, 0), MealType = MealType.Dinner, Description = "Restaurant burger & fries", Tags = "Restaurant meal,High sodium", Satiety = Satiety.Bloated },
             new MealEntry { Time = At(5, 15, 0), MealType = MealType.Snack, Description = "Protein bar", Tags = "High protein", Satiety = Satiety.StillHungry });
 
+        db.MedicationSchedules.AddRange(
+            new MedicationSchedule { Name = "Testosterone Cypionate", Dose = "100mg / 0.5mL", Frequency = "weekly", IsInjection = true },
+            new MedicationSchedule { Name = "Vitamin D", Dose = "5000 IU", Frequency = "daily", IsInjection = false });
+
         db.MedicationEntries.AddRange(
             new MedicationEntry { Name = "Testosterone Cypionate", Dose = "100mg / 0.5mL", Frequency = "weekly", TakenAt = At(11, 9, 0), InjectionSite = "Left ventroglute" },
             new MedicationEntry { Name = "Testosterone Cypionate", Dose = "100mg / 0.5mL", Frequency = "weekly", TakenAt = At(4, 9, 0), InjectionSite = "Right ventroglute", ReactionNotes = "Mild soreness day after" },

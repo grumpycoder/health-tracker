@@ -19,6 +19,7 @@ public class AppDbContext : DbContext
     public DbSet<SleepEntry> SleepEntries => Set<SleepEntry>();
     public DbSet<RecoveryEntry> RecoveryEntries => Set<RecoveryEntry>();
     public DbSet<PhysicalWorkloadEntry> PhysicalWorkloadEntries => Set<PhysicalWorkloadEntry>();
+    public DbSet<MedicationSchedule> MedicationSchedules => Set<MedicationSchedule>();
     public DbSet<MedicationEntry> MedicationEntries => Set<MedicationEntry>();
     public DbSet<LabResult> LabResults => Set<LabResult>();
     public DbSet<WeeklyReview> WeeklyReviews => Set<WeeklyReview>();

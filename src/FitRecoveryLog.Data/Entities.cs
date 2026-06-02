@@ -214,6 +214,20 @@ public class PhysicalWorkloadEntry : EntityBase
 // Medication / labs
 // ---------------------------------------------------------------------------
 
+/// <summary>
+/// A recurring medication the user can log with one tap (e.g. weekly TRT,
+/// daily vitamin). Logging copies these defaults into a <see cref="MedicationEntry"/>.
+/// </summary>
+public class MedicationSchedule : EntityBase
+{
+    public string Name { get; set; } = "";
+    public string? Dose { get; set; }
+    public string? Frequency { get; set; }
+    /// <summary>If true, logging prompts for an injection site (with rotation suggestion).</summary>
+    public bool IsInjection { get; set; }
+    public bool Active { get; set; } = true;
+}
+
 public class MedicationEntry : EntityBase
 {
     public string Name { get; set; } = "";

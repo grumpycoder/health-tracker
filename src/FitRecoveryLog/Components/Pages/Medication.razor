@@ -10,7 +10,86 @@
     </header>
 
     <section class="card">
-        <h2>Log medication / injection</h2>
+        <h2>My medications</h2>
+        @if (_schedules.Count == 0)
+        {
+            <p class="muted">No saved medications yet. Add one below to log it with one tap.</p>
+        }
+        else
+        {
+            <ul class="timeline">
+                @foreach (var sc in _schedules)
+                {
+                    <li>
+                        @if (_editSchedId == sc.Id)
+                        {
+                            <div class="edit-exercise" style="width:100%">
+                                <div class="field"><label>Name</label><input @bind="_schedEdit.Name" /></div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Dose</label><input @bind="_schedEdit.Dose" /></div>
+                                    <div class="field"><label>Frequency</label><input @bind="_schedEdit.Frequency" /></div>
+                                </div>
+                                <div class="chip-row">
+                                    <button type="button" class="chip @(_schedEdit.IsInjection ? "selected" : "")"
+                                            @onclick="() => _schedEdit.IsInjection = !_schedEdit.IsInjection">Injection</button>
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="save-btn" @onclick="SaveSchedEdit">Save</button>
+                                    <button class="link-btn" @onclick="() => _editSchedId = null">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="ex-row" style="width:100%">
+                                <div>
+                                    <span class="entry"><strong>@sc.Name</strong>
+                                        <span class="muted"> @sc.Dose@(string.IsNullOrWhiteSpace(sc.Frequency) ? "" : $" · {sc.Frequency}")</span>
+                                    </span>
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="save-btn" style="padding:0.4rem 0.9rem" @onclick="() => LogClicked(sc)">Log now</button>
+                                    <button class="link-btn" @onclick="() => StartEditSched(sc)">Edit</button>
+                                    <button class="link-btn danger" @onclick="() => DeleteSched(sc)">Remove</button>
+                                </div>
+                            </div>
+                            @if (_logSiteFor == sc.Id)
+                            {
+                                <div class="chip-row" style="margin-top:0.5rem">
+                                    <span class="muted" style="align-self:center;font-size:0.75rem">site:</span>
+                                    @foreach (var site in InjectionSites)
+                                    {
+                                        <button type="button" class="chip @(site == _suggestedSite ? "selected" : "")"
+                                                @onclick="() => LogSchedule(sc, site)">@site</button>
+                                    }
+                                </div>
+                            }
+                            @if (_loggedSchedId == sc.Id)
+                            {
+                                <p class="saved-msg" style="margin:0.4rem 0 0">Logged ✓</p>
+                            }
+                        }
+                    </li>
+                }
+            </ul>
+        }
+
+        <div class="add-exercise">
+            <div class="field"><label>Add a saved medication</label><input @bind="_newSched.Name" placeholder="e.g. Testosterone Cypionate" /></div>
+            <div class="inline-fields">
+                <div class="field"><label>Dose</label><input @bind="_newSched.Dose" placeholder="100mg / 0.5mL" /></div>
+                <div class="field"><label>Frequency</label><input @bind="_newSched.Frequency" placeholder="weekly" /></div>
+            </div>
+            <div class="chip-row">
+                <button type="button" class="chip @(_newSched.IsInjection ? "selected" : "")"
+                        @onclick="() => _newSched.IsInjection = !_newSched.IsInjection">Injection</button>
+            </div>
+            <button class="save-btn" @onclick="AddSched">Add medication</button>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Log a one-off / new med</h2>
         <div class="field">
             <label>Medication</label>
             <input @bind="_med.Name" placeholder="e.g. Testosterone Cypionate" list="commonMeds" />
@@ -210,6 +289,15 @@
     private List<MedicationEntry> _recentMeds = new();
     private List<LabResult> _recentLabs = new();
 
+    // Saved medications (schedules) for one-tap logging
+    private List<MedicationSchedule> _schedules = new();
+    private MedicationSchedule _newSched = new();
+    private Guid? _editSchedId;
+    private MedicationSchedule _schedEdit = new();
+    private Guid? _logSiteFor;     // schedule awaiting a site pick (injections)
+    private string? _suggestedSite;
+    private Guid? _loggedSchedId;  // shows a transient "Logged ✓"
+
     // Inline edit state
     private Guid? _editMedId;
     private MedicationEntry _medEdit = new();
@@ -312,9 +400,89 @@
     private async Task LoadRecent()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
+        _schedules = await db.MedicationSchedules.Where(s => s.Active)
+            .OrderBy(s => s.Name).ToListAsync();
         _recentMeds = await db.MedicationEntries
             .OrderByDescending(m => m.TakenAt).Take(10).ToListAsync();
         _recentLabs = await db.LabResults
             .OrderByDescending(l => l.Date).Take(10).ToListAsync();
+    }
+
+    private async Task AddSched()
+    {
+        if (string.IsNullOrWhiteSpace(_newSched.Name)) return;
+        _newSched.Name = _newSched.Name.Trim();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.MedicationSchedules.Add(_newSched);
+        await db.SaveChangesAsync();
+        _newSched = new MedicationSchedule();
+        await LoadRecent();
+    }
+
+    private void StartEditSched(MedicationSchedule sc)
+    {
+        _editSchedId = sc.Id;
+        _schedEdit = new MedicationSchedule { Name = sc.Name, Dose = sc.Dose, Frequency = sc.Frequency, IsInjection = sc.IsInjection };
+    }
+
+    private async Task SaveSchedEdit()
+    {
+        if (_editSchedId is not { } id) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.MedicationSchedules.FindAsync(id);
+        if (e is not null)
+        {
+            e.Name = _schedEdit.Name; e.Dose = _schedEdit.Dose;
+            e.Frequency = _schedEdit.Frequency; e.IsInjection = _schedEdit.IsInjection;
+            await db.SaveChangesAsync();
+        }
+        _editSchedId = null;
+        await LoadRecent();
+    }
+
+    private async Task DeleteSched(MedicationSchedule sc)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.MedicationSchedules.FindAsync(sc.Id);
+        if (e is not null) { db.MedicationSchedules.Remove(e); await db.SaveChangesAsync(); }
+        if (_editSchedId == sc.Id) _editSchedId = null;
+        await LoadRecent();
+    }
+
+    private void LogClicked(MedicationSchedule sc)
+    {
+        _loggedSchedId = null;
+        if (sc.IsInjection)
+        {
+            // Suggest the mirror of the last site used for this medication.
+            var last = _recentMeds.FirstOrDefault(m =>
+                string.Equals(m.Name, sc.Name, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(m.InjectionSite))?.InjectionSite;
+            _suggestedSite = last switch
+            {
+                not null when last.Contains("Left") => last.Replace("Left", "Right"),
+                not null when last.Contains("Right") => last.Replace("Right", "Left"),
+                _ => InjectionSites.FirstOrDefault()
+            };
+            _logSiteFor = sc.Id;
+        }
+        else
+        {
+            _ = LogSchedule(sc, null);
+        }
+    }
+
+    private async Task LogSchedule(MedicationSchedule sc, string? site)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.MedicationEntries.Add(new MedicationEntry
+        {
+            Name = sc.Name, Dose = sc.Dose, Frequency = sc.Frequency,
+            TakenAt = DateTime.Now, InjectionSite = site
+        });
+        await db.SaveChangesAsync();
+        _logSiteFor = null;
+        _loggedSchedId = sc.Id;
+        await LoadRecent();
     }
 }
