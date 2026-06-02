@@ -18,13 +18,6 @@
         <button class="save-btn" @onclick="AddRoutine">Create routine</button>
     </section>
 
-    <datalist id="libraryExercises">
-        @foreach (var name in _libraryNames)
-        {
-            <option value="@name" />
-        }
-    </datalist>
-
     @foreach (var r in _routines)
     {
         <section class="card">
@@ -91,48 +84,82 @@
                 </ul>
             }
 
+            @{
+                var d = _draft[r.Id];
+                var q = d.Name.Trim();
+                var existing = _library.FirstOrDefault(e => string.Equals(e.Name, q, StringComparison.OrdinalIgnoreCase));
+                var isExisting = existing.Name is not null;
+                var browse = (q.Length == 0
+                        ? _library
+                        : _library.Where(e => e.Name.Contains(q, StringComparison.OrdinalIgnoreCase)))
+                    .OrderBy(e => e.Name).Take(12).ToList();
+                var effMeasure = isExisting ? existing.Measure : d.Measure;
+            }
             <div class="add-exercise">
                 <div class="field">
                     <label>Add exercise</label>
-                    <input @bind="_draft[r.Id].Name" list="libraryExercises"
-                           placeholder="Type to reuse an existing exercise or add new" />
+                    <input value="@d.Name"
+                           @oninput="e => d.Name = e.Value?.ToString() ?? string.Empty"
+                           placeholder="Type a new exercise, or tap one below" />
                 </div>
-                <div class="field">
-                    <label>Track by <span class="muted">(new exercises only)</span></label>
-                    <select @bind="_draft[r.Id].Measure">
-                        <option value="@ExerciseMeasure.Reps">Reps</option>
-                        <option value="@ExerciseMeasure.Duration">Time (e.g. planks)</option>
-                    </select>
-                </div>
+
+                @if (browse.Count > 0)
+                {
+                    <div class="field">
+                        <label class="muted">Library — tap to pick</label>
+                        <div class="chip-row">
+                            @foreach (var lib in browse)
+                            {
+                                <button type="button"
+                                        class="chip @(string.Equals(lib.Name, q, StringComparison.OrdinalIgnoreCase) ? "selected" : "")"
+                                        @onclick="() => SelectLibrary(d, lib)">@lib.Name</button>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @if (isExisting)
+                {
+                    <p class="muted" style="margin:0 0 0.5rem">
+                        Reusing “@existing.Name” · @(existing.Measure == ExerciseMeasure.Duration ? "time-based" : "reps-based")
+                    </p>
+                }
+                else if (q.Length > 0)
+                {
+                    <div class="field">
+                        <label>Track by <span class="muted">(new exercise)</span></label>
+                        <select @bind="d.Measure">
+                            <option value="@ExerciseMeasure.Reps">Reps</option>
+                            <option value="@ExerciseMeasure.Duration">Time (e.g. planks)</option>
+                        </select>
+                    </div>
+                }
+
                 <div class="inline-fields">
                     <div class="field">
                         <label>Sets</label>
-                        <input type="number" min="1" @bind="_draft[r.Id].Sets" />
+                        <input type="number" min="1" @bind="d.Sets" />
                     </div>
-                    @if (_draft[r.Id].Measure == ExerciseMeasure.Duration)
+                    @if (effMeasure == ExerciseMeasure.Duration)
                     {
                         <div class="field">
                             <label>Time (s)</label>
-                            <input type="number" min="1" @bind="_draft[r.Id].Duration" />
+                            <input type="number" min="1" @bind="d.Duration" />
                         </div>
                     }
                     else
                     {
                         <div class="field">
                             <label>Reps</label>
-                            <input type="number" min="1" @bind="_draft[r.Id].Reps" />
+                            <input type="number" min="1" @bind="d.Reps" />
                         </div>
                     }
                     <div class="field">
                         <label>Rest (s)</label>
-                        <input type="number" min="0" @bind="_draft[r.Id].Rest" />
+                        <input type="number" min="0" @bind="d.Rest" />
                     </div>
                 </div>
                 <button class="save-btn" @onclick="@(() => AddExercise(r))">Add exercise</button>
-                @if (_addError is not null)
-                {
-                    <p class="muted" style="margin:0.4rem 0 0">@_addError</p>
-                }
             </div>
         </section>
     }
@@ -140,10 +167,9 @@
 
 @code {
     private List<WorkoutRoutine> _routines = new();
-    private List<string> _libraryNames = new();
+    private List<(string Name, ExerciseMeasure Measure)> _library = new();
     private string _newRoutineName = "";
     private readonly Dictionary<Guid, ExerciseDraft> _draft = new();
-    private string? _addError;
 
     // Inline edit state: which RoutineExercise is being edited, and its target draft.
     private Guid? _editId;
@@ -169,9 +195,17 @@
                 .ThenInclude(e => e.ExerciseDefinition)
             .OrderBy(r => r.Name)
             .ToListAsync();
-        _libraryNames = await db.ExerciseDefinitions.OrderBy(e => e.Name).Select(e => e.Name).ToListAsync();
+        _library = (await db.ExerciseDefinitions.OrderBy(e => e.Name)
+                .Select(e => new { e.Name, e.Measure }).ToListAsync())
+            .Select(x => (x.Name, x.Measure)).ToList();
         foreach (var r in _routines)
             _draft.TryAdd(r.Id, new ExerciseDraft());
+    }
+
+    private void SelectLibrary(ExerciseDraft d, (string Name, ExerciseMeasure Measure) lib)
+    {
+        d.Name = lib.Name;
+        d.Measure = lib.Measure;
     }
 
     private async Task AddRoutine()
@@ -194,7 +228,6 @@
 
     private async Task AddExercise(WorkoutRoutine r)
     {
-        _addError = null;
         var d = _draft[r.Id];
         var name = d.Name.Trim();
         if (string.IsNullOrWhiteSpace(name)) return;
