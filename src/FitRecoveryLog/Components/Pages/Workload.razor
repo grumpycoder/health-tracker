@@ -70,20 +70,49 @@
         }
         else
         {
-            <table class="history">
-                <thead><tr><th>Date</th><th>Activity</th><th>Min</th><th>Intensity</th></tr></thead>
-                <tbody>
-                    @foreach (var w in _recent)
-                    {
-                        <tr>
-                            <td>@w.Date.ToString("MMM d")</td>
-                            <td>@w.Activity</td>
-                            <td>@(w.DurationMinutes?.ToString() ?? "—")</td>
-                            <td>@w.Intensity</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+            <ul class="timeline">
+                @foreach (var w in _recent)
+                {
+                    <li>
+                        @if (_editId == w.Id)
+                        {
+                            <div class="edit-exercise" style="width:100%">
+                                <div class="field"><label>Date</label><input type="date" @bind="_editDate" /></div>
+                                <div class="field"><label>Activity</label><input @bind="_edit.Activity" /></div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Duration (min)</label><input type="number" min="0" @bind="_edit.DurationMinutes" /></div>
+                                    <div class="field">
+                                        <label>Intensity</label>
+                                        <select @bind="_edit.Intensity">
+                                            @foreach (var i in Enum.GetValues<Intensity>()) { <option value="@i">@i</option> }
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="field"><label>Notes</label><textarea rows="2" @bind="_edit.Notes"></textarea></div>
+                                <div class="routine-actions">
+                                    <button class="save-btn" @onclick="SaveEdit">Save</button>
+                                    <button class="link-btn" @onclick="() => _editId = null">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="ex-row" style="width:100%">
+                                <div>
+                                    <span class="time">@w.Date.ToString("MMM d")</span>
+                                    <span class="entry"><strong>@w.Activity</strong>
+                                        <span class="muted"> @(w.DurationMinutes?.ToString() ?? "—") min · @w.Intensity</span>
+                                    </span>
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="link-btn" @onclick="() => StartEdit(w)">Edit</button>
+                                    <button class="link-btn danger" @onclick="() => Delete(w)">Delete</button>
+                                </div>
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
         }
     </section>
 </div>
@@ -105,7 +134,43 @@
     private bool _saved;
     private List<PhysicalWorkloadEntry> _recent = new();
 
+    private Guid? _editId;
+    private PhysicalWorkloadEntry _edit = new();
+    private DateTime _editDate = DateTime.Now.Date;
+
     protected override async Task OnInitializedAsync() => await LoadRecent();
+
+    private void StartEdit(PhysicalWorkloadEntry w)
+    {
+        _editId = w.Id;
+        _edit = new PhysicalWorkloadEntry { Activity = w.Activity, DurationMinutes = w.DurationMinutes, Intensity = w.Intensity, Notes = w.Notes, BodyAreasAffected = w.BodyAreasAffected };
+        _editDate = w.Date.ToDateTime(TimeOnly.MinValue);
+    }
+
+    private async Task SaveEdit()
+    {
+        if (_editId is not { } id) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.PhysicalWorkloadEntries.FindAsync(id);
+        if (e is not null)
+        {
+            e.Date = DateOnly.FromDateTime(_editDate);
+            e.Activity = _edit.Activity; e.DurationMinutes = _edit.DurationMinutes;
+            e.Intensity = _edit.Intensity; e.Notes = _edit.Notes;
+            await db.SaveChangesAsync();
+        }
+        _editId = null;
+        await LoadRecent();
+    }
+
+    private async Task Delete(PhysicalWorkloadEntry w)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.PhysicalWorkloadEntries.FindAsync(w.Id);
+        if (e is not null) { db.PhysicalWorkloadEntries.Remove(e); await db.SaveChangesAsync(); }
+        if (_editId == w.Id) _editId = null;
+        await LoadRecent();
+    }
 
     private void ToggleArea(string area)
     {

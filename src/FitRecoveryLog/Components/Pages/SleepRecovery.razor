@@ -88,19 +88,48 @@
         }
         else
         {
-            <table class="history">
-                <thead><tr><th>Date</th><th>Hours</th><th>Score</th></tr></thead>
-                <tbody>
-                    @foreach (var s in _recentSleep)
-                    {
-                        <tr>
-                            <td>@s.Date.ToString("MMM d")</td>
-                            <td>@(s.DurationHours?.ToString("0.0") ?? "—")</td>
-                            <td>@(s.SleepScore?.ToString() ?? "—")</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+            <ul class="timeline">
+                @foreach (var s in _recentSleep)
+                {
+                    <li>
+                        @if (_editId == s.Id)
+                        {
+                            <div class="edit-exercise" style="width:100%">
+                                <div class="field"><label>Date</label><input type="date" @bind="_editDate" /></div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Hours</label><input type="number" step="0.25" @bind="_edit.DurationHours" /></div>
+                                    <div class="field"><label>Score</label><input type="number" @bind="_edit.SleepScore" /></div>
+                                    <div class="field"><label>Interruptions</label><input type="number" @bind="_edit.Interruptions" /></div>
+                                </div>
+                                <div class="field"><label>Notes</label><textarea rows="2" @bind="_edit.Notes"></textarea></div>
+                                <div class="routine-actions">
+                                    <button class="save-btn" @onclick="SaveEdit">Save</button>
+                                    <button class="link-btn" @onclick="() => _editId = null">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="ex-row" style="width:100%">
+                                <div>
+                                    <span class="time">@s.Date.ToString("MMM d")</span>
+                                    <span class="entry">
+                                        @(s.DurationHours?.ToString("0.0") ?? "—") h
+                                        @if (s.SleepScore is not null)
+                                        {
+                                            <span class="muted"> · score @s.SleepScore</span>
+                                        }
+                                    </span>
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="link-btn" @onclick="() => StartEdit(s)">Edit</button>
+                                    <button class="link-btn danger" @onclick="() => Delete(s)">Delete</button>
+                                </div>
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
         }
     </section>
 </div>
@@ -116,7 +145,43 @@
     private bool _sleepSaved, _recoverySaved;
     private List<SleepEntry> _recentSleep = new();
 
+    private Guid? _editId;
+    private SleepEntry _edit = new();
+    private DateTime _editDate = DateTime.Now.Date;
+
     protected override async Task OnInitializedAsync() => await LoadRecent();
+
+    private void StartEdit(SleepEntry s)
+    {
+        _editId = s.Id;
+        _edit = new SleepEntry { DurationHours = s.DurationHours, SleepScore = s.SleepScore, Interruptions = s.Interruptions, Notes = s.Notes };
+        _editDate = s.Date.ToDateTime(TimeOnly.MinValue);
+    }
+
+    private async Task SaveEdit()
+    {
+        if (_editId is not { } id) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.SleepEntries.FindAsync(id);
+        if (e is not null)
+        {
+            e.Date = DateOnly.FromDateTime(_editDate);
+            e.DurationHours = _edit.DurationHours; e.SleepScore = _edit.SleepScore;
+            e.Interruptions = _edit.Interruptions; e.Notes = _edit.Notes;
+            await db.SaveChangesAsync();
+        }
+        _editId = null;
+        await LoadRecent();
+    }
+
+    private async Task Delete(SleepEntry s)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.SleepEntries.FindAsync(s.Id);
+        if (e is not null) { db.SleepEntries.Remove(e); await db.SaveChangesAsync(); }
+        if (_editId == s.Id) _editId = null;
+        await LoadRecent();
+    }
 
     private void ToggleLoc(string loc)
     {

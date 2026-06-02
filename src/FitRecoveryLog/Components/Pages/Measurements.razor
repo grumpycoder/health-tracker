@@ -57,21 +57,52 @@
         }
         else
         {
-            <table class="history">
-                <thead>
-                    <tr><th>Date</th><th>Weight</th><th>Waist</th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var m in _history)
-                    {
-                        <tr>
-                            <td>@m.Date.ToString("MMM d")</td>
-                            <td>@(m.WeightLbs?.ToString("0.0") ?? "—")</td>
-                            <td>@(m.WaistInches?.ToString("0.0") ?? "—")</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+            <ul class="timeline">
+                @foreach (var m in _history)
+                {
+                    <li>
+                        @if (_editId == m.Id)
+                        {
+                            <div class="edit-exercise" style="width:100%">
+                                <div class="field"><label>Date</label><input type="date" @bind="_editDate" /></div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Weight (lbs)</label><input type="number" step="0.1" @bind="_edit.WeightLbs" /></div>
+                                    <div class="field"><label>Waist (in)</label><input type="number" step="0.1" @bind="_edit.WaistInches" /></div>
+                                </div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Chest</label><input type="number" step="0.1" @bind="_edit.ChestInches" /></div>
+                                    <div class="field"><label>Arms</label><input type="number" step="0.1" @bind="_edit.ArmsInches" /></div>
+                                    <div class="field"><label>Thighs</label><input type="number" step="0.1" @bind="_edit.ThighsInches" /></div>
+                                </div>
+                                <div class="field"><label>Clothing fit notes</label><textarea rows="2" @bind="_edit.ClothingFitNotes"></textarea></div>
+                                <div class="routine-actions">
+                                    <button class="save-btn" @onclick="SaveEdit">Save</button>
+                                    <button class="link-btn" @onclick="() => _editId = null">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="ex-row" style="width:100%">
+                                <div>
+                                    <span class="time">@m.Date.ToString("MMM d")</span>
+                                    <span class="entry">
+                                        @(m.WeightLbs?.ToString("0.0") ?? "—") lbs
+                                        @if (m.WaistInches is not null)
+                                        {
+                                            <span class="muted"> · waist @m.WaistInches.Value.ToString("0.0")</span>
+                                        }
+                                    </span>
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="link-btn" @onclick="() => StartEdit(m)">Edit</button>
+                                    <button class="link-btn danger" @onclick="() => Delete(m)">Delete</button>
+                                </div>
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
         }
     </section>
 </div>
@@ -84,7 +115,47 @@
     // <input type="date"> binds to DateTime; bridge it to the entity's DateOnly.
     private DateTime _dateInput = DateTime.Now.Date;
 
+    private Guid? _editId;
+    private BodyMeasurement _edit = new();
+    private DateTime _editDate = DateTime.Now.Date;
+
     protected override async Task OnInitializedAsync() => await LoadHistory();
+
+    private void StartEdit(BodyMeasurement m)
+    {
+        _editId = m.Id;
+        _edit = new BodyMeasurement
+        {
+            WeightLbs = m.WeightLbs, WaistInches = m.WaistInches, ChestInches = m.ChestInches,
+            ArmsInches = m.ArmsInches, ThighsInches = m.ThighsInches, ClothingFitNotes = m.ClothingFitNotes
+        };
+        _editDate = m.Date.ToDateTime(TimeOnly.MinValue);
+    }
+
+    private async Task SaveEdit()
+    {
+        if (_editId is not { } id) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.BodyMeasurements.FindAsync(id);
+        if (e is not null)
+        {
+            e.Date = DateOnly.FromDateTime(_editDate);
+            e.WeightLbs = _edit.WeightLbs; e.WaistInches = _edit.WaistInches; e.ChestInches = _edit.ChestInches;
+            e.ArmsInches = _edit.ArmsInches; e.ThighsInches = _edit.ThighsInches; e.ClothingFitNotes = _edit.ClothingFitNotes;
+            await db.SaveChangesAsync();
+        }
+        _editId = null;
+        await LoadHistory();
+    }
+
+    private async Task Delete(BodyMeasurement m)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.BodyMeasurements.FindAsync(m.Id);
+        if (e is not null) { db.BodyMeasurements.Remove(e); await db.SaveChangesAsync(); }
+        if (_editId == m.Id) _editId = null;
+        await LoadHistory();
+    }
 
     private async Task LoadHistory()
     {

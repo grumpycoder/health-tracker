@@ -101,13 +101,45 @@
                 @foreach (var m in _recentMeds)
                 {
                     <li>
-                        <span class="time">@m.TakenAt.ToString("MMM d, h:mm tt")</span>
-                        <span class="entry"><strong>@m.Name</strong> @m.Dose
-                            @if (!string.IsNullOrWhiteSpace(m.InjectionSite))
-                            {
-                                <span class="muted"> @@ @m.InjectionSite</span>
-                            }
-                        </span>
+                        @if (_editMedId == m.Id)
+                        {
+                            <div class="edit-exercise" style="width:100%">
+                                <div class="field"><label>Medication</label><input @bind="_medEdit.Name" /></div>
+                                <div class="field"><label>Dose</label><input @bind="_medEdit.Dose" /></div>
+                                <div class="field"><label>Frequency</label><input @bind="_medEdit.Frequency" /></div>
+                                <div class="field"><label>Date / time taken</label><input type="datetime-local" @bind="_medEditTakenAt" /></div>
+                                <div class="field">
+                                    <label>Injection site</label>
+                                    <select @bind="_medEdit.InjectionSite">
+                                        <option value="">— none —</option>
+                                        @foreach (var s in InjectionSites) { <option value="@s">@s</option> }
+                                    </select>
+                                </div>
+                                <div class="field"><label>Reaction / notes</label><textarea rows="2" @bind="_medEdit.ReactionNotes"></textarea></div>
+                                <div class="routine-actions">
+                                    <button class="save-btn" @onclick="SaveMedEdit">Save</button>
+                                    <button class="link-btn" @onclick="() => _editMedId = null">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="ex-row" style="width:100%">
+                                <div>
+                                    <span class="time">@m.TakenAt.ToString("MMM d, h:mm tt")</span>
+                                    <span class="entry"><strong>@m.Name</strong> @m.Dose
+                                        @if (!string.IsNullOrWhiteSpace(m.InjectionSite))
+                                        {
+                                            <span class="muted"> @@ @m.InjectionSite</span>
+                                        }
+                                    </span>
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="link-btn" @onclick="() => StartEditMed(m)">Edit</button>
+                                    <button class="link-btn danger" @onclick="() => DeleteMed(m)">Delete</button>
+                                </div>
+                            </div>
+                        }
                     </li>
                 }
             </ul>
@@ -122,19 +154,41 @@
         }
         else
         {
-            <table class="history">
-                <thead><tr><th>Date</th><th>Lab</th><th>Value</th></tr></thead>
-                <tbody>
-                    @foreach (var l in _recentLabs)
-                    {
-                        <tr>
-                            <td>@l.Date.ToString("MMM d")</td>
-                            <td>@l.LabName</td>
-                            <td>@(l.Value?.ToString("0.##")) @l.Unit</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+            <ul class="timeline">
+                @foreach (var l in _recentLabs)
+                {
+                    <li>
+                        @if (_editLabId == l.Id)
+                        {
+                            <div class="edit-exercise" style="width:100%">
+                                <div class="field"><label>Date</label><input type="date" @bind="_labEditDate" /></div>
+                                <div class="field"><label>Lab</label><input @bind="_labEdit.LabName" /></div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Value</label><input type="number" step="0.01" @bind="_labEdit.Value" /></div>
+                                    <div class="field"><label>Unit</label><input @bind="_labEdit.Unit" /></div>
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="save-btn" @onclick="SaveLabEdit">Save</button>
+                                    <button class="link-btn" @onclick="() => _editLabId = null">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="ex-row" style="width:100%">
+                                <div>
+                                    <span class="time">@l.Date.ToString("MMM d")</span>
+                                    <span class="entry"><strong>@l.LabName</strong> @(l.Value?.ToString("0.##")) @l.Unit</span>
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="link-btn" @onclick="() => StartEditLab(l)">Edit</button>
+                                    <button class="link-btn danger" @onclick="() => DeleteLab(l)">Delete</button>
+                                </div>
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
         }
     </section>
 </div>
@@ -156,7 +210,79 @@
     private List<MedicationEntry> _recentMeds = new();
     private List<LabResult> _recentLabs = new();
 
+    // Inline edit state
+    private Guid? _editMedId;
+    private MedicationEntry _medEdit = new();
+    private DateTime _medEditTakenAt = DateTime.Now;
+    private Guid? _editLabId;
+    private LabResult _labEdit = new();
+    private DateTime _labEditDate = DateTime.Now.Date;
+
     protected override async Task OnInitializedAsync() => await LoadRecent();
+
+    private void StartEditMed(MedicationEntry m)
+    {
+        _editLabId = null;
+        _editMedId = m.Id;
+        _medEdit = new MedicationEntry { Name = m.Name, Dose = m.Dose, Frequency = m.Frequency, InjectionSite = m.InjectionSite, ReactionNotes = m.ReactionNotes };
+        _medEditTakenAt = m.TakenAt;
+    }
+
+    private async Task SaveMedEdit()
+    {
+        if (_editMedId is not { } id) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.MedicationEntries.FindAsync(id);
+        if (e is not null)
+        {
+            e.Name = _medEdit.Name; e.Dose = _medEdit.Dose; e.Frequency = _medEdit.Frequency;
+            e.TakenAt = _medEditTakenAt; e.InjectionSite = _medEdit.InjectionSite; e.ReactionNotes = _medEdit.ReactionNotes;
+            await db.SaveChangesAsync();
+        }
+        _editMedId = null;
+        await LoadRecent();
+    }
+
+    private async Task DeleteMed(MedicationEntry m)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.MedicationEntries.FindAsync(m.Id);
+        if (e is not null) { db.MedicationEntries.Remove(e); await db.SaveChangesAsync(); }
+        if (_editMedId == m.Id) _editMedId = null;
+        await LoadRecent();
+    }
+
+    private void StartEditLab(LabResult l)
+    {
+        _editMedId = null;
+        _editLabId = l.Id;
+        _labEdit = new LabResult { LabName = l.LabName, Value = l.Value, Unit = l.Unit };
+        _labEditDate = l.Date.ToDateTime(TimeOnly.MinValue);
+    }
+
+    private async Task SaveLabEdit()
+    {
+        if (_editLabId is not { } id) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.LabResults.FindAsync(id);
+        if (e is not null)
+        {
+            e.LabName = _labEdit.LabName; e.Value = _labEdit.Value; e.Unit = _labEdit.Unit;
+            e.Date = DateOnly.FromDateTime(_labEditDate);
+            await db.SaveChangesAsync();
+        }
+        _editLabId = null;
+        await LoadRecent();
+    }
+
+    private async Task DeleteLab(LabResult l)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.LabResults.FindAsync(l.Id);
+        if (e is not null) { db.LabResults.Remove(e); await db.SaveChangesAsync(); }
+        if (_editLabId == l.Id) _editLabId = null;
+        await LoadRecent();
+    }
 
     private async Task SaveMed()
     {
