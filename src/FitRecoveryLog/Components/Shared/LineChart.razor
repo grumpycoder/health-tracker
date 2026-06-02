@@ -1,0 +1,74 @@
+@* Dependency-free inline-SVG line chart. No JS interop, trimming-safe, offline. *@
+
+<div class="chart">
+    <div class="chart-head">
+        <span class="chart-title">@Title</span>
+        @if (_points.Count > 0)
+        {
+            <span class="chart-latest">@Fmt(_points[^1].Value)@Unit</span>
+        }
+    </div>
+
+    @if (_points.Count < 2)
+    {
+        <p class="muted chart-empty">Not enough data yet.</p>
+    }
+    else
+    {
+        <svg viewBox="0 0 @W @H" class="chart-svg" preserveAspectRatio="none" role="img"
+             aria-label="@Title trend">
+            <polyline class="chart-line" points="@_polyline" />
+            @foreach (var (cx, cy) in _coords)
+            {
+                <circle class="chart-dot" cx="@cx.ToString(Inv)" cy="@cy.ToString(Inv)" r="2.5" />
+            }
+        </svg>
+        <div class="chart-axis muted">
+            <span>@_points[0].Date.ToString("MMM d")</span>
+            <span>low @Fmt(_min)@Unit · high @Fmt(_max)@Unit</span>
+            <span>@_points[^1].Date.ToString("MMM d")</span>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter, EditorRequired] public List<(DateOnly Date, double Value)> Points { get; set; } = new();
+    /// <summary>Suffix shown after values, e.g. " lbs", " min".</summary>
+    [Parameter] public string Unit { get; set; } = "";
+    /// <summary>Numeric format string for values.</summary>
+    [Parameter] public string ValueFormat { get; set; } = "0.#";
+
+    private const double W = 320, H = 120, Pad = 10;
+    private static readonly System.Globalization.CultureInfo Inv =
+        System.Globalization.CultureInfo.InvariantCulture;
+
+    private List<(DateOnly Date, double Value)> _points = new();
+    private List<(double X, double Y)> _coords = new();
+    private string _polyline = "";
+    private double _min, _max;
+
+    protected override void OnParametersSet()
+    {
+        _points = Points.OrderBy(p => p.Date).ToList();
+        if (_points.Count < 2) return;
+
+        _min = _points.Min(p => p.Value);
+        _max = _points.Max(p => p.Value);
+        var span = _max - _min;
+        if (span <= 0) span = 1; // flat series: avoid divide-by-zero
+
+        var plotW = W - 2 * Pad;
+        var plotH = H - 2 * Pad;
+        _coords = new List<(double, double)>(_points.Count);
+        for (var i = 0; i < _points.Count; i++)
+        {
+            var x = Pad + (_points.Count == 1 ? 0 : plotW * i / (_points.Count - 1));
+            var y = Pad + plotH * (1 - (_points[i].Value - _min) / span);
+            _coords.Add((x, y));
+        }
+        _polyline = string.Join(" ", _coords.Select(c => $"{c.X.ToString(Inv)},{c.Y.ToString(Inv)}"));
+    }
+
+    private string Fmt(double v) => v.ToString(ValueFormat, Inv);
+}

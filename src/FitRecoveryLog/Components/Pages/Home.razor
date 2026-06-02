@@ -36,6 +36,12 @@
     </section>
 
     <section class="card">
+        <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("trends"))">
+            <span class="quick-emoji">📈</span> View trends
+        </button>
+    </section>
+
+    <section class="card">
         <h2>Daily note</h2>
         <textarea class="note" rows="3" placeholder="How are you feeling today?"
                   @bind="_log.Note" @bind:event="oninput"></textarea>

@@ -1,0 +1,83 @@
+@page "/trends"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Trends</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Trends</div>
+        <div class="dash-date-sub">How things are changing over time</div>
+    </header>
+
+    @if (!_loaded)
+    {
+        <section class="card"><p class="muted">Loading…</p></section>
+    }
+    else if (_empty)
+    {
+        <section class="card">
+            <p class="muted">No data yet. Log some measurements, sleep, workouts, or drinks
+            and your trends will show up here.</p>
+        </section>
+    }
+    else
+    {
+        <section class="card"><LineChart Title="Weight" Unit=" lbs" Points="_weight" /></section>
+        <section class="card"><LineChart Title="Waist" Unit=" in" Points="_waist" /></section>
+        <section class="card"><LineChart Title="Sleep score" Points="_sleep" ValueFormat="0" /></section>
+        <section class="card"><LineChart Title="Workout duration" Unit=" min" Points="_workoutMin" ValueFormat="0" /></section>
+        <section class="card"><LineChart Title="Sweet tea per day" Unit=" oz" Points="_teaOz" ValueFormat="0" /></section>
+    }
+</div>
+
+@code {
+    private bool _loaded;
+    private bool _empty;
+
+    private List<(DateOnly Date, double Value)> _weight = new();
+    private List<(DateOnly Date, double Value)> _waist = new();
+    private List<(DateOnly Date, double Value)> _sleep = new();
+    private List<(DateOnly Date, double Value)> _workoutMin = new();
+    private List<(DateOnly Date, double Value)> _teaOz = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        // Project to anonymous types server-side (translation-safe), map to tuples in memory.
+        _weight = (await db.BodyMeasurements
+            .Where(m => m.WeightLbs != null).OrderBy(m => m.Date)
+            .Select(m => new { m.Date, V = m.WeightLbs!.Value }).ToListAsync())
+            .Select(x => (x.Date, x.V)).ToList();
+
+        _waist = (await db.BodyMeasurements
+            .Where(m => m.WaistInches != null).OrderBy(m => m.Date)
+            .Select(m => new { m.Date, V = m.WaistInches!.Value }).ToListAsync())
+            .Select(x => (x.Date, x.V)).ToList();
+
+        _sleep = (await db.SleepEntries
+            .Where(s => s.SleepScore != null).OrderBy(s => s.Date)
+            .Select(s => new { s.Date, V = (double)s.SleepScore!.Value }).ToListAsync())
+            .Select(x => (x.Date, x.V)).ToList();
+
+        _workoutMin = (await db.WorkoutSessions
+            .Where(w => w.TotalSeconds != null).OrderBy(w => w.Date)
+            .Select(w => new { w.Date, V = w.TotalSeconds!.Value / 60.0 }).ToListAsync())
+            .Select(x => (x.Date, x.V)).ToList();
+
+        // Sweet tea: sum ounces per day across drinks whose description mentions "tea".
+        var teaDrinks = await db.DrinkEntries
+            .Where(d => d.Ounces != null && d.Description.ToLower().Contains("tea"))
+            .Select(d => new { d.Time, Oz = d.Ounces!.Value })
+            .ToListAsync();
+        _teaOz = teaDrinks
+            .GroupBy(d => DateOnly.FromDateTime(d.Time.Date))
+            .Select(g => new ValueTuple<DateOnly, double>(g.Key, g.Sum(x => x.Oz)))
+            .OrderBy(p => p.Item1)
+            .ToList();
+
+        _empty = _weight.Count == 0 && _waist.Count == 0 && _sleep.Count == 0
+                 && _workoutMin.Count == 0 && _teaOz.Count == 0;
+        _loaded = true;
+    }
+}
