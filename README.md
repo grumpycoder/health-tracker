@@ -34,12 +34,28 @@ Easiest day-to-day: open `FitRecoveryLog.sln` in **Rider** and pick a run target
 
 ## Data
 
+- The EF Core model lives in the **`FitRecoveryLog.Data`** class library (net9.0),
+  separate from the MAUI app so `dotnet ef` tooling can load it.
 - SQLite DB lives in the app's private data dir
   (`~/Library/Containers/com.mlawrence.fitrecoverylog/Data/Library/fitrecoverylog.db3`
   for MacCatalyst; sandboxed on device).
-- Schema is created via `EnsureCreated()` on startup. **This does not handle
-  incremental schema changes** — once the entity model stabilizes, switch to EF
-  Core migrations. Until then, changing an entity means deleting the local DB.
+- Schema is managed by **EF Core migrations**, applied via `Database.Migrate()` on
+  startup — first run creates the schema, later runs evolve it **without wiping data**.
+
+### Changing the schema
+
+After editing an entity, generate a migration (the `dotnet-ef` tool is pinned in
+`.config/dotnet-tools.json`):
+
+```bash
+dotnet tool restore   # first time only
+dotnet dotnet-ef migrations add <Name> \
+  --project src/FitRecoveryLog.Data \
+  --startup-project src/FitRecoveryLog.Data \
+  --output-dir Migrations
+```
+
+The next app launch applies it automatically.
 
 ## Status
 
@@ -49,10 +65,12 @@ Implemented:
 - Meal & Drink logger (tags, satiety, common-food autocomplete, today's timeline)
 - Sleep & Recovery logger (sleep metrics, recovery/fatigue, soreness locations)
 - Medication & Labs logger (incl. TRT injection sites; common labs)
-- Full entity/data model for all spec features
+- Workout tracking: routines, live-timer sessions, rep/time exercises, feedback
+- Persistent bottom tab navigation
+- EF Core migrations (data survives schema changes)
 
-Not yet built: workout tracking/timer, physical workload logger, trend charts,
-weekly review, export, HealthKit.
+Not yet built: physical workload logger, trend charts, weekly review,
+progression suggestions, export, HealthKit.
 
 ## Notes
 

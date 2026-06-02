@@ -40,13 +40,13 @@ public static class MauiProgram
 
 		var app = builder.Build();
 
-		// Create the database/schema on first run. (Swap to EF migrations once the
-		// schema stabilizes; EnsureCreated does not handle incremental schema changes.)
+		// Apply pending EF Core migrations on startup: creates the schema on first
+		// run and evolves it on later runs without wiping data.
 		using (var scope = app.Services.CreateScope())
 		{
 			var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 			using var db = factory.CreateDbContext();
-			db.Database.EnsureCreated();
+			db.Database.Migrate();
 		}
 
 		return app;
