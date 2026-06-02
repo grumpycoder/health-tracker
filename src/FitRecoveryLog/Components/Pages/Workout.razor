@@ -14,6 +14,12 @@
         <div class="dash-date-sub">Pick a routine to begin</div>
     </header>
 
+    <section class="card">
+        <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("workout-history"))">
+            <span class="quick-emoji">📋</span> Workout history
+        </button>
+    </section>
+
     @if (_routines.Count == 0)
     {
         <section class="card">

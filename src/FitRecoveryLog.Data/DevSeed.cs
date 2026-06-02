@@ -77,11 +77,34 @@ public static class DevSeed
             new RoutineExercise { RoutineId = routine.Id, ExerciseDefinitionId = glutes.Id, Order = 3 });
 
         // Completed sessions (drive the workout-duration trend).
+        var defs = new[] { pushups, lunges, plank, glutes };
+        WorkoutSession Session(int daysAgo, int durMin)
+        {
+            var s = new WorkoutSession
+            {
+                Date = D(daysAgo), RoutineId = routine.Id,
+                StartedAt = At(daysAgo, 17, 0), EndedAt = At(daysAgo, 17, durMin), TotalSeconds = durMin * 60
+            };
+            // Record each exercise's sets so the history detail has content.
+            foreach (var def in defs)
+                for (var i = 1; i <= (def.TargetSets ?? 1); i++)
+                    s.Sets.Add(new ExerciseSet
+                    {
+                        ExerciseDefinitionId = def.Id,
+                        SetNumber = i,
+                        Reps = def.Measure == ExerciseMeasure.Reps ? def.TargetReps : null,
+                        DurationSeconds = def.Measure == ExerciseMeasure.Duration ? def.TargetDurationSeconds : null,
+                        Completed = true
+                    });
+            return s;
+        }
+
+        var recent = Session(1, 34);
+        recent.Feedback.Add(new ExerciseFeedback { ExerciseDefinitionId = pushups.Id, Difficulty = Difficulty.Hard, Comment = "Last set on push-ups was very hard" });
+        recent.Feedback.Add(new ExerciseFeedback { ExerciseDefinitionId = plank.Id, Difficulty = Difficulty.VeryHard, BreathingDifficulty = true });
+
         db.WorkoutSessions.AddRange(
-            new WorkoutSession { Date = D(13), RoutineId = routine.Id, StartedAt = At(13, 17, 0), EndedAt = At(13, 17, 25), TotalSeconds = 1500 },
-            new WorkoutSession { Date = D(9),  RoutineId = routine.Id, StartedAt = At(9, 17, 0),  EndedAt = At(9, 17, 30),  TotalSeconds = 1800 },
-            new WorkoutSession { Date = D(5),  RoutineId = routine.Id, StartedAt = At(5, 17, 0),  EndedAt = At(5, 17, 27),  TotalSeconds = 1620 },
-            new WorkoutSession { Date = D(1),  RoutineId = routine.Id, StartedAt = At(1, 17, 0),  EndedAt = At(1, 17, 34),  TotalSeconds = 2040 });
+            Session(13, 25), Session(9, 30), Session(5, 27), recent);
 
         db.SaveChanges();
     }

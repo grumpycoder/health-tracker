@@ -1,0 +1,145 @@
+@page "/workout-history"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Workout History</PageTitle>
+
+<div class="dashboard">
+
+@if (_selected is null)
+{
+    <header class="dash-header">
+        <div class="dash-date">Workout history</div>
+        <div class="dash-date-sub">@_sessions.Count completed workout(s)</div>
+    </header>
+
+    @if (_sessions.Count == 0)
+    {
+        <section class="card"><p class="muted">No completed workouts yet.</p></section>
+    }
+    else
+    {
+        @foreach (var s in _sessions)
+        {
+            <section class="card session-card" @onclick="@(() => _selected = s)">
+                <div class="routine-head">
+                    <h2>@RoutineName(s)</h2>
+                    <span class="chart-latest">@FormatDuration(s.TotalSeconds)</span>
+                </div>
+                <p class="muted">@s.Date.ToString("ddd, MMM d") · @ExerciseCount(s) exercise(s)</p>
+            </section>
+        }
+    }
+}
+else
+{
+    var s = _selected;
+    <header class="dash-header">
+        <button class="link-btn" @onclick="@(() => _selected = null)">‹ Back</button>
+        <div class="dash-date">@s.Date.ToString("dddd, MMM d")</div>
+        <div class="dash-date-sub">@RoutineName(s) · @FormatDuration(s.TotalSeconds)</div>
+    </header>
+
+    @if (s.Sets.Count == 0)
+    {
+        <section class="card"><p class="muted">No exercise detail recorded for this session.</p></section>
+    }
+    else
+    {
+        @foreach (var grp in s.Sets.GroupBy(x => x.ExerciseDefinitionId))
+        {
+            var def = Def(grp.Key);
+            var fb = s.Feedback.FirstOrDefault(f => f.ExerciseDefinitionId == grp.Key);
+            <section class="card">
+                <h2>@(def?.Name ?? "Unknown exercise")</h2>
+                <table class="set-table">
+                    <thead><tr><th>Set</th><th>@(def?.Measure == ExerciseMeasure.Duration ? "Time" : "Reps")</th><th>Done</th></tr></thead>
+                    <tbody>
+                        @foreach (var set in grp.OrderBy(x => x.SetNumber))
+                        {
+                            <tr class="@(set.Completed ? "done" : "")">
+                                <td>@set.SetNumber</td>
+                                <td>@SetValue(def, set)</td>
+                                <td>@(set.Completed ? "✓" : "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                @if (fb is not null && HasFeedback(fb))
+                {
+                    <div class="feedback-row">
+                        @if (fb.Difficulty != Difficulty.Unset)
+                        {
+                            <span class="badge">@Pretty(fb.Difficulty.ToString())</span>
+                        }
+                        @if (fb.PainOrDiscomfort) { <span class="badge warn">Pain</span> }
+                        @if (fb.BreathingDifficulty) { <span class="badge warn">Breathing</span> }
+                        @if (fb.FormIssues) { <span class="badge warn">Form</span> }
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(fb.Comment))
+                    {
+                        <p class="muted feedback-comment">“@fb.Comment”</p>
+                    }
+                }
+            </section>
+        }
+    }
+
+    @if (!string.IsNullOrWhiteSpace(s.Notes))
+    {
+        <section class="card">
+            <h2>Notes</h2>
+            <p>@s.Notes</p>
+        </section>
+    }
+}
+
+</div>
+
+@code {
+    private List<WorkoutSession> _sessions = new();
+    private Dictionary<Guid, ExerciseDefinition> _defs = new();
+    private Dictionary<Guid, string> _routineNames = new();
+    private WorkoutSession? _selected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _sessions = await db.WorkoutSessions
+            .Include(x => x.Sets)
+            .Include(x => x.Feedback)
+            .OrderByDescending(x => x.Date)
+            .ThenByDescending(x => x.StartedAt)
+            .Take(100)
+            .ToListAsync();
+        _defs = (await db.ExerciseDefinitions.ToListAsync()).ToDictionary(d => d.Id);
+        _routineNames = (await db.WorkoutRoutines.ToListAsync()).ToDictionary(r => r.Id, r => r.Name);
+    }
+
+    private ExerciseDefinition? Def(Guid id) => _defs.TryGetValue(id, out var d) ? d : null;
+
+    private string RoutineName(WorkoutSession s) =>
+        s.RoutineId is { } id && _routineNames.TryGetValue(id, out var n) ? n : "Workout";
+
+    private int ExerciseCount(WorkoutSession s) =>
+        s.Sets.Select(x => x.ExerciseDefinitionId).Distinct().Count();
+
+    private static string SetValue(ExerciseDefinition? def, ExerciseSet set) =>
+        def?.Measure == ExerciseMeasure.Duration
+            ? (set.DurationSeconds is { } d ? $"{d}s" : "—")
+            : (set.Reps is { } r ? $"{r}" : "—");
+
+    private static bool HasFeedback(ExerciseFeedback f) =>
+        f.Difficulty != Difficulty.Unset || f.PainOrDiscomfort || f.BreathingDifficulty
+        || f.FormIssues || !string.IsNullOrWhiteSpace(f.Comment);
+
+    private static string FormatDuration(int? totalSeconds)
+    {
+        if (totalSeconds is not { } s || s <= 0) return "—";
+        var t = TimeSpan.FromSeconds(s);
+        return t.TotalHours >= 1 ? $"{(int)t.TotalHours}h {t.Minutes}m" : $"{t.Minutes} min";
+    }
+
+    private static string Pretty(string camel) =>
+        System.Text.RegularExpressions.Regex.Replace(camel, "(?<=.)([A-Z])", " $1");
+}
