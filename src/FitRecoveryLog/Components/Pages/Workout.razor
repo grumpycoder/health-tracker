@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 
 <PageTitle>Workout</PageTitle>
 
@@ -82,7 +83,18 @@ else if (_state == State.Active)
                             <td>
                                 @if (ex.Def.Measure == ExerciseMeasure.Duration)
                                 {
-                                    <input type="number" min="0" class="reps-input" @bind="s.DurationSeconds" />
+                                    @if (_timingSet == s)
+                                    {
+                                        <span class="timing">@Math.Max(0, SetRemaining) s</span>
+                                        <button class="icon-btn stop" title="Stop" aria-label="Stop hold"
+                                                @onclick="() => StopSetTimer(s)">⏹</button>
+                                    }
+                                    else
+                                    {
+                                        <input type="number" min="0" class="reps-input" @bind="s.DurationSeconds" />
+                                        <button class="icon-btn" title="Start hold timer" aria-label="Start hold timer"
+                                                @onclick="() => StartSetTimer(s)">▶</button>
+                                    }
                                 }
                                 else
                                 {
@@ -167,6 +179,13 @@ else // Feedback
     private int _totalMinutes;
     private string? _sessionNotes;
 
+    // Live hold countdown for a timed set (e.g. planks).
+    private SetVM? _timingSet;
+    private DateTime _setStart;
+    private int _holdTarget;
+    private int SetElapsed => (int)(DateTime.Now - _setStart).TotalSeconds;
+    private int SetRemaining => _holdTarget - SetElapsed;
+
     private string Elapsed
     {
         get
@@ -223,17 +242,50 @@ else // Feedback
         _timer = new System.Threading.Timer(_ => Tick(), null, 1000, 1000);
     }
 
-    private void Tick()
+    private void Tick() => InvokeAsync(async () =>
     {
         if (_rest > 0) _rest--;
-        InvokeAsync(StateHasChanged);
-    }
+        if (_timingSet is not null && SetRemaining <= 0)
+            await CompleteHold();
+        StateHasChanged();
+    });
 
     private void StartRest(int seconds) => _rest = seconds;
     private void StopRest() => _rest = 0;
 
+    private async Task StartSetTimer(SetVM s)
+    {
+        // Only one set timed at a time; record the previous if still running.
+        if (_timingSet is not null) StopSetTimer(_timingSet);
+        _holdTarget = s.DurationSeconds is > 0 ? s.DurationSeconds.Value : 30;
+        _setStart = DateTime.Now;
+        _timingSet = s;
+        // Unlock audio within this user gesture so the end-of-hold beep can play.
+        try { await JS.InvokeVoidAsync("holdTimer.arm"); } catch { }
+    }
+
+    // Stopped early — record the actual time held.
+    private void StopSetTimer(SetVM s)
+    {
+        s.DurationSeconds = Math.Min(SetElapsed, _holdTarget);
+        s.Completed = true;
+        _timingSet = null;
+    }
+
+    // Countdown reached zero — held the full target; alert and record it.
+    private async Task CompleteHold()
+    {
+        var s = _timingSet!;
+        s.DurationSeconds = _holdTarget;
+        s.Completed = true;
+        _timingSet = null;
+        try { await JS.InvokeVoidAsync("holdTimer.beep"); } catch { }
+        try { Microsoft.Maui.Devices.HapticFeedback.Default.Perform(Microsoft.Maui.Devices.HapticFeedbackType.LongPress); } catch { }
+    }
+
     private void GoToFeedback()
     {
+        if (_timingSet is not null) StopSetTimer(_timingSet); // capture an in-progress hold
         _timer?.Dispose();
         _timer = null;
         _totalMinutes = (int)Math.Round((DateTime.Now - _startedAt).TotalMinutes);

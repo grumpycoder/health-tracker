@@ -337,3 +337,28 @@ select.field, .field select {
 .week-nav .link-btn:disabled { opacity: 0.4; }
 .focus-list { margin: 0; padding-left: 1.2rem; }
 .focus-list li { padding: 0.25rem 0; }
+
+.timing {
+    display: inline-block;
+    min-width: 2.5rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: var(--accent);
+    margin-right: 0.4rem;
+}
+
+.icon-btn {
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    font-size: 0.85rem;
+    line-height: 1;
+    cursor: pointer;
+    margin-left: 0.4rem;
+    vertical-align: middle;
+}
+.icon-btn:active { transform: scale(0.92); }
+.icon-btn.stop { background: #dc2626; }
