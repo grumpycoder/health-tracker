@@ -29,7 +29,29 @@ Two-way, but each direction is explicit (no live/background sync in this scope).
 
 - `BodyMeasurement.WeightLbs` ↔ `HKQuantityType` **bodyMass**, unit `HKUnit.Pound`,
   sample dated to the measurement's date.
+- **Steps:** `HKQuantityType` **stepCount** — **read-only**, see below.
 - (Phase 2) `WaistInches` ↔ `HKQuantityType` **waistCircumference** (`HKUnit.Inch`).
+
+## Steps (read-only, not stored)
+
+Decision: **do not capture an "end of day" step snapshot, and do not store steps in
+the DB.** Read them from HealthKit on demand instead:
+
+- HealthKit already retains full step history, so any day's total can be queried
+  whenever needed — storing a daily copy adds dedup/staleness for no real gain.
+- A true end-of-day capture would require background delivery
+  (`HKObserverQuery` + background modes), which iOS throttles and is unreliable;
+  reading mid-day also yields a *partial* total.
+
+Implementation when built:
+- `IHealthService.ReadStepsAsync(DateOnly date)` and/or
+  `ReadDailyStepsAsync(DateOnly from, DateOnly to)` using `HKStatisticsQuery` /
+  `HKStatisticsCollectionQuery` (cumulative sum, `HKUnit.Count`).
+- Show today's steps live on the **dashboard**; build a **steps trend** by querying
+  per day. Nothing persisted; Mac build simply shows nothing.
+
+Revisit storing a `DailyLog.Steps` field (backfilled on app open, not end-of-day)
+only if steps are later wanted in **export** or the **Mac build**.
 
 ## Architecture
 
@@ -83,12 +105,14 @@ Two-way, but each direction is explicit (no live/background sync in this scope).
 
 ## Phasing
 
-- **Phase 1:** `IHealthService` + iOS impl; request auth; write-on-save for weight;
-  "Pull from Health" for weight with per-date dedup.
+- **Phase 1:** `IHealthService` + iOS impl; request auth (bodyMass read+write,
+  stepCount read); write-on-save for weight; "Pull from Health" for weight with
+  per-date dedup; **read-only steps** on the dashboard + a steps trend.
 - **Phase 2 (optional):** waist circumference; write workouts to Health; background
-  observer (`HKObserverQuery`/anchored) for true live two-way sync.
+  observer (`HKObserverQuery`/anchored) for true live two-way sync; persist
+  `DailyLog.Steps` if export/Mac coverage is wanted.
 
 ## Out of scope
 
-- Steps / heart rate / sleep import, workouts→Health, live observers, waist
-  (deferred to phase 2).
+- Heart rate / sleep import, workouts→Health, live observers, waist, and any
+  stored/end-of-day step snapshot (deferred to phase 2).
