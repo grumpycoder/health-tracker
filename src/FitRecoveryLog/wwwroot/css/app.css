@@ -235,7 +235,7 @@ select.field, .field select {
 /* routines + workout */
 .routine-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .routine-head h2 { margin: 0; text-transform: none; letter-spacing: 0; color: var(--text); font-size: 1.1rem; }
-.routine-actions { display: flex; gap: 0.75rem; }
+.routine-actions { display: flex; gap: 0.75rem; flex-shrink: 0; }
 
 .link-btn { background: none; border: none; color: var(--accent); font-size: 0.9rem; cursor: pointer; padding: 0.25rem; }
 .link-btn.danger { color: #dc2626; }
@@ -244,6 +244,7 @@ select.field, .field select {
 .exercise-list li { padding: 0.45rem 0; border-bottom: 1px solid var(--border); }
 .exercise-list li:last-child { border-bottom: none; }
 .ex-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.ex-row > div:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ex-name { font-weight: 600; margin-right: 0.5rem; }
 .edit-exercise { width: 100%; }
 
