@@ -1,0 +1,300 @@
+@page "/calendar"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Calendar</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Calendar</div>
+        <div class="dash-date-sub">Everything logged, day by day</div>
+    </header>
+
+    <section class="card">
+        <div class="cal-head">
+            <button class="link-btn" @onclick="() => ChangeMonth(-1)">‹</button>
+            <strong>@_month.ToString("MMMM yyyy")</strong>
+            <button class="link-btn" @onclick="() => ChangeMonth(1)">›</button>
+        </div>
+        <div class="cal-grid" style="margin-top:0.5rem">
+            @foreach (var dow in new[] { "S", "M", "T", "W", "T", "F", "S" })
+            {
+                <div class="cal-dow">@dow</div>
+            }
+            @foreach (var d in CalendarCells())
+            {
+                <button class="cal-day @(d.Month != _month.Month ? "other" : "") @(d == _selected ? "selected" : "") @(d == Today ? "today" : "")"
+                        @onclick="() => SelectDay(d)">
+                    @d.Day
+                    @if (_marked.Contains(d))
+                    {
+                        <span class="dot"></span>
+                    }
+                </button>
+            }
+        </div>
+    </section>
+
+    <header class="dash-header" style="margin-top:0.4rem">
+        <div class="dash-date" style="font-size:1.15rem">@_selected.ToString("dddd, MMMM d")</div>
+    </header>
+
+    @if (!_hasAny)
+    {
+        <section class="card"><p class="muted">Nothing logged this day.</p></section>
+    }
+
+    @if (_day is not null && (_day.DayType != DayType.Unset || !string.IsNullOrWhiteSpace(_day.Note)))
+    {
+        <section class="card">
+            <h2>Plan & Note</h2>
+            @if (_day.DayType != DayType.Unset)
+            {
+                <p style="margin:0 0 0.3rem"><strong>@DayTypeLabel(_day.DayType)</strong></p>
+            }
+            @if (!string.IsNullOrWhiteSpace(_day.Note))
+            {
+                <p class="muted" style="margin:0">@_day.Note</p>
+            }
+        </section>
+    }
+
+    @foreach (var s in _sessions)
+    {
+        <section class="card">
+            <h2>Workout</h2>
+            <p style="margin:0 0 0.4rem">
+                <strong>@(s.Routine?.Name ?? "Workout")</strong>
+                <span class="muted"> · @((s.TotalSeconds ?? 0) / 60) min · @s.Sets.Count(x => x.Completed)/@s.Sets.Count sets</span>
+            </p>
+            @foreach (var g in s.Sets.GroupBy(x => x.ExerciseDefinition?.Name ?? "?"))
+            {
+                <p class="muted" style="margin:0 0 0.2rem">
+                    @g.Key — @string.Join(", ", g.OrderBy(x => x.SetNumber)
+                        .Select(x => x.DurationSeconds is { } t ? $"{t}s" : x.Reps?.ToString() ?? "–"))
+                </p>
+            }
+            @if (!string.IsNullOrWhiteSpace(s.Notes))
+            {
+                <p class="muted" style="margin:0.3rem 0 0">“@s.Notes”</p>
+            }
+        </section>
+    }
+
+    @if (_meals.Count > 0 || _drinks.Count > 0)
+    {
+        <section class="card">
+            <h2>Meals & Drinks</h2>
+            <ul class="timeline">
+                @foreach (var item in MealsAndDrinks())
+                {
+                    <li>
+                        <span class="time">@item.Time.ToString("h:mm tt")</span>
+                        <span class="entry">@item.Text</span>
+                    </li>
+                }
+            </ul>
+        </section>
+    }
+
+    @if (_sleep is not null || _recovery is not null)
+    {
+        <section class="card">
+            <h2>Sleep & Recovery</h2>
+            @if (_sleep is not null)
+            {
+                <p style="margin:0 0 0.3rem">
+                    @(_sleep.DurationHours is { } h ? $"{h:0.#} h" : "")
+                    @(_sleep.SleepScore is { } sc ? $" · score {sc}" : "")
+                    @(_sleep.Interruptions is { } i ? $" · {i} interruption(s)" : "")
+                </p>
+                @if (!string.IsNullOrWhiteSpace(_sleep.Notes))
+                {
+                    <p class="muted" style="margin:0 0 0.3rem">“@_sleep.Notes”</p>
+                }
+            }
+            @if (_recovery is not null)
+            {
+                <p class="muted" style="margin:0">
+                    Recovery @(_recovery.RecoveryRating?.ToString() ?? "–")/10 · fatigue @(_recovery.FatigueRating?.ToString() ?? "–")/10
+                    @(_recovery.SorenessLocationList.Count > 0 ? $" · sore: {string.Join(", ", _recovery.SorenessLocationList)} ({_recovery.SorenessSeverity})" : "")
+                </p>
+            }
+        </section>
+    }
+
+    @if (_workload.Count > 0)
+    {
+        <section class="card">
+            <h2>Physical Workload</h2>
+            <ul class="timeline">
+                @foreach (var w in _workload)
+                {
+                    <li>
+                        <span class="entry">
+                            <strong>@w.Activity</strong>
+                            <span class="muted"> @(w.DurationMinutes is { } m ? $"{m} min · " : "")@w.Intensity@(string.IsNullOrWhiteSpace(w.Notes) ? "" : $" · {w.Notes}")</span>
+                        </span>
+                    </li>
+                }
+            </ul>
+        </section>
+    }
+
+    @if (_meds.Count > 0)
+    {
+        <section class="card">
+            <h2>Medications</h2>
+            <ul class="timeline">
+                @foreach (var m in _meds)
+                {
+                    <li>
+                        <span class="time">@m.TakenAt.ToString("h:mm tt")</span>
+                        <span class="entry"><strong>@m.Name</strong> @m.Dose
+                            @if (!string.IsNullOrWhiteSpace(m.InjectionSite))
+                            {
+                                <span class="muted"> @@ @m.InjectionSite</span>
+                            }
+                        </span>
+                    </li>
+                }
+            </ul>
+        </section>
+    }
+
+    @if (_measurement is not null)
+    {
+        <section class="card">
+            <h2>Body Measurement</h2>
+            <p style="margin:0">
+                @(_measurement.WeightLbs is { } wt ? $"{wt:0.#} lbs" : "")
+                @(_measurement.WaistInches is { } wa ? $" · waist {wa:0.##}\"" : "")
+            </p>
+        </section>
+    }
+
+    @if (_labs.Count > 0)
+    {
+        <section class="card">
+            <h2>Labs</h2>
+            <ul class="timeline">
+                @foreach (var l in _labs)
+                {
+                    <li><span class="entry"><strong>@l.LabName</strong> @(l.Value?.ToString("0.##")) @l.Unit</span></li>
+                }
+            </ul>
+        </section>
+    }
+</div>
+
+@code {
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Now);
+
+    private DateOnly _month = new(DateTime.Now.Year, DateTime.Now.Month, 1);
+    private DateOnly _selected = Today;
+    private HashSet<DateOnly> _marked = new();
+
+    private DailyLog? _day;
+    private List<WorkoutSession> _sessions = new();
+    private List<MealEntry> _meals = new();
+    private List<DrinkEntry> _drinks = new();
+    private SleepEntry? _sleep;
+    private RecoveryEntry? _recovery;
+    private List<PhysicalWorkloadEntry> _workload = new();
+    private List<MedicationEntry> _meds = new();
+    private BodyMeasurement? _measurement;
+    private List<LabResult> _labs = new();
+
+    private bool _hasAny =>
+        _day is not null || _sessions.Count > 0 || _meals.Count > 0 || _drinks.Count > 0
+        || _sleep is not null || _recovery is not null || _workload.Count > 0
+        || _meds.Count > 0 || _measurement is not null || _labs.Count > 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMonth();
+        await LoadDay();
+    }
+
+    private async Task ChangeMonth(int delta)
+    {
+        _month = _month.AddMonths(delta);
+        await LoadMonth();
+    }
+
+    private async Task SelectDay(DateOnly d)
+    {
+        _selected = d;
+        if (d.Year != _month.Year || d.Month != _month.Month)
+        {
+            _month = new DateOnly(d.Year, d.Month, 1);
+            await LoadMonth();
+        }
+        await LoadDay();
+    }
+
+    /// <summary>42 cells (6 weeks) starting the Sunday on/before the 1st.</summary>
+    private IEnumerable<DateOnly> CalendarCells()
+    {
+        var first = _month.AddDays(-(int)_month.ToDateTime(TimeOnly.MinValue).DayOfWeek);
+        for (var i = 0; i < 42; i++) yield return first.AddDays(i);
+    }
+
+    /// <summary>Mark every visible date that has anything logged (any table).</summary>
+    private async Task LoadMonth()
+    {
+        var from = _month.AddDays(-7);
+        var to = _month.AddMonths(1).AddDays(7);
+        var fromDt = from.ToDateTime(TimeOnly.MinValue);
+        var toDt = to.ToDateTime(TimeOnly.MinValue);
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var marked = new HashSet<DateOnly>();
+
+        marked.UnionWith(await db.DailyLogs.Where(x => x.Date >= from && x.Date < to).Select(x => x.Date).ToListAsync());
+        marked.UnionWith(await db.WorkoutSessions.Where(x => x.Date >= from && x.Date < to).Select(x => x.Date).ToListAsync());
+        marked.UnionWith(await db.SleepEntries.Where(x => x.Date >= from && x.Date < to).Select(x => x.Date).ToListAsync());
+        marked.UnionWith(await db.RecoveryEntries.Where(x => x.Date >= from && x.Date < to).Select(x => x.Date).ToListAsync());
+        marked.UnionWith(await db.PhysicalWorkloadEntries.Where(x => x.Date >= from && x.Date < to).Select(x => x.Date).ToListAsync());
+        marked.UnionWith(await db.BodyMeasurements.Where(x => x.Date >= from && x.Date < to).Select(x => x.Date).ToListAsync());
+        marked.UnionWith(await db.LabResults.Where(x => x.Date >= from && x.Date < to).Select(x => x.Date).ToListAsync());
+        marked.UnionWith((await db.MealEntries.Where(x => x.Time >= fromDt && x.Time < toDt).Select(x => x.Time).ToListAsync()).Select(DateOnly.FromDateTime));
+        marked.UnionWith((await db.DrinkEntries.Where(x => x.Time >= fromDt && x.Time < toDt).Select(x => x.Time).ToListAsync()).Select(DateOnly.FromDateTime));
+        marked.UnionWith((await db.MedicationEntries.Where(x => x.TakenAt >= fromDt && x.TakenAt < toDt).Select(x => x.TakenAt).ToListAsync()).Select(DateOnly.FromDateTime));
+
+        _marked = marked;
+    }
+
+    private async Task LoadDay()
+    {
+        var d = _selected;
+        var dayStart = d.ToDateTime(TimeOnly.MinValue);
+        var dayEnd = dayStart.AddDays(1);
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _day = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == d);
+        _sessions = await db.WorkoutSessions.Where(x => x.Date == d)
+            .Include(x => x.Routine)
+            .Include(x => x.Sets).ThenInclude(x => x.ExerciseDefinition)
+            .ToListAsync();
+        _meals = await db.MealEntries.Where(x => x.Time >= dayStart && x.Time < dayEnd).OrderBy(x => x.Time).ToListAsync();
+        _drinks = await db.DrinkEntries.Where(x => x.Time >= dayStart && x.Time < dayEnd).OrderBy(x => x.Time).ToListAsync();
+        _sleep = await db.SleepEntries.FirstOrDefaultAsync(x => x.Date == d);
+        _recovery = await db.RecoveryEntries.FirstOrDefaultAsync(x => x.Date == d);
+        _workload = await db.PhysicalWorkloadEntries.Where(x => x.Date == d).ToListAsync();
+        _meds = await db.MedicationEntries.Where(x => x.TakenAt >= dayStart && x.TakenAt < dayEnd).OrderBy(x => x.TakenAt).ToListAsync();
+        _measurement = await db.BodyMeasurements.FirstOrDefaultAsync(x => x.Date == d);
+        _labs = await db.LabResults.Where(x => x.Date == d).ToListAsync();
+    }
+
+    private IEnumerable<(DateTime Time, string Text)> MealsAndDrinks() =>
+        _meals.Select(m => (m.Time, $"{m.MealType}: {m.Description}{(string.IsNullOrWhiteSpace(m.PortionNote) ? "" : $" ({m.PortionNote})")}"))
+            .Concat(_drinks.Select(dr => (dr.Time, $"Drink: {dr.Description}{(dr.Ounces is { } oz ? $" ({oz:0.#} oz)" : "")}")))
+            .OrderBy(x => x.Item1);
+
+    private static string DayTypeLabel(DayType dt) => dt switch
+    {
+        DayType.ActiveRecovery => "Active Recovery",
+        DayType.HighWorkload => "High Workload",
+        _ => dt.ToString()
+    };
+}

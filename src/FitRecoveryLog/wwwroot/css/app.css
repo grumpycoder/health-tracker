@@ -232,6 +232,36 @@ select.field, .field select {
 .timeline .time { display: block; color: var(--muted); font-size: 0.8rem; margin-bottom: 0.15rem; }
 .timeline .entry { display: block; flex: 1; }
 
+/* calendar */
+.cal-head { display: flex; align-items: center; justify-content: space-between; }
+.cal-head .link-btn { font-size: 1.3rem; padding: 0.1rem 0.8rem; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.25rem; }
+.cal-dow { text-align: center; font-size: 0.7rem; color: var(--muted); padding-bottom: 0.2rem; }
+.cal-day {
+    aspect-ratio: 1;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.9rem;
+    position: relative;
+    padding: 0;
+}
+.cal-day.other { opacity: 0.35; }
+.cal-day.today { border-color: var(--accent); }
+.cal-day.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+.cal-day .dot {
+    position: absolute;
+    bottom: 5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+}
+.cal-day.selected .dot { background: #fff; }
+
 /* routines + workout */
 .routine-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .routine-head h2 { margin: 0; text-transform: none; letter-spacing: 0; color: var(--text); font-size: 1.1rem; }
