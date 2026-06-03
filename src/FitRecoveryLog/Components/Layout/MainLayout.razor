@@ -1,4 +1,6 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject NavigationManager Nav
 
 <div class="app-shell">
     <article class="content">
@@ -28,3 +30,19 @@
         </NavLink>
     </nav>
 </div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        NotificationNav.RouteRequested += OnRouteRequested;
+        // Cold start from a notification tap: the route was stashed before Blazor loaded.
+        if (NotificationNav.Consume() is { } route)
+            Nav.NavigateTo(route);
+    }
+
+    // Warm tap: hop onto the renderer thread before navigating.
+    private void OnRouteRequested(string route) =>
+        _ = InvokeAsync(() => Nav.NavigateTo(route));
+
+    public void Dispose() => NotificationNav.RouteRequested -= OnRouteRequested;
+}

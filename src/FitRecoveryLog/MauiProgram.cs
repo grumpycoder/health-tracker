@@ -28,7 +28,14 @@ public static class MauiProgram
 
 		// Local notifications are iOS-only here (the plugin has no MacCatalyst impl).
 		if (ReminderNotifier.IsSupported)
+		{
 			builder.UseLocalNotification();
+			// Tapping a notification opens the Reminders page.
+			LocalNotificationCenter.Current.NotificationActionTapped += e =>
+			{
+				if (e.IsTapped) NotificationNav.Go("reminders");
+			};
+		}
 		builder.Services.AddMauiBlazorWebView();
 
 		// HealthKit (iOS only); no-op everywhere else (e.g. Mac Catalyst).
