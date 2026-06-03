@@ -169,6 +169,10 @@
                 @(_measurement.WeightLbs is { } wt ? $"{wt:0.#} lbs" : "")
                 @(_measurement.WaistInches is { } wa ? $" · waist {wa:0.##}\"" : "")
             </p>
+            @if (PhotoDataUrl(_measurement.PhotoPath) is { } photo)
+            {
+                <img src="@photo" style="width:50%;border-radius:10px;margin-top:0.5rem" />
+            }
         </section>
     }
 
@@ -298,6 +302,14 @@
         _meals.Select(m => (m.Time, $"{m.MealType}: {m.Description}{(string.IsNullOrWhiteSpace(m.PortionNote) ? "" : $" ({m.PortionNote})")}"))
             .Concat(_drinks.Select(dr => (dr.Time, $"Drink: {dr.Description}{(dr.Ounces is { } oz ? $" ({oz:0.#} oz)" : "")}")))
             .OrderBy(x => x.Item1);
+
+    private static string? PhotoDataUrl(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return null;
+        var path = Path.Combine(Microsoft.Maui.Storage.FileSystem.AppDataDirectory, "photos", name);
+        if (!File.Exists(path)) return null;
+        return $"data:image/jpeg;base64,{Convert.ToBase64String(File.ReadAllBytes(path))}";
+    }
 
     private static string DayTypeLabel(DayType dt) => dt switch
     {

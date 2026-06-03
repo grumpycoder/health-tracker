@@ -136,6 +136,16 @@
         _loggedTodayCount = schedules.Count - _medSchedules.Count;
         _recentMeds = await db.MedicationEntries.OrderByDescending(m => m.TakenAt).Take(20).ToListAsync();
         _settings = await db.ReminderSettings.ToListAsync();
+
+        // Settings added after the original seed get created on demand.
+        if (_settings.All(s => s.Key != "progressPhoto"))
+        {
+            var photo = new ReminderSetting { Key = "progressPhoto", Repeat = ReminderRepeat.Monthly, Time = new(9, 0), Active = false, NotificationId = 2004 };
+            db.ReminderSettings.Add(photo);
+            await db.SaveChangesAsync();
+            _settings.Add(photo);
+        }
+
         _settings.Sort((a, b) => Order(a.Key).CompareTo(Order(b.Key)));
     }
 
@@ -144,9 +154,10 @@
         "measurement" => "Body Measurement",
         "labCheck" => "Lab Check",
         "weeklyReview" => "Weekly Review",
+        "progressPhoto" => "Progress Photo",
         _ => key
     };
-    private static int Order(string key) => key switch { "measurement" => 0, "labCheck" => 1, "weeklyReview" => 2, _ => 9 };
+    private static int Order(string key) => key switch { "measurement" => 0, "progressPhoto" => 1, "labCheck" => 2, "weeklyReview" => 3, _ => 9 };
 
     private Task ToggleSetting(ReminderSetting s) => Update(s, x => x.Active = !x.Active);
     private Task ChangeRepeat(ReminderSetting s, ChangeEventArgs e) =>

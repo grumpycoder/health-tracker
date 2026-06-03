@@ -68,6 +68,46 @@
     }
 
     <section class="card">
+        <h2>Progress Photos</h2>
+        <div class="routine-actions" style="margin-bottom:0.6rem">
+            @if (_captureSupported)
+            {
+                <button class="save-btn" @onclick="() => AddPhoto(true)">📷 Take Photo</button>
+            }
+            <button class="save-btn" @onclick="() => AddPhoto(false)">🖼 Choose Photo</button>
+        </div>
+        @if (_photoMsg is not null)
+        {
+            <p class="muted" style="margin:0 0 0.5rem">@_photoMsg</p>
+        }
+        @if (_viewPhoto is not null)
+        {
+            <img src="@PhotoDataUrl(_viewPhoto.PhotoPath)" style="width:100%;border-radius:12px;margin-bottom:0.4rem" />
+            <div class="routine-actions" style="margin-bottom:0.6rem">
+                <span class="muted" style="align-self:center">@_viewPhoto.Date.ToString("MMM d, yyyy")</span>
+                <button class="link-btn danger" @onclick="() => DeletePhoto(_viewPhoto)">Delete Photo</button>
+                <button class="link-btn" @onclick="() => _viewPhoto = null">Close</button>
+            </div>
+        }
+        @if (_photos.Count == 0)
+        {
+            <p class="muted">No photos yet. One photo is kept per day.</p>
+        }
+        else
+        {
+            <div class="photo-grid">
+                @foreach (var p in _photos)
+                {
+                    <div class="photo-cell" @onclick="() => _viewPhoto = p">
+                        <img src="@PhotoDataUrl(p.PhotoPath)" />
+                        <span class="photo-date">@p.Date.ToString("MMM d")</span>
+                    </div>
+                }
+            </div>
+        }
+    </section>
+
+    <section class="card">
         <h2>History</h2>
         @if (_history.Count == 0)
         {
@@ -139,8 +179,89 @@
     private DateTime _editDate = DateTime.Now.Date;
     private string? _pullMsg;
 
+    // Progress photos: one per day, stored downscaled under AppData/photos.
+    // PhotoPath holds the FILE NAME only — the iOS container path changes
+    // between reinstalls, so absolute paths would break.
+    private List<BodyMeasurement> _photos = new();
+    private BodyMeasurement? _viewPhoto;
+    private string? _photoMsg;
+    private bool _captureSupported;
+
+    private static string PhotosDir => Path.Combine(Microsoft.Maui.Storage.FileSystem.AppDataDirectory, "photos");
+
+    private static string? PhotoDataUrl(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return null;
+        var path = Path.Combine(PhotosDir, name);
+        if (!File.Exists(path)) return null;
+        return $"data:image/jpeg;base64,{Convert.ToBase64String(File.ReadAllBytes(path))}";
+    }
+
+    private async Task AddPhoto(bool camera)
+    {
+        _photoMsg = null;
+        try
+        {
+            var picked = camera
+                ? await Microsoft.Maui.Media.MediaPicker.Default.CapturePhotoAsync()
+                : await Microsoft.Maui.Media.MediaPicker.Default.PickPhotoAsync();
+            if (picked is null) return; // cancelled
+
+            Directory.CreateDirectory(PhotosDir);
+            var name = $"{Guid.NewGuid():N}.jpg";
+            using (var src = await picked.OpenReadAsync())
+            {
+                var img = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(src);
+                using var resized = img.Downsize(1280, disposeOriginal: true);
+                var bytes = resized.AsBytes(Microsoft.Maui.Graphics.ImageFormat.Jpeg, quality: 0.8f);
+                await File.WriteAllBytesAsync(Path.Combine(PhotosDir, name), bytes);
+            }
+
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var m = await db.BodyMeasurements.FirstOrDefaultAsync(x => x.Date == today);
+            if (m is null)
+            {
+                db.BodyMeasurements.Add(new BodyMeasurement { Date = today, PhotoPath = name });
+            }
+            else
+            {
+                // One photo per day — replace and remove the old file.
+                if (m.PhotoPath is { } old)
+                {
+                    var oldPath = Path.Combine(PhotosDir, old);
+                    if (File.Exists(oldPath)) File.Delete(oldPath);
+                }
+                m.PhotoPath = name;
+            }
+            await db.SaveChangesAsync();
+            _photoMsg = "Photo saved ✓";
+            await LoadHistory();
+        }
+        catch (Exception ex)
+        {
+            _photoMsg = $"Photo failed: {ex.Message}";
+        }
+    }
+
+    private async Task DeletePhoto(BodyMeasurement p)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.BodyMeasurements.FindAsync(p.Id);
+        if (e?.PhotoPath is { } name)
+        {
+            var path = Path.Combine(PhotosDir, name);
+            if (File.Exists(path)) File.Delete(path);
+            e.PhotoPath = null;
+            await db.SaveChangesAsync();
+        }
+        _viewPhoto = null;
+        await LoadHistory();
+    }
+
     protected override async Task OnInitializedAsync()
     {
+        try { _captureSupported = Microsoft.Maui.Media.MediaPicker.Default.IsCaptureSupported; } catch { }
         if (Health.IsAvailable) { try { await Health.RequestAuthorizationAsync(); } catch { } }
         await LoadHistory();
     }
@@ -209,6 +330,11 @@
         _history = await db.BodyMeasurements
             .OrderByDescending(x => x.Date)
             .Take(20)
+            .ToListAsync();
+        _photos = await db.BodyMeasurements
+            .Where(x => x.PhotoPath != null)
+            .OrderByDescending(x => x.Date)
+            .Take(12)
             .ToListAsync();
     }
 

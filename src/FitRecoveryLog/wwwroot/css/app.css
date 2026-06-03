@@ -232,6 +232,27 @@ select.field, .field select {
 .timeline .time { display: block; color: var(--muted); font-size: 0.8rem; margin-bottom: 0.15rem; }
 .timeline .entry { display: block; flex: 1; }
 
+/* progress photos */
+.photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
+.photo-cell { position: relative; cursor: pointer; }
+.photo-cell img {
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    object-fit: cover;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+}
+.photo-date {
+    position: absolute;
+    bottom: 0.3rem;
+    left: 0.3rem;
+    font-size: 0.65rem;
+    color: #fff;
+    background: rgba(0,0,0,0.55);
+    padding: 0.1rem 0.35rem;
+    border-radius: 6px;
+}
+
 /* calendar */
 .cal-head { display: flex; align-items: center; justify-content: space-between; }
 .cal-head .link-btn { font-size: 1.3rem; padding: 0.1rem 0.8rem; }
