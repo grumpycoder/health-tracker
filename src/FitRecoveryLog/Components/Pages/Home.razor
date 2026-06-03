@@ -62,13 +62,28 @@
     </section>
 
     <section class="card">
-        <h2>Daily note</h2>
-        <textarea class="note" rows="3" placeholder="How are you feeling today?"
-                  @bind="_log.Note" @bind:event="oninput"></textarea>
-        <button class="save-btn" @onclick="SaveLog">Save</button>
-        @if (_saved)
+        <h2>Notes</h2>
+        <textarea class="note" rows="2" placeholder="How are you feeling right now?"
+                  @bind="_noteText" @bind:event="oninput"></textarea>
+        <button class="save-btn" @onclick="AddNote">Add Note</button>
+        @if (_todayNotes.Count > 0)
         {
-            <span class="saved-msg">Saved ✓</span>
+            <ul class="timeline" style="margin-top:0.6rem">
+                @foreach (var n in _todayNotes)
+                {
+                    <li>
+                        <div class="ex-row" style="width:100%">
+                            <div>
+                                <span class="time">@n.Time.ToString("h:mm tt")</span>
+                                <span class="entry">@n.Text</span>
+                            </div>
+                            <div class="routine-actions">
+                                <button class="icon-action danger" title="Delete" aria-label="Delete" @onclick="() => DeleteNote(n)">🗑</button>
+                            </div>
+                        </div>
+                    </li>
+                }
+            </ul>
         }
     </section>
 </div>
@@ -94,8 +109,11 @@
     };
 
     private DailyLog _log = new();
-    private bool _saved;
     private int? _steps;
+
+    // Timestamped notes, addable any time through the day.
+    private string _noteText = "";
+    private List<NoteEntry> _todayNotes = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -112,14 +130,42 @@
         }
     }
 
-    // Load (or start) the plan/note for the current calendar day.
+    // Load (or start) the plan for the current calendar day, plus its notes.
     private async Task LoadForToday()
     {
         _today = DateOnly.FromDateTime(DateTime.Now);
         await using var db = await DbFactory.CreateDbContextAsync();
         var existing = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == _today);
         _log = existing ?? new DailyLog { Date = _today };
-        _saved = false;
+        await LoadNotes(db);
+    }
+
+    private async Task LoadNotes(AppDbContext db)
+    {
+        var start = _today.ToDateTime(TimeOnly.MinValue);
+        var end = start.AddDays(1);
+        _todayNotes = await db.NoteEntries
+            .Where(n => n.Time >= start && n.Time < end)
+            .OrderBy(n => n.Time).ToListAsync();
+    }
+
+    private async Task AddNote()
+    {
+        var text = _noteText.Trim();
+        if (text.Length == 0) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.NoteEntries.Add(new NoteEntry { Time = DateTime.Now, Text = text });
+        await db.SaveChangesAsync();
+        _noteText = "";
+        await LoadNotes(db);
+    }
+
+    private async Task DeleteNote(NoteEntry n)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.NoteEntries.FindAsync(n.Id);
+        if (e is not null) { db.NoteEntries.Remove(e); await db.SaveChangesAsync(); }
+        await LoadNotes(db);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -157,16 +203,10 @@
         await using var db = await DbFactory.CreateDbContextAsync();
         var existing = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == _log.Date);
         if (existing is null)
-        {
             db.DailyLogs.Add(_log);
-        }
         else
-        {
             existing.DayType = _log.DayType;
-            existing.Note = _log.Note;
-        }
         await db.SaveChangesAsync();
-        _saved = true;
     }
 
     private static string Label(DayType dt) => dt switch

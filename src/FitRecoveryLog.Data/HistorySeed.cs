@@ -180,18 +180,19 @@ public static class HistorySeed
             });
         }
 
-        // --- Observations → per-day notes; day types from activity ----------------
+        // --- Observations → timestamped notes; day types from activity ------------
+        foreach (var o in doc.Observations ?? [])
+            db.NoteEntries.Add(new NoteEntry
+            {
+                Time = DateOnly.Parse(o.Date!).ToDateTime(new TimeOnly(12, 0)),
+                Text = string.IsNullOrWhiteSpace(o.Category) ? o.Note ?? "" : $"{o.Category}: {o.Note}"
+            });
+
         var days = new Dictionary<DateOnly, DailyLog>();
         DailyLog Day(DateOnly d) => days.TryGetValue(d, out var log)
             ? log
             : days[d] = new DailyLog { Date = d };
 
-        foreach (var o in (doc.Observations ?? []).GroupBy(o => o.Date))
-        {
-            var log = Day(DateOnly.Parse(o.Key!));
-            log.Note = string.Join("; ", o.Select(x =>
-                string.IsNullOrWhiteSpace(x.Category) ? x.Note : $"{x.Category}: {x.Note}"));
-        }
         foreach (var w in workouts) Day(DateOnly.Parse(w.Date!)).DayType = DayType.Workout;
         foreach (var r in doc.RecoveryDays ?? []) Day(DateOnly.Parse(r.Date!)).DayType = DayType.HighWorkload;
         db.DailyLogs.AddRange(days.Values);
@@ -227,6 +228,7 @@ public static class HistorySeed
         db.WeeklyReviews.ExecuteDelete();
         db.ReminderSettings.ExecuteDelete();
         db.DailyLogs.ExecuteDelete();
+        db.NoteEntries.ExecuteDelete();
     }
 
     // ---- JSON shapes (match health-history.json) -------------------------------

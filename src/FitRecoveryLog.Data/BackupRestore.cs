@@ -18,6 +18,7 @@ public static class BackupRestore
     public sealed class Backup
     {
         public List<DailyLog>? DailyLogs { get; set; }
+        public List<NoteEntry>? NoteEntries { get; set; }
         public List<BodyMeasurement>? BodyMeasurements { get; set; }
         public List<MealEntry>? Meals { get; set; }
         public List<DrinkEntry>? Drinks { get; set; }
@@ -58,6 +59,7 @@ public static class BackupRestore
         Add("med schedules", b.MedicationSchedules?.Count);
         Add("labs", b.Labs?.Count);
         Add("daily logs", b.DailyLogs?.Count);
+        Add("notes", b.NoteEntries?.Count);
         Add("weekly reviews", b.WeeklyReviews?.Count);
         return parts.Count == 0 ? "no records" : string.Join(", ", parts);
     }
@@ -76,6 +78,7 @@ public static class BackupRestore
         HistorySeed.Wipe(db);
 
         db.DailyLogs.AddRange(b.DailyLogs ?? []);
+        db.NoteEntries.AddRange(b.NoteEntries ?? []);
         db.BodyMeasurements.AddRange(b.BodyMeasurements ?? []);
         db.MealEntries.AddRange(b.Meals ?? []);
         db.DrinkEntries.AddRange(b.Drinks ?? []);

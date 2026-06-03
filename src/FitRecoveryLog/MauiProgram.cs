@@ -79,6 +79,18 @@ public static class MauiProgram
 				}
 				catch (Exception ex) { Log("HistorySeed", ex); }
 			}
+			// Legacy: per-day DailyLog notes move into timestamped NoteEntries
+			// (idempotent — converted notes are cleared from the DailyLog).
+			var legacyNotes = db.DailyLogs.Where(d => d.Note != null && d.Note != "").ToList();
+			if (legacyNotes.Count > 0)
+			{
+				foreach (var d in legacyNotes)
+				{
+					db.NoteEntries.Add(new NoteEntry { Time = d.Date.ToDateTime(new TimeOnly(12, 0)), Text = d.Note! });
+					d.Note = null;
+				}
+				db.SaveChanges();
+			}
 #if DEBUG
 			// Populate an empty database with sample data for development.
 			DevSeed.SeedIfEmpty(db);

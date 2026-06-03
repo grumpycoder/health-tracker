@@ -148,6 +148,7 @@
             {
                 exportedAt = DateTime.Now,
                 dailyLogs = await db.DailyLogs.ToListAsync(),
+                noteEntries = await db.NoteEntries.ToListAsync(),
                 bodyMeasurements = await db.BodyMeasurements.ToListAsync(),
                 meals = await db.MealEntries.ToListAsync(),
                 drinks = await db.DrinkEntries.ToListAsync(),

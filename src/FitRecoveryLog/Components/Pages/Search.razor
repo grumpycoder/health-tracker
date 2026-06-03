@@ -87,8 +87,8 @@
             hits.Add(new(DateOnly.FromDateTime(d.Time), d.Time, "🥤", "Drinks",
                 $"{d.Description}{(d.Ounces is { } oz ? $" ({oz:0.#} oz)" : "")}"));
 
-        foreach (var l in await db.DailyLogs.Where(l => l.Note != null && l.Note.Contains(q)).ToListAsync())
-            hits.Add(new(l.Date, l.Date.ToDateTime(TimeOnly.MinValue), "📝", "Notes", $"Note: {l.Note}"));
+        foreach (var n in await db.NoteEntries.Where(n => n.Text.Contains(q)).ToListAsync())
+            hits.Add(new(DateOnly.FromDateTime(n.Time), n.Time, "📝", "Notes", $"Note: {n.Text}"));
 
         foreach (var s in await db.SleepEntries.Where(s => s.Notes != null && s.Notes.Contains(q)).ToListAsync())
             hits.Add(new(s.Date, s.Date.ToDateTime(TimeOnly.MinValue), "😴", "Sleep", $"Sleep: {s.Notes}"));

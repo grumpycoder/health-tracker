@@ -43,18 +43,27 @@
         <section class="card"><p class="muted">Nothing logged this day.</p></section>
     }
 
-    @if (_day is not null && (_day.DayType != DayType.Unset || !string.IsNullOrWhiteSpace(_day.Note)))
+    @if (_day is not null && _day.DayType != DayType.Unset)
     {
         <section class="card">
-            <h2>Plan & Note</h2>
-            @if (_day.DayType != DayType.Unset)
-            {
-                <p style="margin:0 0 0.3rem"><strong>@DayTypeLabel(_day.DayType)</strong></p>
-            }
-            @if (!string.IsNullOrWhiteSpace(_day.Note))
-            {
-                <p class="muted" style="margin:0">@_day.Note</p>
-            }
+            <h2>Plan</h2>
+            <p style="margin:0"><strong>@DayTypeLabel(_day.DayType)</strong></p>
+        </section>
+    }
+
+    @if (_notes.Count > 0)
+    {
+        <section class="card">
+            <h2>Notes</h2>
+            <ul class="timeline">
+                @foreach (var n in _notes)
+                {
+                    <li>
+                        <span class="time">@n.Time.ToString("h:mm tt")</span>
+                        <span class="entry">@n.Text</span>
+                    </li>
+                }
+            </ul>
         </section>
     }
 
@@ -201,6 +210,7 @@
     private HashSet<DateOnly> _marked = new();
 
     private DailyLog? _day;
+    private List<NoteEntry> _notes = new();
     private List<WorkoutSession> _sessions = new();
     private List<MealEntry> _meals = new();
     private List<DrinkEntry> _drinks = new();
@@ -212,7 +222,7 @@
     private List<LabResult> _labs = new();
 
     private bool _hasAny =>
-        _day is not null || _sessions.Count > 0 || _meals.Count > 0 || _drinks.Count > 0
+        _day is not null || _notes.Count > 0 || _sessions.Count > 0 || _meals.Count > 0 || _drinks.Count > 0
         || _sleep is not null || _recovery is not null || _workload.Count > 0
         || _meds.Count > 0 || _measurement is not null || _labs.Count > 0;
 
@@ -272,6 +282,7 @@
         marked.UnionWith((await db.MealEntries.Where(x => x.Time >= fromDt && x.Time < toDt).Select(x => x.Time).ToListAsync()).Select(DateOnly.FromDateTime));
         marked.UnionWith((await db.DrinkEntries.Where(x => x.Time >= fromDt && x.Time < toDt).Select(x => x.Time).ToListAsync()).Select(DateOnly.FromDateTime));
         marked.UnionWith((await db.MedicationEntries.Where(x => x.TakenAt >= fromDt && x.TakenAt < toDt).Select(x => x.TakenAt).ToListAsync()).Select(DateOnly.FromDateTime));
+        marked.UnionWith((await db.NoteEntries.Where(x => x.Time >= fromDt && x.Time < toDt).Select(x => x.Time).ToListAsync()).Select(DateOnly.FromDateTime));
 
         _marked = marked;
     }
@@ -284,6 +295,7 @@
 
         await using var db = await DbFactory.CreateDbContextAsync();
         _day = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == d);
+        _notes = await db.NoteEntries.Where(n => n.Time >= dayStart && n.Time < dayEnd).OrderBy(n => n.Time).ToListAsync();
         _sessions = await db.WorkoutSessions.Where(x => x.Date == d)
             .Include(x => x.Routine)
             .Include(x => x.Sets).ThenInclude(x => x.ExerciseDefinition)

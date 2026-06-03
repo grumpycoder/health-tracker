@@ -13,12 +13,21 @@ public abstract class EntityBase
     public DateTime UpdatedAt { get; set; } = DateTime.Now;
 }
 
-/// <summary>One row per calendar day: the planned day type and a freeform note.</summary>
+/// <summary>One row per calendar day: the planned day type and a freeform note.
+/// (Note is legacy — freeform notes now live in <see cref="NoteEntry"/>.)</summary>
 public class DailyLog : EntityBase
 {
     public DateOnly Date { get; set; }
     public DayType DayType { get; set; } = DayType.Unset;
     public string? Note { get; set; }
+}
+
+/// <summary>A timestamped freeform note, logged any time of day
+/// ("not hungry at normal lunch time", "felt great after workout").</summary>
+public class NoteEntry : EntityBase
+{
+    public DateTime Time { get; set; } = DateTime.Now;
+    public string Text { get; set; } = "";
 }
 
 // ---------------------------------------------------------------------------
