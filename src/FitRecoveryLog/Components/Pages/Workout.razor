@@ -94,14 +94,14 @@ else if (_state == State.Active)
                                     }
                                     else
                                     {
-                                        <input type="number" min="0" class="reps-input" @bind="s.DurationSeconds" />
+                                        <input type="number" inputmode="decimal" min="0" class="reps-input" @bind="s.DurationSeconds" />
                                         <button class="icon-btn" title="Start hold timer" aria-label="Start hold timer"
                                                 @onclick="() => StartSetTimer(s)">▶</button>
                                     }
                                 }
                                 else
                                 {
-                                    <input type="number" min="0" class="reps-input" @bind="s.Reps" />
+                                    <input type="number" inputmode="decimal" min="0" class="reps-input" @bind="s.Reps" />
                                 }
                             </td>
                             <td><input type="checkbox" @bind="s.Completed" /></td>
@@ -153,7 +153,7 @@ else // Feedback
     <section class="card">
         <div class="field">
             <label>Total time (minutes)</label>
-            <input type="number" min="0" step="1" @bind="_totalMinutes" />
+            <input type="number" inputmode="decimal" min="0" step="1" @bind="_totalMinutes" />
         </div>
         <div class="field">
             <label>Workout notes</label>

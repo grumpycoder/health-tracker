@@ -17,15 +17,15 @@
         </div>
         <div class="field">
             <label>Duration (hours)</label>
-            <input type="number" step="0.25" @bind="_sleep.DurationHours" placeholder="e.g. 7.5" />
+            <input type="number" inputmode="decimal" step="0.25" @bind="_sleep.DurationHours" placeholder="e.g. 7.5" />
         </div>
         <div class="field">
             <label>Sleep score</label>
-            <input type="number" step="1" @bind="_sleep.SleepScore" placeholder="0-100" />
+            <input type="number" inputmode="decimal" step="1" @bind="_sleep.SleepScore" placeholder="0-100" />
         </div>
         <div class="field">
             <label>Interruptions</label>
-            <input type="number" step="1" @bind="_sleep.Interruptions" placeholder="e.g. 2" />
+            <input type="number" inputmode="decimal" step="1" @bind="_sleep.Interruptions" placeholder="e.g. 2" />
         </div>
         <div class="field">
             <label>Notes</label>
@@ -46,11 +46,11 @@
         <h2>Recovery & soreness</h2>
         <div class="field">
             <label>Recovery rating (1-10)</label>
-            <input type="number" min="1" max="10" @bind="_recovery.RecoveryRating" />
+            <input type="number" inputmode="decimal" min="1" max="10" @bind="_recovery.RecoveryRating" />
         </div>
         <div class="field">
             <label>Fatigue rating (1-10)</label>
-            <input type="number" min="1" max="10" @bind="_recovery.FatigueRating" />
+            <input type="number" inputmode="decimal" min="1" max="10" @bind="_recovery.FatigueRating" />
         </div>
         <div class="field">
             <label>Soreness locations</label>
@@ -105,9 +105,9 @@
                             <div class="edit-exercise" style="width:100%">
                                 <div class="field"><label>Date</label><input type="date" @bind="_editDate" /></div>
                                 <div class="inline-fields">
-                                    <div class="field"><label>Hours</label><input type="number" step="0.25" @bind="_edit.DurationHours" /></div>
-                                    <div class="field"><label>Score</label><input type="number" @bind="_edit.SleepScore" /></div>
-                                    <div class="field"><label>Interruptions</label><input type="number" @bind="_edit.Interruptions" /></div>
+                                    <div class="field"><label>Hours</label><input type="number" inputmode="decimal" step="0.25" @bind="_edit.DurationHours" /></div>
+                                    <div class="field"><label>Score</label><input type="number" inputmode="decimal" @bind="_edit.SleepScore" /></div>
+                                    <div class="field"><label>Interruptions</label><input type="number" inputmode="decimal" @bind="_edit.Interruptions" /></div>
                                 </div>
                                 <div class="field"><label>Notes</label><textarea rows="2" @bind="_edit.Notes"></textarea></div>
                                 <div class="routine-actions">

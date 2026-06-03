@@ -29,7 +29,7 @@
         <div class="inline-fields">
             <div class="field">
                 <label>Duration (min)</label>
-                <input type="number" min="0" @bind="_entry.DurationMinutes" />
+                <input type="number" inputmode="decimal" min="0" @bind="_entry.DurationMinutes" />
             </div>
             <div class="field">
                 <label>Intensity</label>
@@ -84,7 +84,7 @@
                                 <div class="field"><label>Date</label><input type="date" @bind="_editDate" /></div>
                                 <div class="field"><label>Activity</label><input @bind="_edit.Activity" /></div>
                                 <div class="inline-fields">
-                                    <div class="field"><label>Duration (min)</label><input type="number" min="0" @bind="_edit.DurationMinutes" /></div>
+                                    <div class="field"><label>Duration (min)</label><input type="number" inputmode="decimal" min="0" @bind="_edit.DurationMinutes" /></div>
                                     <div class="field">
                                         <label>Intensity</label>
                                         <select @bind="_edit.Intensity">

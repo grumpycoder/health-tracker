@@ -118,11 +118,11 @@
         </div>
         <div class="field">
             <label>Ounces</label>
-            <input type="number" step="1" @bind="_drink.Ounces" placeholder="e.g. 16" />
+            <input type="number" inputmode="decimal" step="1" @bind="_drink.Ounces" placeholder="e.g. 16" />
         </div>
         <div class="field">
             <label>Sugar (cubes / tsp)</label>
-            <input type="number" step="1" @bind="_drink.SugarCount" placeholder="e.g. 2" />
+            <input type="number" inputmode="decimal" step="1" @bind="_drink.SugarCount" placeholder="e.g. 2" />
         </div>
         <button class="save-btn" @onclick="SaveDrink">Save drink</button>
         @if (_drinkSaved)
@@ -214,8 +214,8 @@
                             <div class="edit-exercise" style="width:100%">
                                 <div class="field"><label>Drink</label><input @bind="_drinkEdit.Description" /></div>
                                 <div class="inline-fields">
-                                    <div class="field"><label>Ounces</label><input type="number" @bind="_drinkEdit.Ounces" /></div>
-                                    <div class="field"><label>Sugar</label><input type="number" @bind="_drinkEdit.SugarCount" /></div>
+                                    <div class="field"><label>Ounces</label><input type="number" inputmode="decimal" @bind="_drinkEdit.Ounces" /></div>
+                                    <div class="field"><label>Sugar</label><input type="number" inputmode="decimal" @bind="_drinkEdit.SugarCount" /></div>
                                 </div>
                                 <div class="routine-actions">
                                     <button class="save-btn" @onclick="SaveDrinkEdit">Save</button>

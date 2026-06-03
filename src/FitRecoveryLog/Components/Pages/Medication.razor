@@ -173,7 +173,7 @@
         </div>
         <div class="field">
             <label>Value</label>
-            <input type="number" step="0.01" @bind="_lab.Value" />
+            <input type="number" inputmode="decimal" step="0.01" @bind="_lab.Value" />
         </div>
         <div class="field">
             <label>Unit</label>
@@ -269,7 +269,7 @@
                                 <div class="field"><label>Date</label><input type="date" @bind="_labEditDate" /></div>
                                 <div class="field"><label>Lab</label><input @bind="_labEdit.LabName" /></div>
                                 <div class="inline-fields">
-                                    <div class="field"><label>Value</label><input type="number" step="0.01" @bind="_labEdit.Value" /></div>
+                                    <div class="field"><label>Value</label><input type="number" inputmode="decimal" step="0.01" @bind="_labEdit.Value" /></div>
                                     <div class="field"><label>Unit</label><input @bind="_labEdit.Unit" /></div>
                                 </div>
                                 <div class="routine-actions">

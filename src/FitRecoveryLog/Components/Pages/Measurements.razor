@@ -19,23 +19,23 @@
             </div>
             <div class="field">
                 <label>Weight (lbs)</label>
-                <input type="number" step="0.1" @bind="_entry.WeightLbs" placeholder="e.g. 185.4" />
+                <input type="number" inputmode="decimal" step="0.1" @bind="_entry.WeightLbs" placeholder="e.g. 185.4" />
             </div>
             <div class="field">
                 <label>Waist (in)</label>
-                <input type="number" step="0.1" @bind="_entry.WaistInches" placeholder="e.g. 34.0" />
+                <input type="number" inputmode="decimal" step="0.1" @bind="_entry.WaistInches" placeholder="e.g. 34.0" />
             </div>
             <div class="field">
                 <label>Chest (in)</label>
-                <input type="number" step="0.1" @bind="_entry.ChestInches" />
+                <input type="number" inputmode="decimal" step="0.1" @bind="_entry.ChestInches" />
             </div>
             <div class="field">
                 <label>Arms (in)</label>
-                <input type="number" step="0.1" @bind="_entry.ArmsInches" />
+                <input type="number" inputmode="decimal" step="0.1" @bind="_entry.ArmsInches" />
             </div>
             <div class="field">
                 <label>Thighs (in)</label>
-                <input type="number" step="0.1" @bind="_entry.ThighsInches" />
+                <input type="number" inputmode="decimal" step="0.1" @bind="_entry.ThighsInches" />
             </div>
             <div class="field">
                 <label>Clothing fit notes</label>
@@ -84,13 +84,13 @@
                             <div class="edit-exercise" style="width:100%">
                                 <div class="field"><label>Date</label><input type="date" @bind="_editDate" /></div>
                                 <div class="inline-fields">
-                                    <div class="field"><label>Weight (lbs)</label><input type="number" step="0.1" @bind="_edit.WeightLbs" /></div>
-                                    <div class="field"><label>Waist (in)</label><input type="number" step="0.1" @bind="_edit.WaistInches" /></div>
+                                    <div class="field"><label>Weight (lbs)</label><input type="number" inputmode="decimal" step="0.1" @bind="_edit.WeightLbs" /></div>
+                                    <div class="field"><label>Waist (in)</label><input type="number" inputmode="decimal" step="0.1" @bind="_edit.WaistInches" /></div>
                                 </div>
                                 <div class="inline-fields">
-                                    <div class="field"><label>Chest</label><input type="number" step="0.1" @bind="_edit.ChestInches" /></div>
-                                    <div class="field"><label>Arms</label><input type="number" step="0.1" @bind="_edit.ArmsInches" /></div>
-                                    <div class="field"><label>Thighs</label><input type="number" step="0.1" @bind="_edit.ThighsInches" /></div>
+                                    <div class="field"><label>Chest</label><input type="number" inputmode="decimal" step="0.1" @bind="_edit.ChestInches" /></div>
+                                    <div class="field"><label>Arms</label><input type="number" inputmode="decimal" step="0.1" @bind="_edit.ArmsInches" /></div>
+                                    <div class="field"><label>Thighs</label><input type="number" inputmode="decimal" step="0.1" @bind="_edit.ThighsInches" /></div>
                                 </div>
                                 <div class="field"><label>Clothing fit notes</label><textarea rows="2" @bind="_edit.ClothingFitNotes"></textarea></div>
                                 <div class="routine-actions">

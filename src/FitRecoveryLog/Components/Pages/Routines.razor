@@ -49,16 +49,16 @@
                                         @(isTime ? "Time-based" : "Reps-based") library exercise · editing this routine's targets
                                     </div>
                                     <div class="inline-fields">
-                                        <div class="field"><label>Sets</label><input type="number" min="1" @bind="_editDraft.Sets" /></div>
+                                        <div class="field"><label>Sets</label><input type="number" inputmode="decimal" min="1" @bind="_editDraft.Sets" /></div>
                                         @if (isTime)
                                         {
-                                            <div class="field"><label>Time (s)</label><input type="number" min="1" @bind="_editDraft.Duration" /></div>
+                                            <div class="field"><label>Time (s)</label><input type="number" inputmode="decimal" min="1" @bind="_editDraft.Duration" /></div>
                                         }
                                         else
                                         {
-                                            <div class="field"><label>Reps</label><input type="number" min="1" @bind="_editDraft.Reps" /></div>
+                                            <div class="field"><label>Reps</label><input type="number" inputmode="decimal" min="1" @bind="_editDraft.Reps" /></div>
                                         }
-                                        <div class="field"><label>Rest (s)</label><input type="number" min="0" @bind="_editDraft.Rest" /></div>
+                                        <div class="field"><label>Rest (s)</label><input type="number" inputmode="decimal" min="0" @bind="_editDraft.Rest" /></div>
                                     </div>
                                     <div class="routine-actions">
                                         <button class="save-btn" @onclick="@(() => SaveEdit(ex))">Save</button>
@@ -138,25 +138,25 @@
                 <div class="inline-fields">
                     <div class="field">
                         <label>Sets</label>
-                        <input type="number" min="1" @bind="d.Sets" />
+                        <input type="number" inputmode="decimal" min="1" @bind="d.Sets" />
                     </div>
                     @if (effMeasure == ExerciseMeasure.Duration)
                     {
                         <div class="field">
                             <label>Time (s)</label>
-                            <input type="number" min="1" @bind="d.Duration" />
+                            <input type="number" inputmode="decimal" min="1" @bind="d.Duration" />
                         </div>
                     }
                     else
                     {
                         <div class="field">
                             <label>Reps</label>
-                            <input type="number" min="1" @bind="d.Reps" />
+                            <input type="number" inputmode="decimal" min="1" @bind="d.Reps" />
                         </div>
                     }
                     <div class="field">
                         <label>Rest (s)</label>
-                        <input type="number" min="0" @bind="d.Rest" />
+                        <input type="number" inputmode="decimal" min="0" @bind="d.Rest" />
                     </div>
                 </div>
                 <button class="save-btn" @onclick="@(() => AddExercise(r))">Add exercise</button>
@@ -221,8 +221,14 @@
     private async Task DeleteRoutine(WorkoutRoutine r)
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        db.WorkoutRoutines.Remove(r);
-        await db.SaveChangesAsync();
+        // Re-fetch in this context and delete; its RoutineExercises cascade at the DB.
+        var e = await db.WorkoutRoutines.FindAsync(r.Id);
+        if (e is not null)
+        {
+            db.WorkoutRoutines.Remove(e);
+            await db.SaveChangesAsync();
+        }
+        if (_editId == r.Id) _editId = null;
         await Load();
     }
 
