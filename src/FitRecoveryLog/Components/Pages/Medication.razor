@@ -149,6 +149,10 @@
         {
             <span class="saved-msg">Saved ✓</span>
         }
+        @if (_medWarn is not null)
+        {
+            <span class="warn-msg">@_medWarn</span>
+        }
     </section>
 
     <section class="card">
@@ -183,6 +187,10 @@
         @if (_labSaved)
         {
             <span class="saved-msg">Saved ✓</span>
+        }
+        @if (_labWarn is not null)
+        {
+            <span class="warn-msg">@_labWarn</span>
         }
     </section>
 
@@ -303,6 +311,7 @@
     private DateTime _takenAt = DateTime.Now;
     private DateTime _labDate = DateTime.Now.Date;
     private bool _medSaved, _labSaved;
+    private string? _medWarn, _labWarn;
 
     private List<MedicationEntry> _recentMeds = new();
     private List<LabResult> _recentLabs = new();
@@ -398,6 +407,8 @@
 
     private async Task SaveMed()
     {
+        if (string.IsNullOrWhiteSpace(_med.Name)) { _medWarn = "Enter a medication name."; _medSaved = false; return; }
+        _medWarn = null;
         _med.TakenAt = _takenAt;
         await using var db = await DbFactory.CreateDbContextAsync();
         db.MedicationEntries.Add(_med);
@@ -411,6 +422,11 @@
 
     private async Task SaveLab()
     {
+        if (string.IsNullOrWhiteSpace(_lab.LabName) || _lab.Value is null)
+        {
+            _labWarn = "Enter a lab name and value."; _labSaved = false; return;
+        }
+        _labWarn = null;
         _lab.Date = DateOnly.FromDateTime(_labDate);
         await using var db = await DbFactory.CreateDbContextAsync();
         db.LabResults.Add(_lab);

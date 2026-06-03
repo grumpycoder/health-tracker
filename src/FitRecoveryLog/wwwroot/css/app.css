@@ -380,3 +380,5 @@ select.field, .field select {
 .exercise-card { cursor: pointer; }
 .exercise-card:active { transform: scale(0.99); }
 .exercise-card.retired { opacity: 0.6; }
+
+.warn-msg { margin-left: 0.75rem; color: #dc2626; font-weight: 600; }

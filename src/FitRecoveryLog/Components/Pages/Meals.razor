@@ -29,13 +29,22 @@
         </div>
         <div class="field">
             <label>Food</label>
-            <input @bind="_meal.Description" placeholder="e.g. Eggs, turkey, rice" list="commonFoods" />
-            <datalist id="commonFoods">
-                @foreach (var f in CommonFoods)
-                {
-                    <option value="@f" />
-                }
-            </datalist>
+            <input value="@_meal.Description"
+                   @oninput="e => _meal.Description = e.Value?.ToString() ?? string.Empty"
+                   placeholder="Type a food, or tap a saved one below" />
+            @{
+                var foodMatches = Suggest(_foodLib, _meal.Description);
+            }
+            @if (foodMatches.Count > 0)
+            {
+                <div class="chip-row" style="margin-top:0.4rem">
+                    @foreach (var f in foodMatches)
+                    {
+                        <button type="button" class="chip @(string.Equals(f, _meal.Description?.Trim(), StringComparison.OrdinalIgnoreCase) ? "selected" : "")"
+                                @onclick="() => _meal.Description = f">@f</button>
+                    }
+                </div>
+            }
         </div>
         <div class="field">
             <label>Portion note</label>
@@ -66,19 +75,32 @@
         {
             <span class="saved-msg">Saved ✓</span>
         }
+        @if (_mealWarn is not null)
+        {
+            <span class="warn-msg">@_mealWarn</span>
+        }
     </section>
 
     <section class="card">
         <h2>Log drink</h2>
         <div class="field">
             <label>Drink</label>
-            <input @bind="_drink.Description" placeholder="e.g. Sweet tea, coffee" list="commonDrinks" />
-            <datalist id="commonDrinks">
-                @foreach (var d in CommonDrinks)
-                {
-                    <option value="@d" />
-                }
-            </datalist>
+            <input value="@_drink.Description"
+                   @oninput="e => _drink.Description = e.Value?.ToString() ?? string.Empty"
+                   placeholder="Type a drink, or tap a saved one below" />
+            @{
+                var drinkMatches = Suggest(_drinkLib, _drink.Description);
+            }
+            @if (drinkMatches.Count > 0)
+            {
+                <div class="chip-row" style="margin-top:0.4rem">
+                    @foreach (var d in drinkMatches)
+                    {
+                        <button type="button" class="chip @(string.Equals(d, _drink.Description?.Trim(), StringComparison.OrdinalIgnoreCase) ? "selected" : "")"
+                                @onclick="() => _drink.Description = d">@d</button>
+                    }
+                </div>
+            }
         </div>
         <div class="field">
             <label>Ounces</label>
@@ -92,6 +114,10 @@
         @if (_drinkSaved)
         {
             <span class="saved-msg">Saved ✓</span>
+        }
+        @if (_drinkWarn is not null)
+        {
+            <span class="warn-msg">@_drinkWarn</span>
         }
     </section>
 
@@ -214,9 +240,23 @@
     private DrinkEntry _drink = new();
     private readonly HashSet<string> _mealTags = new();
     private bool _mealSaved, _drinkSaved;
+    private string? _mealWarn, _drinkWarn;
 
     private List<MealEntry> _todayMeals = new();
     private List<DrinkEntry> _todayDrinks = new();
+
+    // Saved food/drink names (typeahead libraries) — seed list + everything logged.
+    private List<string> _foodLib = new();
+    private List<string> _drinkLib = new();
+
+    private static List<string> Suggest(List<string> lib, string? query)
+    {
+        var q = (query ?? "").Trim();
+        return (q.Length == 0
+                ? lib
+                : lib.Where(x => x.Contains(q, StringComparison.OrdinalIgnoreCase)))
+            .Take(10).ToList();
+    }
 
     // Inline edit state for today's entries.
     private Guid? _editMealId;
@@ -311,6 +351,8 @@
 
     private async Task SaveMeal()
     {
+        if (string.IsNullOrWhiteSpace(_meal.Description)) { _mealWarn = "Enter a food first."; _mealSaved = false; return; }
+        _mealWarn = null;
         _meal.Time = DateTime.Now;
         _meal.Tags = CsvField.Join(_mealTags);
         await using var db = await DbFactory.CreateDbContextAsync();
@@ -325,6 +367,8 @@
 
     private async Task SaveDrink()
     {
+        if (string.IsNullOrWhiteSpace(_drink.Description)) { _drinkWarn = "Enter a drink first."; _drinkSaved = false; return; }
+        _drinkWarn = null;
         _drink.Time = DateTime.Now;
         await using var db = await DbFactory.CreateDbContextAsync();
         db.DrinkEntries.Add(_drink);
@@ -346,6 +390,16 @@
         _todayDrinks = await db.DrinkEntries
             .Where(d => d.Time >= start && d.Time < end)
             .OrderBy(d => d.Time).ToListAsync();
+
+        // Build typeahead libraries: seed list + every distinct food/drink logged.
+        var loggedFoods = await db.MealEntries.Select(m => m.Description).Distinct().ToListAsync();
+        _foodLib = CommonFoods.Concat(loggedFoods)
+            .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
+        var loggedDrinks = await db.DrinkEntries.Select(d => d.Description).Distinct().ToListAsync();
+        _drinkLib = CommonDrinks.Concat(loggedDrinks)
+            .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
     }
 
     private static string Pretty(string camel) =>

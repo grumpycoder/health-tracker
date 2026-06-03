@@ -60,6 +60,10 @@
         {
             <span class="saved-msg">Saved ✓</span>
         }
+        @if (_warn is not null)
+        {
+            <span class="warn-msg">@_warn</span>
+        }
     </section>
 
     <section class="card">
@@ -132,6 +136,7 @@
     private DateTime _date = DateTime.Now.Date;
     private readonly HashSet<string> _areas = new();
     private bool _saved;
+    private string? _warn;
     private List<PhysicalWorkloadEntry> _recent = new();
 
     private Guid? _editId;
@@ -179,7 +184,8 @@
 
     private async Task Save()
     {
-        if (string.IsNullOrWhiteSpace(_entry.Activity)) return;
+        if (string.IsNullOrWhiteSpace(_entry.Activity)) { _warn = "Enter an activity first."; _saved = false; return; }
+        _warn = null;
         _entry.Date = DateOnly.FromDateTime(_date);
         _entry.BodyAreasAffected = CsvField.Join(_areas);
 

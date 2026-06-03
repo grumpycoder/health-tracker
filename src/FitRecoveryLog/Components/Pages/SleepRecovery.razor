@@ -36,6 +36,10 @@
         {
             <span class="saved-msg">Saved ✓</span>
         }
+        @if (_sleepWarn is not null)
+        {
+            <span class="warn-msg">@_sleepWarn</span>
+        }
     </section>
 
     <section class="card">
@@ -77,6 +81,10 @@
         @if (_recoverySaved)
         {
             <span class="saved-msg">Saved ✓</span>
+        }
+        @if (_recoveryWarn is not null)
+        {
+            <span class="warn-msg">@_recoveryWarn</span>
         }
     </section>
 
@@ -143,6 +151,7 @@
     private RecoveryEntry _recovery = new();
     private readonly HashSet<string> _soreLocs = new();
     private bool _sleepSaved, _recoverySaved;
+    private string? _sleepWarn, _recoveryWarn;
     private List<SleepEntry> _recentSleep = new();
 
     private Guid? _editId;
@@ -190,6 +199,12 @@
 
     private async Task SaveSleep()
     {
+        if (_sleep.DurationHours is null && _sleep.SleepScore is null
+            && _sleep.Interruptions is null && string.IsNullOrWhiteSpace(_sleep.Notes))
+        {
+            _sleepWarn = "Enter sleep duration, score, or a note."; _sleepSaved = false; return;
+        }
+        _sleepWarn = null;
         _sleep.Date = DateOnly.FromDateTime(_date);
         await using var db = await DbFactory.CreateDbContextAsync();
         db.SleepEntries.Add(_sleep);
@@ -202,6 +217,12 @@
 
     private async Task SaveRecovery()
     {
+        if (_recovery.RecoveryRating is null && _recovery.FatigueRating is null
+            && _soreLocs.Count == 0 && string.IsNullOrWhiteSpace(_recovery.Notes))
+        {
+            _recoveryWarn = "Enter a rating, soreness, or a note."; _recoverySaved = false; return;
+        }
+        _recoveryWarn = null;
         _recovery.Date = DateOnly.FromDateTime(_date);
         _recovery.SorenessLocations = CsvField.Join(_soreLocs);
         await using var db = await DbFactory.CreateDbContextAsync();

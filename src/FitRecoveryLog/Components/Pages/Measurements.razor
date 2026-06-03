@@ -46,6 +46,10 @@
             {
                 <span class="saved-msg">Saved ✓</span>
             }
+            @if (_warn is not null)
+            {
+                <span class="warn-msg">@_warn</span>
+            }
         </EditForm>
     </section>
 
@@ -111,6 +115,7 @@
     private BodyMeasurement _entry = new() { Date = DateOnly.FromDateTime(DateTime.Now) };
     private List<BodyMeasurement> _history = new();
     private bool _saved;
+    private string? _warn;
 
     // <input type="date"> binds to DateTime; bridge it to the entity's DateOnly.
     private DateTime _dateInput = DateTime.Now.Date;
@@ -168,6 +173,15 @@
 
     private async Task Save()
     {
+        if (_entry.WeightLbs is null && _entry.WaistInches is null && _entry.ChestInches is null
+            && _entry.ArmsInches is null && _entry.ThighsInches is null
+            && string.IsNullOrWhiteSpace(_entry.ClothingFitNotes))
+        {
+            _warn = "Enter at least one measurement.";
+            _saved = false;
+            return;
+        }
+        _warn = null;
         _entry.Date = DateOnly.FromDateTime(_dateInput);
         await using var db = await DbFactory.CreateDbContextAsync();
         db.BodyMeasurements.Add(_entry);
