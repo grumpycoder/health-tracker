@@ -65,7 +65,7 @@
                                     </span>
                                 </div>
                                 <div class="routine-actions">
-                                    <button class="save-btn" style="padding:0.4rem 0.9rem" @onclick="() => LogClicked(sc)">Log now</button>
+                                    <button class="save-btn" style="padding:0.4rem 0.9rem" @onclick="() => LogClicked(sc)">Log Now</button>
                                     <button class="icon-action" title="Edit" aria-label="Edit" @onclick="() => StartEditSched(sc)">✏️</button>
                                     <button class="icon-action danger" title="Remove" aria-label="Remove" @onclick="() => DeleteSched(sc)">🗑</button>
                                 </div>
@@ -110,7 +110,7 @@
                 <button type="button" class="chip @(_newSched.IsInjection ? "selected" : "")"
                         @onclick="() => _newSched.IsInjection = !_newSched.IsInjection">Injection</button>
             </div>
-            <button class="save-btn" @onclick="AddSched">Add medication</button>
+            <button class="save-btn" @onclick="AddSched">Add Medication</button>
         </div>
     </section>
 
@@ -152,7 +152,7 @@
             <label>Reaction / soreness notes</label>
             <textarea rows="2" @bind="_med.ReactionNotes"></textarea>
         </div>
-        <button class="save-btn" @onclick="SaveMed">Save medication</button>
+        <button class="save-btn" @onclick="SaveMed">Save Medication</button>
         @if (_medSaved)
         {
             <span class="saved-msg">Saved ✓</span>
@@ -194,7 +194,7 @@
                 <option value="g/dL" /><option value="mg/dL" />
             </datalist>
         </div>
-        <button class="save-btn" @onclick="SaveLab">Save lab</button>
+        <button class="save-btn" @onclick="SaveLab">Save Lab</button>
         @if (_labSaved)
         {
             <span class="saved-msg">Saved ✓</span>

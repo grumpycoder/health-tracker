@@ -40,7 +40,7 @@ else
     <header class="dash-header">
         <div class="routine-head">
             <button class="link-btn" @onclick="@(() => _selected = null)">‹ Back</button>
-            <button class="link-btn danger" @onclick="@(() => DeleteSession(s))">Delete workout</button>
+            <button class="link-btn danger" @onclick="@(() => DeleteSession(s))">Delete Workout</button>
         </div>
         <div class="dash-date">@s.Date.ToString("dddd, MMM d")</div>
         <div class="dash-date-sub">@RoutineName(s) · @FormatDuration(s.TotalSeconds)</div>

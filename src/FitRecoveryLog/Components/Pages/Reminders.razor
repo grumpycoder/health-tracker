@@ -37,7 +37,7 @@
                                     <span class="muted"> @sc.Repeat · next @ReminderNotifier.NextDue(sc).ToString("MMM d, h:mm tt")</span>
                                 </span>
                             </div>
-                            <button class="save-btn" style="padding:0.4rem 0.9rem" @onclick="() => LogMedClicked(sc)">Log dose</button>
+                            <button class="save-btn" style="padding:0.4rem 0.9rem" @onclick="() => LogMedClicked(sc)">Log Dose</button>
                         </div>
                         @if (_logSiteFor == sc.Id)
                         {
@@ -141,9 +141,9 @@
 
     private static string Label(string key) => key switch
     {
-        "measurement" => "Body measurement",
-        "labCheck" => "Lab check",
-        "weeklyReview" => "Weekly review",
+        "measurement" => "Body Measurement",
+        "labCheck" => "Lab Check",
+        "weeklyReview" => "Weekly Review",
         _ => key
     };
     private static int Order(string key) => key switch { "measurement" => 0, "labCheck" => 1, "weeklyReview" => 2, _ => 9 };

@@ -48,16 +48,16 @@
 
     <section class="card">
         <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("trends"))">
-            <span class="quick-emoji">📈</span> View trends
+            <span class="quick-emoji">📈</span> View Trends
         </button>
         <button class="quick-btn wide" style="margin-top:0.6rem" @onclick="@(() => Nav.NavigateTo("weekly-review"))">
-            <span class="quick-emoji">📅</span> Weekly review
+            <span class="quick-emoji">📅</span> Weekly Review
         </button>
         <button class="quick-btn wide" style="margin-top:0.6rem" @onclick="@(() => Nav.NavigateTo("reminders"))">
             <span class="quick-emoji">🔔</span> Reminders
         </button>
         <button class="quick-btn wide" style="margin-top:0.6rem" @onclick="@(() => Nav.NavigateTo("export"))">
-            <span class="quick-emoji">⬇️</span> Export data
+            <span class="quick-emoji">⬇️</span> Export Data
         </button>
     </section>
 
@@ -85,12 +85,12 @@
 
     private static readonly (string Emoji, string Label, string Route)[] QuickLinks =
     {
-        ("🏋️", "Start workout", "workout"),
-        ("⚖️", "Body measurement", "measurements"),
-        ("🍽️", "Meal / snack", "meals"),
+        ("🏋️", "Start Workout", "workout"),
+        ("⚖️", "Body Measurement", "measurements"),
+        ("🍽️", "Meal / Snack", "meals"),
         ("💊", "Medication", "medication"),
-        ("😴", "Sleep / recovery", "sleep"),
-        ("🏡", "Physical workload", "workload"),
+        ("😴", "Sleep / Recovery", "sleep"),
+        ("🏡", "Physical Workload", "workload"),
     };
 
     private DailyLog _log = new();
@@ -173,8 +173,8 @@
     {
         DayType.Workout => "Workout",
         DayType.Recovery => "Recovery",
-        DayType.ActiveRecovery => "Active recovery",
-        DayType.HighWorkload => "High workload",
+        DayType.ActiveRecovery => "Active Recovery",
+        DayType.HighWorkload => "High Workload",
         _ => dt.ToString()
     };
 }

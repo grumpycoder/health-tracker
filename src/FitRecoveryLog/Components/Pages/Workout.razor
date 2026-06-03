@@ -17,13 +17,13 @@
 
     <section class="card">
         <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("workout-history"))">
-            <span class="quick-emoji">📋</span> Workout history
+            <span class="quick-emoji">📋</span> Workout History
         </button>
         <button class="quick-btn wide" style="margin-top:0.6rem" @onclick="@(() => Nav.NavigateTo("progression"))">
-            <span class="quick-emoji">💡</span> Progression suggestions
+            <span class="quick-emoji">💡</span> Progression Suggestions
         </button>
         <button class="quick-btn wide" style="margin-top:0.6rem" @onclick="@(() => Nav.NavigateTo("exercises"))">
-            <span class="quick-emoji">📚</span> Exercise library
+            <span class="quick-emoji">📚</span> Exercise Library
         </button>
     </section>
 
@@ -31,7 +31,7 @@
     {
         <section class="card">
             <p class="muted">No routines yet.</p>
-            <button class="save-btn" @onclick="@(() => Nav.NavigateTo("routines"))">Create a routine</button>
+            <button class="save-btn" @onclick="@(() => Nav.NavigateTo("routines"))">Create a Routine</button>
         </section>
     }
     else
@@ -47,7 +47,7 @@
             </section>
         }
         <section class="card">
-            <button class="link-btn" @onclick="@(() => Nav.NavigateTo("routines"))">Manage routines</button>
+            <button class="link-btn" @onclick="@(() => Nav.NavigateTo("routines"))">Manage Routines</button>
         </section>
     }
 }
@@ -113,8 +113,8 @@ else if (_state == State.Active)
     }
 
     <section class="card">
-        <button class="save-btn finish" @onclick="GoToFeedback">Finish workout</button>
-        <button class="link-btn danger" style="width:100%;margin-top:0.7rem" @onclick="DiscardWorkout">Discard workout</button>
+        <button class="save-btn finish" @onclick="GoToFeedback">Finish Workout</button>
+        <button class="link-btn danger" style="width:100%;margin-top:0.7rem" @onclick="DiscardWorkout">Discard Workout</button>
     </section>
 }
 else // Feedback
@@ -160,8 +160,8 @@ else // Feedback
             <label>Workout notes</label>
             <textarea rows="2" @bind="_sessionNotes"></textarea>
         </div>
-        <button class="save-btn" @onclick="SaveWorkout">Save workout</button>
-        <button class="link-btn danger" style="width:100%;margin-top:0.7rem" @onclick="DiscardWorkout">Discard without saving</button>
+        <button class="save-btn" @onclick="SaveWorkout">Save Workout</button>
+        <button class="link-btn danger" style="width:100%;margin-top:0.7rem" @onclick="DiscardWorkout">Discard Without Saving</button>
     </section>
 }
 

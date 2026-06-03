@@ -65,6 +65,19 @@ public static class MauiProgram
 			var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
 			using var db = factory.CreateDbContext();
 			db.Database.Migrate();
+
+			// One-time wipe + reseed from real history (health-history.json).
+			// The marker file keeps it from re-running on every launch.
+			var importMarker = Path.Combine(FileSystem.AppDataDirectory, "history-import-v1.done");
+			if (!File.Exists(importMarker))
+			{
+				try
+				{
+					HistorySeed.ApplyEmbedded(db);
+					File.WriteAllText(importMarker, DateTime.Now.ToString("O"));
+				}
+				catch (Exception ex) { Log("HistorySeed", ex); }
+			}
 #if DEBUG
 			// Populate an empty database with sample data for development.
 			DevSeed.SeedIfEmpty(db);

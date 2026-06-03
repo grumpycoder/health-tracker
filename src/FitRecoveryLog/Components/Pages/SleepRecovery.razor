@@ -32,7 +32,7 @@
             <label>Notes</label>
             <textarea rows="2" @bind="_sleep.Notes" placeholder="e.g. woke at 3am, dog"></textarea>
         </div>
-        <button class="save-btn" @onclick="SaveSleep">Save sleep</button>
+        <button class="save-btn" @onclick="SaveSleep">Save Sleep</button>
         @if (_sleepSaved)
         {
             <span class="saved-msg">Saved ✓</span>
@@ -78,7 +78,7 @@
             <textarea rows="2" @bind="_recovery.Notes"
                       placeholder="e.g. yard work yesterday, lower back tight"></textarea>
         </div>
-        <button class="save-btn" @onclick="SaveRecovery">Save recovery</button>
+        <button class="save-btn" @onclick="SaveRecovery">Save Recovery</button>
         @if (_recoverySaved)
         {
             <span class="saved-msg">Saved ✓</span>
@@ -93,7 +93,7 @@
     {
         <section class="card">
             <button class="quick-btn wide" @onclick="PullFromHealth">
-                <span class="quick-emoji">❤️</span> Pull sleep from Apple Health
+                <span class="quick-emoji">❤️</span> Pull Sleep from Apple Health
             </button>
             @if (_pullMsg is not null)
             {

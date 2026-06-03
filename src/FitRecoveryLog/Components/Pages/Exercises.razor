@@ -83,7 +83,7 @@ else
             <label>Rename</label>
             <input @bind="_renameTo" />
         </div>
-        <button class="save-btn" @onclick="() => Rename(ex)">Save name</button>
+        <button class="save-btn" @onclick="() => Rename(ex)">Save Name</button>
 
         <div style="margin-top:1rem">
             <button class="link-btn" @onclick="() => Retire(ex)">@(ex.Retired ? "Restore to pickers" : "Retire (hide from pickers)")</button>
@@ -102,7 +102,7 @@ else
         <p class="muted" style="font-size:0.75rem;margin:0 0 0.5rem">
             Moves this exercise's history and routine slots into the chosen one, then deletes this exercise.
         </p>
-        <button class="link-btn danger" disabled="@(_mergeTargetId is null)" @onclick="() => Merge(ex)">Merge & delete this</button>
+        <button class="link-btn danger" disabled="@(_mergeTargetId is null)" @onclick="() => Merge(ex)">Merge & Delete This</button>
         @if (_status is not null)
         {
             <p class="muted" style="margin:0.5rem 0 0">@_status</p>

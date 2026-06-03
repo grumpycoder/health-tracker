@@ -12,7 +12,7 @@
 
     <section class="card">
         <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("nutrition"))">
-            <span class="quick-emoji">📊</span> Nutrition patterns
+            <span class="quick-emoji">📊</span> Nutrition Patterns
         </button>
     </section>
 
@@ -81,7 +81,7 @@
                 }
             </select>
         </div>
-        <button class="save-btn" @onclick="SaveMeal">Save meal</button>
+        <button class="save-btn" @onclick="SaveMeal">Save Meal</button>
         @if (_mealSaved)
         {
             <span class="saved-msg">Saved ✓</span>
@@ -124,7 +124,7 @@
             <label>Sugar (cubes / tsp)</label>
             <input type="number" inputmode="decimal" step="1" @bind="_drink.SugarCount" placeholder="e.g. 2" />
         </div>
-        <button class="save-btn" @onclick="SaveDrink">Save drink</button>
+        <button class="save-btn" @onclick="SaveDrink">Save Drink</button>
         @if (_drinkSaved)
         {
             <span class="saved-msg">Saved ✓</span>

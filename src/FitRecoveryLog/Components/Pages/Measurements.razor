@@ -42,7 +42,7 @@
                 <textarea rows="2" @bind="_entry.ClothingFitNotes"
                           placeholder="e.g. belt one notch tighter"></textarea>
             </div>
-            <button class="save-btn" type="submit">Save measurement</button>
+            <button class="save-btn" type="submit">Save Measurement</button>
             @if (_saved)
             {
                 <span class="saved-msg">Saved ✓</span>
@@ -58,7 +58,7 @@
     {
         <section class="card">
             <button class="quick-btn wide" @onclick="PullFromHealth">
-                <span class="quick-emoji">❤️</span> Pull weight from Apple Health
+                <span class="quick-emoji">❤️</span> Pull Weight from Apple Health
             </button>
             @if (_pullMsg is not null)
             {

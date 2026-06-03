@@ -15,7 +15,7 @@
         <div class="field">
             <input @bind="_newRoutineName" placeholder="e.g. Morning bodyweight" />
         </div>
-        <button class="save-btn" @onclick="AddRoutine">Create routine</button>
+        <button class="save-btn" @onclick="AddRoutine">Create Routine</button>
     </section>
 
     @foreach (var r in _routines)
@@ -97,7 +97,7 @@
             }
             <div class="add-exercise">
                 <div class="field">
-                    <label>Add exercise</label>
+                    <label>Add Exercise</label>
                     <input value="@d.Name"
                            @oninput="e => d.Name = e.Value?.ToString() ?? string.Empty"
                            placeholder="Type a new exercise, or tap one below" />
@@ -159,7 +159,7 @@
                         <input type="number" inputmode="decimal" min="0" @bind="d.Rest" />
                     </div>
                 </div>
-                <button class="save-btn" @onclick="@(() => AddExercise(r))">Add exercise</button>
+                <button class="save-btn" @onclick="@(() => AddExercise(r))">Add Exercise</button>
             </div>
         </section>
     }
