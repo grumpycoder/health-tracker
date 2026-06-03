@@ -66,49 +66,72 @@ else if (_state == State.Active)
         </section>
     }
 
-    @foreach (var ex in _exercises)
+    @if (Current is { } cur)
     {
+        var isTime = cur.Ex.Def.Measure == ExerciseMeasure.Duration;
         <section class="card">
-            <div class="routine-head">
-                <h2>@ex.Def.Name</h2>
-                @if (ex.Rest is > 0)
+            <p class="muted" style="margin:0 0 0.25rem">
+                Set @cur.Set.SetNumber of @cur.Ex.Sets.Count · @DoneSets/@TotalSets sets done
+            </p>
+            <h2 style="text-transform:none;letter-spacing:0;color:var(--text);font-size:1.5rem;margin:0 0 0.7rem">
+                @cur.Ex.Def.Name
+            </h2>
+
+            @if (isTime)
+            {
+                @if (_timingSet == cur.Set)
                 {
-                    <button class="link-btn" @onclick="@(() => StartRest(ex.Rest!.Value))">Rest @ex.Rest s</button>
+                    <div style="text-align:center;margin:0.5rem 0 0.8rem">
+                        <span class="timing" style="font-size:2.2rem">@Math.Max(0, SetRemaining) s</span>
+                        <button class="icon-btn stop" title="Stop" aria-label="Stop hold"
+                                @onclick="() => StopSetTimer(cur.Set)">⏹</button>
+                    </div>
                 }
-            </div>
-            <table class="set-table">
-                <thead><tr><th>Set</th><th>@(ex.Def.Measure == ExerciseMeasure.Duration ? "Time (s)" : "Reps")</th><th>Done</th></tr></thead>
-                <tbody>
-                    @foreach (var s in ex.Sets)
-                    {
-                        <tr class="@(s.Completed ? "done" : "")">
-                            <td>@s.SetNumber</td>
-                            <td>
-                                @if (ex.Def.Measure == ExerciseMeasure.Duration)
-                                {
-                                    @if (_timingSet == s)
-                                    {
-                                        <span class="timing">@Math.Max(0, SetRemaining) s</span>
-                                        <button class="icon-btn stop" title="Stop" aria-label="Stop hold"
-                                                @onclick="() => StopSetTimer(s)">⏹</button>
-                                    }
-                                    else
-                                    {
-                                        <input type="number" inputmode="decimal" min="0" class="reps-input" @bind="s.DurationSeconds" />
-                                        <button class="icon-btn" title="Start hold timer" aria-label="Start hold timer"
-                                                @onclick="() => StartSetTimer(s)">▶</button>
-                                    }
-                                }
-                                else
-                                {
-                                    <input type="number" inputmode="decimal" min="0" class="reps-input" @bind="s.Reps" />
-                                }
-                            </td>
-                            <td><input type="checkbox" @bind="s.Completed" /></td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+                else
+                {
+                    <div class="inline-fields">
+                        <div class="field"><label>Hold (s)</label>
+                            <input type="number" inputmode="decimal" min="0" @bind="cur.Set.DurationSeconds" />
+                        </div>
+                    </div>
+                    <button class="save-btn" @onclick="() => StartSetTimer(cur.Set)">▶ Start Hold</button>
+                }
+            }
+            else
+            {
+                <div class="inline-fields">
+                    <div class="field"><label>Reps</label>
+                        <input type="number" inputmode="decimal" min="0" @bind="cur.Set.Reps" />
+                    </div>
+                </div>
+                <button class="save-btn" @onclick="CompleteCurrentSet">Complete Set ✓</button>
+            }
+
+            @if (_timingSet != cur.Set)
+            {
+                <button class="link-btn" style="width:100%;margin-top:0.7rem"
+                        @onclick="SkipCurrentExercise">Skip @cur.Ex.Def.Name today</button>
+            }
+            @if (NextUpName is { } next)
+            {
+                <p class="muted" style="margin:0.7rem 0 0">Up next: @next</p>
+            }
+        </section>
+
+        <section class="card">
+            <h2>Progress</h2>
+            <ul class="timeline">
+                @foreach (var ex in _exercises)
+                {
+                    <li>
+                        <span class="entry @(ex == cur.Ex ? "" : "muted")">
+                            @(ex.Skipped ? "⏭" : ex.Sets.All(s => s.Completed) ? "✅" : ex == cur.Ex ? "▶" : "·")
+                            @ex.Def.Name
+                            <span class="muted"> @(ex.Skipped ? "skipped" : $"{ex.Sets.Count(s => s.Completed)}/{ex.Sets.Count}")</span>
+                        </span>
+                    </li>
+                }
+            </ul>
         </section>
     }
 
@@ -124,7 +147,7 @@ else // Feedback
         <div class="dash-date-sub">@Elapsed total · optional feedback</div>
     </header>
 
-    @foreach (var ex in _exercises)
+    @foreach (var ex in _exercises.Where(e => !e.Skipped))
     {
         <section class="card">
             <h2>@ex.Def.Name</h2>
@@ -205,8 +228,60 @@ else // Feedback
     {
         public ExerciseDefinition Def = null!;
         public int? Rest;   // this routine's rest prescription
+        public bool Skipped; // skipped for this session (injury etc.)
         public List<SetVM> Sets = new();
         public ExerciseFeedback Feedback = new();
+    }
+
+    // Circuit order: set 1 of every exercise, then set 2, and so on.
+    private class StepVM { public ExVM Ex = null!; public SetVM Set = null!; }
+    private readonly List<StepVM> _steps = new();
+    private int _stepIndex;
+
+    private StepVM? Current => _stepIndex < _steps.Count ? _steps[_stepIndex] : null;
+    private int TotalSets => _exercises.Where(e => !e.Skipped).Sum(e => e.Sets.Count);
+    private int DoneSets => _exercises.Where(e => !e.Skipped).Sum(e => e.Sets.Count(s => s.Completed));
+
+    private string? NextUpName
+    {
+        get
+        {
+            for (var i = _stepIndex + 1; i < _steps.Count; i++)
+                if (!_steps[i].Ex.Skipped && !_steps[i].Set.Completed)
+                    return _steps[i].Ex.Def.Name + (_steps[i].Ex == Current?.Ex ? $" (set {_steps[i].Set.SetNumber})" : "");
+            return null;
+        }
+    }
+
+    /// <summary>Move past completed/skipped steps to the next actionable one.</summary>
+    private void Advance()
+    {
+        while (_stepIndex < _steps.Count && (_steps[_stepIndex].Ex.Skipped || _steps[_stepIndex].Set.Completed))
+            _stepIndex++;
+    }
+
+    /// <summary>Rest (if prescribed), advance, and finish automatically after the last set.</summary>
+    private void AfterSetCompleted(ExVM ex)
+    {
+        Advance();
+        if (Current is null) { GoToFeedback(); return; }
+        if (ex.Rest is > 0) _rest = ex.Rest.Value;
+    }
+
+    private void CompleteCurrentSet()
+    {
+        if (Current is not { } cur) return;
+        cur.Set.Completed = true;
+        AfterSetCompleted(cur.Ex);
+    }
+
+    private void SkipCurrentExercise()
+    {
+        if (Current is not { } cur) return;
+        cur.Ex.Skipped = true;
+        if (_timingSet is not null && cur.Ex.Sets.Contains(_timingSet)) _timingSet = null;
+        Advance();
+        if (Current is null) GoToFeedback();
     }
 
     protected override async Task OnInitializedAsync()
@@ -239,6 +314,15 @@ else // Feedback
             vm.Feedback.ExerciseDefinitionId = re.ExerciseDefinition.Id;
             _exercises.Add(vm);
         }
+
+        // Circuit queue: one set of each exercise per round, in routine order.
+        _steps.Clear();
+        _stepIndex = 0;
+        var rounds = _exercises.Count == 0 ? 0 : _exercises.Max(e => e.Sets.Count);
+        for (var round = 0; round < rounds; round++)
+            foreach (var ex in _exercises)
+                if (round < ex.Sets.Count)
+                    _steps.Add(new StepVM { Ex = ex, Set = ex.Sets[round] });
 
         _routineId = routine.Id;
         _routineName = routine.Name;
@@ -275,6 +359,7 @@ else // Feedback
         s.DurationSeconds = Math.Min(SetElapsed, _holdTarget);
         s.Completed = true;
         _timingSet = null;
+        if (Current?.Set == s) AfterSetCompleted(Current.Ex);
     }
 
     // Countdown reached zero — held the full target; alert and record it.
@@ -286,6 +371,7 @@ else // Feedback
         _timingSet = null;
         try { await JS.InvokeVoidAsync("holdTimer.beep"); } catch { }
         try { Microsoft.Maui.Devices.HapticFeedback.Default.Perform(Microsoft.Maui.Devices.HapticFeedbackType.LongPress); } catch { }
+        if (Current?.Set == s) AfterSetCompleted(Current.Ex);
     }
 
     private void DiscardWorkout()
@@ -296,6 +382,8 @@ else // Feedback
         _timingSet = null;
         _rest = 0;
         _exercises.Clear();
+        _steps.Clear();
+        _stepIndex = 0;
         _state = State.Choosing;
     }
 
@@ -334,6 +422,8 @@ else // Feedback
                 });
             }
             ex.Feedback.ExerciseDefinitionId = ex.Def.Id;
+            if (ex.Skipped && string.IsNullOrWhiteSpace(ex.Feedback.Comment))
+                ex.Feedback.Comment = "Skipped";
             session.Feedback.Add(ex.Feedback);
         }
 
