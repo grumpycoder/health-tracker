@@ -1,14 +1,16 @@
 @page "/"
+@implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
 @inject IHealthService Health
+@inject IJSRuntime JS
 
 <PageTitle>Dashboard</PageTitle>
 
 <div class="dashboard">
     <header class="dash-header">
-        <div class="dash-date">@Today.ToString("dddd")</div>
-        <div class="dash-date-sub">@Today.ToString("MMMM d, yyyy")</div>
+        <div class="dash-date">@_today.ToString("dddd")</div>
+        <div class="dash-date-sub">@_today.ToString("MMMM d, yyyy")</div>
     </header>
 
     @if (_steps is not null)
@@ -72,7 +74,9 @@
 </div>
 
 @code {
-    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.Now);
+    // Recomputed on load and on app resume so the day rolls over past midnight.
+    private DateOnly _today = DateOnly.FromDateTime(DateTime.Now);
+    private DotNetObjectReference<Home>? _selfRef;
 
     private static readonly DayType[] DayTypes =
     {
@@ -89,27 +93,58 @@
         ("🏡", "Physical workload", "workload"),
     };
 
-    private DailyLog _log = new() { Date = Today };
+    private DailyLog _log = new();
     private bool _saved;
     private int? _steps;
 
     protected override async Task OnInitializedAsync()
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var existing = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == Today);
-        if (existing is not null)
-            _log = existing;
+        await LoadForToday();
 
         if (Health.IsAvailable)
         {
             try
             {
                 await Health.RequestAuthorizationAsync();
-                _steps = await Health.ReadStepsAsync(Today);
+                _steps = await Health.ReadStepsAsync(_today);
             }
             catch { }
         }
     }
+
+    // Load (or start) the plan/note for the current calendar day.
+    private async Task LoadForToday()
+    {
+        _today = DateOnly.FromDateTime(DateTime.Now);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var existing = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == _today);
+        _log = existing ?? new DailyLog { Date = _today };
+        _saved = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            try { await JS.InvokeVoidAsync("appLifecycle.onResume", _selfRef); } catch { }
+        }
+    }
+
+    // Called from JS when the app/page becomes visible again (e.g. resumed after midnight).
+    [JSInvokable]
+    public async Task OnAppResumed()
+    {
+        if (_today == DateOnly.FromDateTime(DateTime.Now)) return; // same day, nothing to do
+        await LoadForToday();
+        if (Health.IsAvailable)
+        {
+            try { _steps = await Health.ReadStepsAsync(_today); } catch { }
+        }
+        StateHasChanged();
+    }
+
+    public void Dispose() => _selfRef?.Dispose();
 
     private async Task SetDayType(DayType dt)
     {

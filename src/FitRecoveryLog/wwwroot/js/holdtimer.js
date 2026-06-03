@@ -20,6 +20,17 @@
         g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
         o.start(at); o.stop(at + dur);
     }
+    // Notify .NET when the app/page becomes visible again (e.g. resumed next day).
+    window.appLifecycle = {
+        onResume(dotNetRef) {
+            document.addEventListener("visibilitychange", () => {
+                if (document.visibilityState === "visible") {
+                    try { dotNetRef.invokeMethodAsync("OnAppResumed"); } catch (e) { }
+                }
+            });
+        }
+    };
+
     window.holdTimer = {
         arm() { try { ensure(); } catch (e) { } },
         beep() {
