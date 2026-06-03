@@ -249,8 +249,9 @@ select.field, .field select {
 .edit-exercise { width: 100%; }
 
 .add-exercise { margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.75rem; }
-.inline-fields { display: flex; gap: 0.5rem; }
-.inline-fields .field { flex: 1; }
+.inline-fields { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.inline-fields .field { flex: 1 1 7rem; min-width: 0; }
+.inline-fields .field input, .inline-fields .field select { min-width: 0; }
 
 .timer-head .dash-date { font-variant-numeric: tabular-nums; font-size: 2.4rem; }
 
