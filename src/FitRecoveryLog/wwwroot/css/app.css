@@ -246,6 +246,14 @@ select.field, .field select {
 .ex-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .ex-row > div:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ex-name { font-weight: 600; margin-right: 0.5rem; }
+.drag-handle {
+    color: var(--muted);
+    cursor: grab;
+    padding: 0.3rem 0.55rem 0.3rem 0;
+    touch-action: none; /* drag instead of scroll when touching the handle */
+    user-select: none;
+    -webkit-user-select: none;
+}
 .edit-exercise { width: 100%; }
 
 .add-exercise { margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.75rem; }

@@ -1,6 +1,8 @@
 @page "/routines"
+@implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 
 <PageTitle>Workout Routines</PageTitle>
 
@@ -43,12 +45,12 @@
             }
             else
             {
-                <ul class="exercise-list">
+                <ul class="exercise-list" id="exlist-@r.Id">
                     @foreach (var ex in r.Exercises.OrderBy(e => e.Order))
                     {
                         var def = ex.ExerciseDefinition;
                         var isTime = def?.Measure == ExerciseMeasure.Duration;
-                        <li>
+                        <li @key="ex.Id">
                             @if (_editId == ex.Id)
                             {
                                 <div class="edit-exercise">
@@ -78,6 +80,7 @@
                             {
                                 <div class="ex-row">
                                     <div>
+                                        <span class="drag-handle" title="Drag to reorder">⠿</span>
                                         <span class="ex-name">@def?.Name</span>
                                         <span class="muted">@FormatTarget(ex, def)</span>
                                     </div>
@@ -187,12 +190,49 @@
 
     // Accordion: only one routine is open at a time to keep the page short.
     private Guid? _expandedId;
+    private DotNetObjectReference<Routines>? _selfRef;
 
     private void Toggle(Guid id)
     {
         _expandedId = _expandedId == id ? null : id;
         _editId = null;
     }
+
+    // (Re)attach drag-and-drop to the expanded routine's list after each render —
+    // Blazor recreates the <ul> when the accordion opens or the list re-renders.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) _selfRef = DotNetObjectReference.Create(this);
+        if (_expandedId is { } id)
+        {
+            try { await JS.InvokeVoidAsync("exerciseSort.init", $"exlist-{id}", _selfRef); } catch { }
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnReorder(int oldIndex, int newIndex)
+    {
+        if (_expandedId is not { } routineId || oldIndex == newIndex) return;
+
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            var ordered = await db.RoutineExercises
+                .Where(e => e.RoutineId == routineId)
+                .OrderBy(e => e.Order).ToListAsync();
+            if (oldIndex < 0 || oldIndex >= ordered.Count || newIndex < 0 || newIndex >= ordered.Count) return;
+
+            var moved = ordered[oldIndex];
+            ordered.RemoveAt(oldIndex);
+            ordered.Insert(newIndex, moved);
+            for (var i = 0; i < ordered.Count; i++) ordered[i].Order = i;
+            await db.SaveChangesAsync();
+        }
+
+        await Load();
+        StateHasChanged();
+    }
+
+    public void Dispose() => _selfRef?.Dispose();
 
     /// <summary>Collapsed one-liner: exercise names in order.</summary>
     private static string Summary(WorkoutRoutine r) =>

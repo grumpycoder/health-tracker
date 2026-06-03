@@ -31,6 +31,26 @@
         }
     };
 
+    // Touch drag-and-drop reordering (SortableJS). On drop we revert the DOM
+    // move and report indexes to .NET — Blazor re-renders from the new state,
+    // keeping its render tree in sync.
+    window.exerciseSort = {
+        init(elementId, dotNetRef) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            if (el._sortable) el._sortable.destroy();
+            el._sortable = new Sortable(el, {
+                handle: ".drag-handle",
+                animation: 150,
+                onUpdate(evt) {
+                    evt.item.remove();
+                    evt.to.insertBefore(evt.item, evt.to.childNodes[evt.oldIndex]);
+                    dotNetRef.invokeMethodAsync("OnReorder", evt.oldIndex, evt.newIndex);
+                }
+            });
+        }
+    };
+
     window.holdTimer = {
         arm() { try { ensure(); } catch (e) { } },
         beep() {
