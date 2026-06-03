@@ -23,7 +23,11 @@
             <section class="card session-card" @onclick="@(() => _selected = s)">
                 <div class="routine-head">
                     <h2>@RoutineName(s)</h2>
-                    <span class="chart-latest">@FormatDuration(s.TotalSeconds)</span>
+                    <div class="routine-actions">
+                        <span class="chart-latest">@FormatDuration(s.TotalSeconds)</span>
+                        <button class="icon-action danger" title="Delete" aria-label="Delete workout"
+                                @onclick="() => DeleteSession(s)" @onclick:stopPropagation="true">🗑</button>
+                    </div>
                 </div>
                 <p class="muted">@s.Date.ToString("ddd, MMM d") · @ExerciseCount(s) exercise(s)</p>
             </section>
@@ -34,7 +38,10 @@ else
 {
     var s = _selected;
     <header class="dash-header">
-        <button class="link-btn" @onclick="@(() => _selected = null)">‹ Back</button>
+        <div class="routine-head">
+            <button class="link-btn" @onclick="@(() => _selected = null)">‹ Back</button>
+            <button class="link-btn danger" @onclick="@(() => DeleteSession(s))">Delete workout</button>
+        </div>
         <div class="dash-date">@s.Date.ToString("dddd, MMM d")</div>
         <div class="dash-date-sub">@RoutineName(s) · @FormatDuration(s.TotalSeconds)</div>
     </header>
@@ -102,7 +109,9 @@ else
     private Dictionary<Guid, string> _routineNames = new();
     private WorkoutSession? _selected;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
         _sessions = await db.WorkoutSessions
@@ -114,6 +123,15 @@ else
             .ToListAsync();
         _defs = (await db.ExerciseDefinitions.ToListAsync()).ToDictionary(d => d.Id);
         _routineNames = (await db.WorkoutRoutines.ToListAsync()).ToDictionary(r => r.Id, r => r.Name);
+    }
+
+    private async Task DeleteSession(WorkoutSession s)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.WorkoutSessions.FindAsync(s.Id);
+        if (e is not null) { db.WorkoutSessions.Remove(e); await db.SaveChangesAsync(); }
+        _selected = null;
+        await Load();
     }
 
     private ExerciseDefinition? Def(Guid id) => _defs.TryGetValue(id, out var d) ? d : null;

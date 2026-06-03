@@ -114,6 +114,7 @@ else if (_state == State.Active)
 
     <section class="card">
         <button class="save-btn finish" @onclick="GoToFeedback">Finish workout</button>
+        <button class="link-btn danger" style="width:100%;margin-top:0.7rem" @onclick="DiscardWorkout">Discard workout</button>
     </section>
 }
 else // Feedback
@@ -160,6 +161,7 @@ else // Feedback
             <textarea rows="2" @bind="_sessionNotes"></textarea>
         </div>
         <button class="save-btn" @onclick="SaveWorkout">Save workout</button>
+        <button class="link-btn danger" style="width:100%;margin-top:0.7rem" @onclick="DiscardWorkout">Discard without saving</button>
     </section>
 }
 
@@ -284,6 +286,17 @@ else // Feedback
         _timingSet = null;
         try { await JS.InvokeVoidAsync("holdTimer.beep"); } catch { }
         try { Microsoft.Maui.Devices.HapticFeedback.Default.Perform(Microsoft.Maui.Devices.HapticFeedbackType.LongPress); } catch { }
+    }
+
+    private void DiscardWorkout()
+    {
+        // Nothing is persisted until Save, so just tear down and return to the chooser.
+        _timer?.Dispose();
+        _timer = null;
+        _timingSet = null;
+        _rest = 0;
+        _exercises.Clear();
+        _state = State.Choosing;
     }
 
     private void GoToFeedback()
