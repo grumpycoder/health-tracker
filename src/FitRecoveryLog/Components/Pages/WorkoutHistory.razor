@@ -1,14 +1,14 @@
 @page "/workout-history"
 @inject IDbContextFactory<AppDbContext> DbFactory
 
-<PageTitle>Workout history</PageTitle>
+<PageTitle>Workout History</PageTitle>
 
 <div class="dashboard">
 
 @if (_selected is null)
 {
     <header class="dash-header">
-        <div class="dash-date">Workout history</div>
+        <div class="dash-date">Workout History</div>
         <div class="dash-date-sub">@_sessions.Count completed workout(s)</div>
     </header>
 

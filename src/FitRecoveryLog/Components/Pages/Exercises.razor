@@ -1,14 +1,14 @@
 @page "/exercises"
 @inject IDbContextFactory<AppDbContext> DbFactory
 
-<PageTitle>Exercise library</PageTitle>
+<PageTitle>Exercise Library</PageTitle>
 
 <div class="dashboard">
 
 @if (_selected is null)
 {
     <header class="dash-header">
-        <div class="dash-date">Exercise library</div>
+        <div class="dash-date">Exercise Library</div>
         <div class="dash-date-sub">@_exercises.Count exercise(s) · shared across routines</div>
     </header>
 
