@@ -5,7 +5,8 @@ namespace FitRecoveryLog.Data;
 
 /// <summary>
 /// One-time import of real history reconstructed from chat logs
-/// (health-history.json). Wipes ALL existing data and reseeds from the file.
+/// (health-history.json, event-stream format). Wipes ALL existing data and
+/// reseeds from the file.
 /// </summary>
 public static class HistorySeed
 {
@@ -23,179 +24,220 @@ public static class HistorySeed
         var doc = JsonSerializer.Deserialize<HistoryDoc>(json,
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
             ?? throw new InvalidOperationException("health-history.json is empty or invalid");
+        var events = doc.Events ?? throw new InvalidOperationException("health-history.json has no events");
 
         Wipe(db);
 
-        // --- Body measurements -------------------------------------------------
-        foreach (var m in doc.Measurements ?? [])
-            db.BodyMeasurements.Add(new BodyMeasurement
-            {
-                Date = DateOnly.Parse(m.Date!),
-                WeightLbs = m.Weight,
-                WaistInches = m.Waist
-            });
-
-        // --- Medications: dose log + a biweekly TRT schedule --------------------
-        var meds = doc.Medications ?? [];
-        foreach (var m in meds)
-            db.MedicationEntries.Add(new MedicationEntry
-            {
-                Name = m.Name ?? "",
-                Dose = m.Dose,
-                Frequency = "Biweekly",
-                TakenAt = DateOnly.Parse(m.Date!).ToDateTime(new TimeOnly(9, 0)),
-                ReactionNotes = m.Notes
-            });
-        if (meds.Count > 0)
-            db.MedicationSchedules.Add(new MedicationSchedule
-            {
-                Name = meds[0].Name ?? "TRT",
-                Dose = meds[0].Dose,
-                IsInjection = string.Equals(meds[0].Route, "Injection", StringComparison.OrdinalIgnoreCase),
-                Repeat = ReminderRepeat.Biweekly,
-                StartDate = DateOnly.Parse(meds[0].Date!),
-                ReminderTime = new TimeOnly(9, 0),
-                NotificationId = 1001
-            });
-
-        // --- Workouts: library exercises, one routine, sessions -----------------
-        var workouts = doc.Workouts ?? [];
+        // --- Exercise library + the Morning Workout routine as refined in-app ----
+        // (The event stream only details some exercises, so the routine definition
+        // is pinned here rather than derived from it.)
         var library = new Dictionary<string, ExerciseDefinition>(StringComparer.OrdinalIgnoreCase);
-        foreach (var ex in workouts.SelectMany(w => w.Exercises ?? []))
+        ExerciseDefinition Def(string name, ExerciseMeasure measure)
         {
-            if (ex.Name is null || library.ContainsKey(ex.Name)) continue;
-            var def = new ExerciseDefinition
-            {
-                Name = ex.Name,
-                Measure = ex.Seconds is not null ? ExerciseMeasure.Duration : ExerciseMeasure.Reps
-            };
-            library[ex.Name] = def;
+            if (library.TryGetValue(name, out var existing)) return existing;
+            var def = new ExerciseDefinition { Name = name, Measure = measure };
+            library[name] = def;
             db.ExerciseDefinitions.Add(def);
+            return def;
         }
 
-        // Prescribe the routine from the most recent workout's numbers.
-        if (workouts.Count > 0)
+        var routine = new WorkoutRoutine { Name = "Morning Workout" };
+        db.WorkoutRoutines.Add(routine);
+        var prescriptions = new (string Name, ExerciseMeasure Measure, int? Reps, int? Seconds, int? RestSecs)[]
         {
-            var routine = new WorkoutRoutine { Name = "Morning Workout" };
-            db.WorkoutRoutines.Add(routine);
-            var latest = workouts[^1].Exercises ?? [];
-            for (var i = 0; i < latest.Count; i++)
+            ("Incline Pushups", ExerciseMeasure.Reps, 20, null, null),
+            ("Squats", ExerciseMeasure.Reps, 15, null, null),
+            ("Step Ups", ExerciseMeasure.Reps, 15, null, null),
+            ("Planks", ExerciseMeasure.Duration, null, 30, 30), // rest only between plank holds
+        };
+        for (var i = 0; i < prescriptions.Length; i++)
+        {
+            var p = prescriptions[i];
+            db.RoutineExercises.Add(new RoutineExercise
             {
-                var ex = latest[i];
-                if (ex.Name is null) continue;
-                db.RoutineExercises.Add(new RoutineExercise
-                {
-                    RoutineId = routine.Id,
-                    ExerciseDefinitionId = library[ex.Name].Id,
-                    Order = i,
-                    TargetSets = ex.Sets,
-                    TargetReps = ex.Reps,
-                    TargetDurationSeconds = ex.Seconds,
-                    // No rest between exercises except 30s between plank holds.
-                    RestSeconds = string.Equals(ex.Name, "Planks", StringComparison.OrdinalIgnoreCase) ? 30 : null
-                });
-            }
+                RoutineId = routine.Id,
+                ExerciseDefinitionId = Def(p.Name, p.Measure).Id,
+                Order = i,
+                TargetSets = 3,
+                TargetReps = p.Reps,
+                TargetDurationSeconds = p.Seconds,
+                RestSeconds = p.RestSecs
+            });
+        }
 
-            foreach (var w in workouts)
+        // --- Walk the event stream (file order preserved per day) -----------------
+        var sessionsByDate = new Dictionary<DateOnly, WorkoutSession>();
+        var dayTypes = new Dictionary<DateOnly, DayType>();
+        var lastTimeByDate = new Dictionary<DateOnly, TimeOnly>(); // drinks inherit the prior event's time
+        var medicationSeeded = false;
+
+        foreach (var e in events)
+        {
+            if (e.Type is null || e.Date is null) continue;
+            var date = DateOnly.Parse(e.Date);
+            var data = e.Data;
+
+            switch (e.Type)
             {
-                var date = DateOnly.Parse(w.Date!);
-                var started = date.ToDateTime(new TimeOnly(17, 0));
-                var session = new WorkoutSession
+                case "measurement":
+                    db.BodyMeasurements.Add(new BodyMeasurement
+                    {
+                        Date = date,
+                        WeightLbs = GetDouble(data, "weight"),
+                        WaistInches = GetDouble(data, "waist"),
+                        ClothingFitNotes = GetString(data, "notes")
+                    });
+                    break;
+
+                case "sleep":
+                    db.SleepEntries.Add(new SleepEntry
+                    {
+                        Date = date,
+                        DurationHours = GetDouble(data, "durationHours"),
+                        SleepScore = GetInt(data, "score"),
+                        Interruptions = GetInt(data, "interruptions"),
+                        Notes = GetString(data, "notes")
+                    });
+                    break;
+
+                case "workout":
                 {
-                    Date = date,
-                    RoutineId = routine.Id,
-                    StartedAt = started,
-                    EndedAt = started.AddSeconds(w.DurationSeconds ?? 0),
-                    TotalSeconds = w.DurationSeconds,
-                    Notes = w.Notes
-                };
-                foreach (var ex in w.Exercises ?? [])
+                    var seconds = ParseDuration(GetString(data, "duration"));
+                    var started = date.ToDateTime(new TimeOnly(17, 0));
+                    var session = new WorkoutSession
+                    {
+                        Date = date,
+                        RoutineId = routine.Id,
+                        StartedAt = started,
+                        EndedAt = started.AddSeconds(seconds ?? 0),
+                        TotalSeconds = seconds,
+                        Notes = JoinNotes(data)
+                    };
+                    sessionsByDate[date] = session;
+                    db.WorkoutSessions.Add(session);
+                    dayTypes[date] = DayType.Workout;
+                    break;
+                }
+
+                case "exercise":
                 {
-                    if (ex.Name is null) continue;
-                    var def = library[ex.Name];
-                    for (var set = 1; set <= (ex.Sets ?? 1); set++)
+                    var name = GetString(data, "exercise");
+                    if (name is null) break;
+                    var seconds = GetInt(data, "seconds");
+                    var def = Def(name, seconds is not null ? ExerciseMeasure.Duration : ExerciseMeasure.Reps);
+                    if (GetInt(data, "inclineHeightInches") is { } incline)
+                        def.EquipmentNotes ??= $"incline ~{incline}in";
+
+                    if (!sessionsByDate.TryGetValue(date, out var session))
+                    {
+                        session = new WorkoutSession { Date = date, RoutineId = routine.Id };
+                        sessionsByDate[date] = session;
+                        db.WorkoutSessions.Add(session);
+                        dayTypes[date] = DayType.Workout;
+                    }
+                    var reps = GetInt(data, "reps");
+                    for (var set = 1; set <= (GetInt(data, "sets") ?? 1); set++)
                         session.Sets.Add(new ExerciseSet
                         {
                             ExerciseDefinitionId = def.Id,
                             SetNumber = set,
-                            Reps = def.Measure == ExerciseMeasure.Reps ? ex.Reps : null,
-                            DurationSeconds = def.Measure == ExerciseMeasure.Duration ? ex.Seconds : null,
+                            Reps = def.Measure == ExerciseMeasure.Reps ? reps : null,
+                            DurationSeconds = def.Measure == ExerciseMeasure.Duration ? seconds : null,
                             Completed = true
                         });
                     session.Feedback.Add(new ExerciseFeedback
                     {
                         ExerciseDefinitionId = def.Id,
-                        Difficulty = Enum.TryParse<Difficulty>(ex.Difficulty, true, out var d) ? d : Difficulty.Unset,
-                        Comment = ex.Comment
+                        Difficulty = Enum.TryParse<Difficulty>(GetString(data, "difficulty"), true, out var diff)
+                            ? diff : Difficulty.Unset,
+                        Comment = GetString(data, "comment")
                     });
+                    break;
                 }
-                db.WorkoutSessions.Add(session);
-            }
-        }
 
-        // --- Physical workload (recovery-day activities) -------------------------
-        foreach (var r in doc.RecoveryDays ?? [])
-            db.PhysicalWorkloadEntries.Add(new PhysicalWorkloadEntry
-            {
-                Date = DateOnly.Parse(r.Date!),
-                Activity = r.Activity ?? "",
-                DurationMinutes = r.DurationHours is { } h ? (int)(h * 60) : null,
-                Intensity = Enum.TryParse<Intensity>(r.Intensity, true, out var i) ? i : Intensity.Moderate,
-                Notes = r.Notes
-            });
-
-        // --- Sleep ---------------------------------------------------------------
-        foreach (var s in doc.Sleep ?? [])
-            db.SleepEntries.Add(new SleepEntry
-            {
-                Date = DateOnly.Parse(s.Date!),
-                DurationHours = s.DurationMinutes is { } min ? Math.Round(min / 60.0, 1) : null,
-                SleepScore = s.Score,
-                Interruptions = s.Interruptions,
-                Notes = s.Notes
-            });
-
-        // --- Nutrition: drinks split out, "Side" rides with lunch ----------------
-        foreach (var n in doc.Nutrition ?? [])
-        {
-            var time = DateOnly.Parse(n.Date!).ToDateTime(TimeOnly.Parse(n.Time ?? "12:00"));
-            if (string.Equals(n.Type, "Drink", StringComparison.OrdinalIgnoreCase))
-            {
-                db.DrinkEntries.Add(new DrinkEntry { Time = time, Description = n.Food ?? "", Ounces = n.Ounces });
-                continue;
-            }
-            db.MealEntries.Add(new MealEntry
-            {
-                Time = time,
-                MealType = n.Type?.ToLowerInvariant() switch
+                case "meal":
                 {
-                    "breakfast" => MealType.Breakfast,
-                    "lunch" or "side" => MealType.Lunch,
-                    "dinner" => MealType.Dinner,
-                    _ => MealType.Snack
-                },
-                Description = n.Food ?? "",
-                PortionNote = n.Portion ?? n.Quantity?.ToString(),
-                Satiety = Enum.TryParse<Satiety>(n.Satiety, true, out var sat) ? sat : Satiety.Unset
-            });
+                    var time = ParseTime(e.Time) ?? new TimeOnly(12, 0);
+                    lastTimeByDate[date] = time;
+                    db.MealEntries.Add(new MealEntry
+                    {
+                        Time = date.ToDateTime(time),
+                        MealType = GetString(data, "mealType")?.ToLowerInvariant() switch
+                        {
+                            "breakfast" => MealType.Breakfast,
+                            "lunch" or "side" => MealType.Lunch,
+                            "dinner" => MealType.Dinner,
+                            _ => MealType.Snack
+                        },
+                        Description = GetString(data, "food") ?? "",
+                        PortionNote = GetString(data, "portion") ?? GetInt(data, "quantity")?.ToString(),
+                        Satiety = Enum.TryParse<Satiety>(GetString(data, "satiety"), true, out var sat)
+                            ? sat : Satiety.Unset
+                    });
+                    break;
+                }
+
+                case "drink":
+                {
+                    var time = ParseTime(e.Time)
+                        ?? (lastTimeByDate.TryGetValue(date, out var prev) ? prev : new TimeOnly(12, 0));
+                    db.DrinkEntries.Add(new DrinkEntry
+                    {
+                        Time = date.ToDateTime(time),
+                        Description = GetString(data, "name") ?? "",
+                        Ounces = GetDouble(data, "ounces")
+                    });
+                    break;
+                }
+
+                case "observation":
+                {
+                    var category = GetString(data, "category");
+                    var note = GetString(data, "note") ?? "";
+                    db.NoteEntries.Add(new NoteEntry
+                    {
+                        Time = date.ToDateTime(ParseTime(e.Time) ?? new TimeOnly(12, 0)),
+                        Text = string.IsNullOrWhiteSpace(category) ? note : $"{category}: {note}"
+                    });
+                    break;
+                }
+
+                case "recovery_day":
+                    if (!dayTypes.ContainsKey(date)) dayTypes[date] = DayType.Recovery;
+                    break;
+
+                case "medication":
+                {
+                    var name = GetString(data, "name") ?? "TRT";
+                    var dose = GetString(data, "dose");
+                    db.MedicationEntries.Add(new MedicationEntry
+                    {
+                        Name = name,
+                        Dose = dose,
+                        Frequency = GetString(data, "frequency"),
+                        TakenAt = date.ToDateTime(new TimeOnly(9, 0))
+                    });
+                    if (!medicationSeeded)
+                    {
+                        medicationSeeded = true;
+                        db.MedicationSchedules.Add(new MedicationSchedule
+                        {
+                            Name = name,
+                            Dose = dose,
+                            IsInjection = true,
+                            Repeat = ReminderRepeat.Biweekly,
+                            StartDate = date,
+                            ReminderTime = new TimeOnly(9, 0),
+                            NotificationId = 1001
+                        });
+                    }
+                    break;
+                }
+            }
         }
 
-        // --- Observations → timestamped notes; day types from activity ------------
-        foreach (var o in doc.Observations ?? [])
-            db.NoteEntries.Add(new NoteEntry
-            {
-                Time = DateOnly.Parse(o.Date!).ToDateTime(new TimeOnly(12, 0)),
-                Text = string.IsNullOrWhiteSpace(o.Category) ? o.Note ?? "" : $"{o.Category}: {o.Note}"
-            });
-
-        var days = new Dictionary<DateOnly, DailyLog>();
-        DailyLog Day(DateOnly d) => days.TryGetValue(d, out var log)
-            ? log
-            : days[d] = new DailyLog { Date = d };
-
-        foreach (var w in workouts) Day(DateOnly.Parse(w.Date!)).DayType = DayType.Workout;
-        foreach (var r in doc.RecoveryDays ?? []) Day(DateOnly.Parse(r.Date!)).DayType = DayType.HighWorkload;
-        db.DailyLogs.AddRange(days.Values);
+        foreach (var (date, dt) in dayTypes)
+            db.DailyLogs.Add(new DailyLog { Date = date, DayType = dt });
 
         // --- Built-in reminder settings -------------------------------------------
         db.ReminderSettings.AddRange(
@@ -205,6 +247,44 @@ public static class HistorySeed
 
         db.SaveChanges();
     }
+
+    // ---- JSON helpers -----------------------------------------------------------
+    private static string? GetString(JsonElement data, string prop) =>
+        data.ValueKind == JsonValueKind.Object && data.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString() : null;
+
+    private static double? GetDouble(JsonElement data, string prop) =>
+        data.ValueKind == JsonValueKind.Object && data.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number
+            ? v.GetDouble() : null;
+
+    private static int? GetInt(JsonElement data, string prop) =>
+        data.ValueKind == JsonValueKind.Object && data.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number
+            ? v.GetInt32() : null;
+
+    /// <summary>Workout notes may be a string or an array of strings.</summary>
+    private static string? JoinNotes(JsonElement data)
+    {
+        if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("notes", out var v)) return null;
+        return v.ValueKind switch
+        {
+            JsonValueKind.String => v.GetString(),
+            JsonValueKind.Array => string.Join("; ", v.EnumerateArray()
+                .Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString())),
+            _ => null
+        };
+    }
+
+    /// <summary>"16:18" (mm:ss) → seconds.</summary>
+    private static int? ParseDuration(string? mmss)
+    {
+        if (mmss is null) return null;
+        var parts = mmss.Split(':');
+        return parts.Length == 2 && int.TryParse(parts[0], out var m) && int.TryParse(parts[1], out var s)
+            ? m * 60 + s : null;
+    }
+
+    private static TimeOnly? ParseTime(string? hhmm) =>
+        TimeOnly.TryParse(hhmm, out var t) ? t : null;
 
     /// <summary>Delete every row in every table (children before parents).
     /// Shared with BackupRestore.</summary>
@@ -231,24 +311,18 @@ public static class HistorySeed
         db.NoteEntries.ExecuteDelete();
     }
 
-    // ---- JSON shapes (match health-history.json) -------------------------------
+    // ---- JSON shapes (event-stream format) ---------------------------------------
     private sealed class HistoryDoc
     {
-        public List<MeasurementDto>? Measurements { get; set; }
-        public List<MedicationDto>? Medications { get; set; }
-        public List<WorkoutDto>? Workouts { get; set; }
-        public List<RecoveryDayDto>? RecoveryDays { get; set; }
-        public List<SleepDto>? Sleep { get; set; }
-        public List<NutritionDto>? Nutrition { get; set; }
-        public List<ObservationDto>? Observations { get; set; }
+        public List<EventDto>? Events { get; set; }
     }
 
-    private sealed class MeasurementDto { public string? Date { get; set; } public double? Weight { get; set; } public double? Waist { get; set; } }
-    private sealed class MedicationDto { public string? Date { get; set; } public string? Name { get; set; } public string? Dose { get; set; } public string? Route { get; set; } public string? Notes { get; set; } }
-    private sealed class WorkoutDto { public string? Date { get; set; } public int? DurationSeconds { get; set; } public string? Notes { get; set; } public List<WorkoutExerciseDto>? Exercises { get; set; } }
-    private sealed class WorkoutExerciseDto { public string? Name { get; set; } public int? Sets { get; set; } public int? Reps { get; set; } public int? Seconds { get; set; } public string? Difficulty { get; set; } public string? Comment { get; set; } }
-    private sealed class RecoveryDayDto { public string? Date { get; set; } public string? Activity { get; set; } public double? DurationHours { get; set; } public string? Intensity { get; set; } public string? Notes { get; set; } }
-    private sealed class SleepDto { public string? Date { get; set; } public int? DurationMinutes { get; set; } public int? Score { get; set; } public int? Interruptions { get; set; } public string? Notes { get; set; } }
-    private sealed class NutritionDto { public string? Date { get; set; } public string? Time { get; set; } public string? Type { get; set; } public string? Food { get; set; } public int? Quantity { get; set; } public double? Ounces { get; set; } public string? Portion { get; set; } public string? Satiety { get; set; } }
-    private sealed class ObservationDto { public string? Date { get; set; } public string? Category { get; set; } public string? Note { get; set; } }
+    private sealed class EventDto
+    {
+        public string? Id { get; set; }
+        public string? Type { get; set; }
+        public string? Date { get; set; }
+        public string? Time { get; set; }
+        public JsonElement Data { get; set; }
+    }
 }

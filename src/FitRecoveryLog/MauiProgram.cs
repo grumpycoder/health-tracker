@@ -68,8 +68,8 @@ public static class MauiProgram
 
 			// One-time wipe + reseed from real history (health-history.json).
 			// The marker file keeps it from re-running on every launch.
-			// v2: renamed routine to "Morning Workout", rest only between plank holds.
-			var importMarker = Path.Combine(FileSystem.AppDataDirectory, "history-import-v2.done");
+			// v3: reseed from the updated event-stream history file.
+			var importMarker = Path.Combine(FileSystem.AppDataDirectory, "history-import-v3.done");
 			if (!File.Exists(importMarker))
 			{
 				try
