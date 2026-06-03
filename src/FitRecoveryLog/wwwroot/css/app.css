@@ -246,6 +246,13 @@ select.field, .field select {
 .ex-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
 .ex-row > div:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ex-name { font-weight: 600; margin-right: 0.5rem; }
+/* Targets (reps/sets/rest) on their own line under the exercise name. */
+.ex-target {
+    display: block;
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin: 0.15rem 0 0 1.4rem; /* aligns under the name, past the drag handle */
+}
 .drag-handle {
     color: var(--muted);
     cursor: grab;
