@@ -16,6 +16,14 @@
         </button>
     </section>
 
+    <div class="segmented">
+        <button class="seg @(_tab == "meal" ? "active" : "")" @onclick='() => _tab = "meal"'>🍽️ Meal</button>
+        <button class="seg @(_tab == "drink" ? "active" : "")" @onclick='() => _tab = "drink"'>🥤 Drink</button>
+        <button class="seg @(_tab == "today" ? "active" : "")" @onclick='() => _tab = "today"'>📋 Today</button>
+    </div>
+
+@if (_tab == "meal")
+{
     <section class="card">
         <h2>Log meal / snack</h2>
         <div class="field">
@@ -23,7 +31,10 @@
             <select @bind="_meal.MealType">
                 @foreach (var t in Enum.GetValues<MealType>())
                 {
-                    <option value="@t">@t</option>
+                    @if (t != MealType.Drink)
+                    {
+                        <option value="@t">@t</option>
+                    }
                 }
             </select>
         </div>
@@ -80,7 +91,10 @@
             <span class="warn-msg">@_mealWarn</span>
         }
     </section>
+}
 
+@if (_tab == "drink")
+{
     <section class="card">
         <h2>Log drink</h2>
         <div class="field">
@@ -97,7 +111,7 @@
                     @foreach (var d in drinkMatches)
                     {
                         <button type="button" class="chip @(string.Equals(d, _drink.Description?.Trim(), StringComparison.OrdinalIgnoreCase) ? "selected" : "")"
-                                @onclick="() => _drink.Description = d">@d</button>
+                                @onclick="() => SelectDrink(d)">@d</button>
                     }
                 </div>
             }
@@ -120,7 +134,10 @@
             <span class="warn-msg">@_drinkWarn</span>
         }
     </section>
+}
 
+@if (_tab == "today")
+{
     <section class="card">
         <h2>Today</h2>
         @if (_todayMeals.Count == 0 && _todayDrinks.Count == 0)
@@ -139,7 +156,10 @@
                                 <div class="field">
                                     <label>Type</label>
                                     <select @bind="_mealEdit.MealType">
-                                        @foreach (var t in Enum.GetValues<MealType>()) { <option value="@t">@t</option> }
+                                        @foreach (var t in Enum.GetValues<MealType>())
+                                        {
+                                            @if (t != MealType.Drink) { <option value="@t">@t</option> }
+                                        }
                                     </select>
                                 </div>
                                 <div class="field"><label>Food</label><input @bind="_mealEdit.Description" /></div>
@@ -226,6 +246,7 @@
             </ul>
         }
     </section>
+}
 </div>
 
 @code {
@@ -236,6 +257,7 @@
     private static readonly string[] MealTags =
         { "High protein", "High carb", "High sodium", "Sweet drink", "Restaurant meal", "Home-cooked", "Recovery meal" };
 
+    private string _tab = "meal";
     private MealEntry _meal = new();
     private DrinkEntry _drink = new();
     private readonly HashSet<string> _mealTags = new();
@@ -248,6 +270,18 @@
     // Saved food/drink names (typeahead libraries) — seed list + everything logged.
     private List<string> _foodLib = new();
     private List<string> _drinkLib = new();
+    // Drink name -> most recent (ounces, sugar), to prefill on selection.
+    private Dictionary<string, (double? Oz, int? Sugar)> _drinkDefaults = new(StringComparer.OrdinalIgnoreCase);
+
+    private void SelectDrink(string name)
+    {
+        _drink.Description = name;
+        if (_drinkDefaults.TryGetValue(name, out var d))
+        {
+            _drink.Ounces = d.Oz;
+            _drink.SugarCount = d.Sugar;
+        }
+    }
 
     private static List<string> Suggest(List<string> lib, string? query)
     {
@@ -396,10 +430,17 @@
         _foodLib = CommonFoods.Concat(loggedFoods)
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
-        var loggedDrinks = await db.DrinkEntries.Select(d => d.Description).Distinct().ToListAsync();
-        _drinkLib = CommonDrinks.Concat(loggedDrinks)
+        var drinkRows = await db.DrinkEntries
+            .OrderByDescending(d => d.Time)
+            .Select(d => new { d.Description, d.Ounces, d.SugarCount }).ToListAsync();
+        _drinkLib = CommonDrinks.Concat(drinkRows.Select(d => d.Description))
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
+        // Most recent ounces/sugar per drink name (rows are newest-first).
+        _drinkDefaults = drinkRows
+            .Where(d => !string.IsNullOrWhiteSpace(d.Description))
+            .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => (g.First().Ounces, g.First().SugarCount), StringComparer.OrdinalIgnoreCase);
     }
 
     private static string Pretty(string camel) =>

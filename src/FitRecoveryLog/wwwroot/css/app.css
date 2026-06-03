@@ -382,3 +382,28 @@ select.field, .field select {
 .exercise-card.retired { opacity: 0.6; }
 
 .warn-msg { margin-left: 0.75rem; color: #dc2626; font-weight: 600; }
+
+/* segmented switcher */
+.segmented {
+    display: flex;
+    gap: 0.3rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.25rem;
+}
+.segmented .seg {
+    flex: 1;
+    border: none;
+    background: none;
+    color: var(--muted);
+    border-radius: 9px;
+    padding: 0.55rem 0.4rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+.segmented .seg.active {
+    background: var(--accent);
+    color: var(--accent-contrast);
+    font-weight: 600;
+}
