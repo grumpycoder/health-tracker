@@ -105,8 +105,10 @@ only once there's data worth preserving on a device.
   library exercise on add (case-insensitive, unique name); remove = unlink only
   (keeps the library exercise + history); workout start + seeder updated; EF
   migration `SharedExerciseLibrary`. Dev DBs wiped rather than data-migrated.
-- **Phase 2** (polish) — TODO: exercise library management screen (rename / merge /
-  retire, lifetime history per exercise).
+- **Phase 2** (polish) — ✅ DONE: `/exercises` library screen with rename (global,
+  unique-guarded), retire/restore (hidden from pickers, history kept), merge into
+  another exercise (repoints sets/feedback/routine slots), and per-exercise lifetime
+  history (stats + best-per-session chart + difficulty). `Retired` flag + migration.
 
 ## Related items this unblocks/absorbs
 
