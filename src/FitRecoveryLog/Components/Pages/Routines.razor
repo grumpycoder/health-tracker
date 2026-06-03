@@ -20,15 +20,23 @@
 
     @foreach (var r in _routines)
     {
+        var expanded = _expandedId == r.Id;
         <section class="card">
-            <div class="routine-head">
-                <h2>@r.Name</h2>
+            <div class="routine-head" style="cursor:pointer" @onclick="() => Toggle(r.Id)">
+                <h2>@(expanded ? "▾" : "▸") @r.Name</h2>
                 <div class="routine-actions">
-                    <button class="link-btn" @onclick="@(() => Nav.NavigateTo($"workout?routineId={r.Id}"))">Start ▶</button>
-                    <button class="icon-action danger" title="Delete" aria-label="Delete" @onclick="@(() => DeleteRoutine(r))">🗑</button>
+                    <button class="link-btn" @onclick:stopPropagation
+                            @onclick="@(() => Nav.NavigateTo($"workout?routineId={r.Id}"))">Start ▶</button>
                 </div>
             </div>
 
+            @if (!expanded)
+            {
+                <p class="muted" style="margin:0.4rem 0 0">@Summary(r)</p>
+            }
+            else
+            {
+            <div>
             @if (r.Exercises.Count == 0)
             {
                 <p class="muted">No exercises yet.</p>
@@ -161,6 +169,12 @@
                 </div>
                 <button class="save-btn" @onclick="@(() => AddExercise(r))">Add Exercise</button>
             </div>
+
+            <div style="margin-top:0.9rem;text-align:right">
+                <button class="link-btn danger" @onclick="@(() => DeleteRoutine(r))">Delete Routine</button>
+            </div>
+            </div>
+            }
         </section>
     }
 </div>
@@ -170,6 +184,22 @@
     private List<(string Name, ExerciseMeasure Measure)> _library = new();
     private string _newRoutineName = "";
     private readonly Dictionary<Guid, ExerciseDraft> _draft = new();
+
+    // Accordion: only one routine is open at a time to keep the page short.
+    private Guid? _expandedId;
+
+    private void Toggle(Guid id)
+    {
+        _expandedId = _expandedId == id ? null : id;
+        _editId = null;
+    }
+
+    /// <summary>Collapsed one-liner: exercise names in order.</summary>
+    private static string Summary(WorkoutRoutine r) =>
+        r.Exercises.Count == 0
+            ? "No exercises yet — tap to add"
+            : string.Join(" · ", r.Exercises.OrderBy(e => e.Order)
+                .Select(e => e.ExerciseDefinition?.Name ?? "?"));
 
     // Inline edit state: which RoutineExercise is being edited, and its target draft.
     private Guid? _editId;
@@ -212,10 +242,12 @@
     {
         if (string.IsNullOrWhiteSpace(_newRoutineName)) return;
         await using var db = await DbFactory.CreateDbContextAsync();
-        db.WorkoutRoutines.Add(new WorkoutRoutine { Name = _newRoutineName.Trim() });
+        var routine = new WorkoutRoutine { Name = _newRoutineName.Trim() };
+        db.WorkoutRoutines.Add(routine);
         await db.SaveChangesAsync();
         _newRoutineName = "";
         await Load();
+        _expandedId = routine.Id; // open the new routine so exercises can be added now
     }
 
     private async Task DeleteRoutine(WorkoutRoutine r)
