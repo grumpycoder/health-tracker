@@ -407,3 +407,6 @@ select.field, .field select {
     color: var(--accent-contrast);
     font-weight: 600;
 }
+
+.steps-today { display: flex; align-items: center; gap: 0.6rem; font-size: 1.1rem; }
+.steps-today .quick-emoji { font-size: 1.5rem; }

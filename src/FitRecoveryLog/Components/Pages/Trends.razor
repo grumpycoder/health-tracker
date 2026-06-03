@@ -1,5 +1,6 @@
 @page "/trends"
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject IHealthService Health
 
 <PageTitle>Trends</PageTitle>
 
@@ -26,6 +27,10 @@
         <section class="card"><LineChart Title="Waist" Unit=" in" Points="_waist" /></section>
         <section class="card"><LineChart Title="Sleep score" Points="_sleep" ValueFormat="0" /></section>
         <section class="card"><LineChart Title="Workout duration" Unit=" min" Points="_workoutMin" ValueFormat="0" /></section>
+        @if (_steps.Count >= 2)
+        {
+            <section class="card"><LineChart Title="Steps (Apple Health)" Points="_steps" ValueFormat="0" /></section>
+        }
 
         @if (_drinks.Count > 0)
         {
@@ -46,6 +51,7 @@
     private List<(DateOnly Date, double Value)> _waist = new();
     private List<(DateOnly Date, double Value)> _sleep = new();
     private List<(DateOnly Date, double Value)> _workoutMin = new();
+    private List<(DateOnly Date, double Value)> _steps = new();
     private List<(string Name, List<(DateOnly Date, double Value)> Points)> _drinks = new();
 
     protected override async Task OnInitializedAsync()
@@ -90,8 +96,27 @@
             .OrderByDescending(s => s.Points.Sum(p => p.Item2))
             .ToList();
 
+        // Steps from Apple Health (iOS only) — last 14 days, read per day.
+        if (Health.IsAvailable)
+        {
+            try
+            {
+                await Health.RequestAuthorizationAsync();
+                var today = DateOnly.FromDateTime(DateTime.Now);
+                var pts = new List<(DateOnly Date, double Value)>();
+                for (var i = 13; i >= 0; i--)
+                {
+                    var d = today.AddDays(-i);
+                    var s = await Health.ReadStepsAsync(d);
+                    if (s is > 0) pts.Add((d, s.Value));
+                }
+                _steps = pts;
+            }
+            catch { }
+        }
+
         _empty = _weight.Count == 0 && _waist.Count == 0 && _sleep.Count == 0
-                 && _workoutMin.Count == 0 && _drinks.Count == 0;
+                 && _workoutMin.Count == 0 && _drinks.Count == 0 && _steps.Count == 0;
         _loaded = true;
     }
 }

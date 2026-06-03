@@ -28,5 +28,9 @@
     </array>
     <key>XSAppIconAssets</key>
     <string>Assets.xcassets/appicon.appiconset</string>
+    <key>NSHealthShareUsageDescription</key>
+    <string>Read your weight and steps from Apple Health to show trends.</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>Save measurements you log to Apple Health.</string>
 </dict>
 </plist>

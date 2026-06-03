@@ -31,6 +31,13 @@ public static class MauiProgram
 			builder.UseLocalNotification();
 		builder.Services.AddMauiBlazorWebView();
 
+		// HealthKit (iOS only); no-op everywhere else (e.g. Mac Catalyst).
+#if IOS
+		builder.Services.AddSingleton<FitRecoveryLog.Services.IHealthService, HealthKitService>();
+#else
+		builder.Services.AddSingleton<FitRecoveryLog.Services.IHealthService, FitRecoveryLog.Services.NoopHealthService>();
+#endif
+
 		// Local-first SQLite database stored in the app's private data directory.
 		var dbPath = Path.Combine(FileSystem.AppDataDirectory, "fitrecoverylog.db3");
 		builder.Services.AddDbContextFactory<AppDbContext>(options =>

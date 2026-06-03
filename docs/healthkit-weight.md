@@ -105,9 +105,12 @@ only if steps are later wanted in **export** or the **Mac build**.
 
 ## Phasing
 
-- **Phase 1:** `IHealthService` + iOS impl; request auth (bodyMass read+write,
-  stepCount read); write-on-save for weight; "Pull from Health" for weight with
-  per-date dedup; **read-only steps** on the dashboard + a steps trend.
+- **Phase 1 — ✅ DONE:** `IHealthService` (iOS `HealthKitService` + `NoopHealthService`
+  elsewhere); auth for bodyMass read+write and stepCount read; write-on-save of
+  weight; "Pull weight from Health" with per-date + source dedup; read-only steps on
+  the dashboard and a 14-day steps trend. Entitlement (`HealthKit.entitlements`)
+  applied to device builds only; runtime HealthKit behavior to be verified on
+  simulator/device.
 - **Phase 2 (optional):** waist circumference; write workouts to Health; background
   observer (`HKObserverQuery`/anchored) for true live two-way sync; persist
   `DailyLog.Steps` if export/Mac coverage is wanted.

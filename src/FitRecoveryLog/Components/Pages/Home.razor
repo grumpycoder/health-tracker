@@ -1,6 +1,7 @@
 @page "/"
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
+@inject IHealthService Health
 
 <PageTitle>Dashboard</PageTitle>
 
@@ -9,6 +10,14 @@
         <div class="dash-date">@Today.ToString("dddd")</div>
         <div class="dash-date-sub">@Today.ToString("MMMM d, yyyy")</div>
     </header>
+
+    @if (_steps is not null)
+    {
+        <section class="card steps-today">
+            <span class="quick-emoji">👟</span>
+            <span><strong>@_steps.Value.ToString("N0")</strong> steps today</span>
+        </section>
+    }
 
     <section class="card">
         <h2>Today's plan</h2>
@@ -82,6 +91,7 @@
 
     private DailyLog _log = new() { Date = Today };
     private bool _saved;
+    private int? _steps;
 
     protected override async Task OnInitializedAsync()
     {
@@ -89,6 +99,16 @@
         var existing = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == Today);
         if (existing is not null)
             _log = existing;
+
+        if (Health.IsAvailable)
+        {
+            try
+            {
+                await Health.RequestAuthorizationAsync();
+                _steps = await Health.ReadStepsAsync(Today);
+            }
+            catch { }
+        }
     }
 
     private async Task SetDayType(DayType dt)

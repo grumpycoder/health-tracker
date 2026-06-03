@@ -1,5 +1,6 @@
 @page "/measurements"
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject IHealthService Health
 
 <PageTitle>Body Measurements</PageTitle>
 
@@ -52,6 +53,19 @@
             }
         </EditForm>
     </section>
+
+    @if (Health.IsAvailable)
+    {
+        <section class="card">
+            <button class="quick-btn wide" @onclick="PullFromHealth">
+                <span class="quick-emoji">❤️</span> Pull weight from Apple Health
+            </button>
+            @if (_pullMsg is not null)
+            {
+                <p class="muted" style="margin:0.5rem 0 0">@_pullMsg</p>
+            }
+        </section>
+    }
 
     <section class="card">
         <h2>History</h2>
@@ -123,8 +137,35 @@
     private Guid? _editId;
     private BodyMeasurement _edit = new();
     private DateTime _editDate = DateTime.Now.Date;
+    private string? _pullMsg;
 
-    protected override async Task OnInitializedAsync() => await LoadHistory();
+    protected override async Task OnInitializedAsync()
+    {
+        if (Health.IsAvailable) { try { await Health.RequestAuthorizationAsync(); } catch { } }
+        await LoadHistory();
+    }
+
+    private async Task PullFromHealth()
+    {
+        _pullMsg = null;
+        var weights = await Health.ReadWeightsAsync(DateTime.Now.AddDays(-365));
+        if (weights.Count == 0) { _pullMsg = "No weights found in Health (or access denied)."; return; }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var existing = (await db.BodyMeasurements.Select(m => m.Date).ToListAsync()).ToHashSet();
+        // One import per date, only for dates we don't already have.
+        var added = 0;
+        foreach (var (date, lbs) in weights.GroupBy(w => w.Date).Select(g => g.First()))
+        {
+            if (existing.Contains(date)) continue;
+            db.BodyMeasurements.Add(new BodyMeasurement { Date = date, WeightLbs = Math.Round(lbs, 1) });
+            existing.Add(date);
+            added++;
+        }
+        if (added > 0) await db.SaveChangesAsync();
+        _pullMsg = added > 0 ? $"Imported {added} weight(s) from Health." : "Already up to date with Health.";
+        await LoadHistory();
+    }
 
     private void StartEdit(BodyMeasurement m)
     {
@@ -183,9 +224,16 @@
         }
         _warn = null;
         _entry.Date = DateOnly.FromDateTime(_dateInput);
+        var entry = _entry;
         await using var db = await DbFactory.CreateDbContextAsync();
-        db.BodyMeasurements.Add(_entry);
+        db.BodyMeasurements.Add(entry);
         await db.SaveChangesAsync();
+
+        // Mirror weight to Apple Health (iOS only; no-op otherwise).
+        if (Health.IsAvailable && entry.WeightLbs is { } lbs)
+        {
+            try { await Health.WriteWeightAsync(entry.Date, lbs, entry.Id); } catch { }
+        }
 
         _saved = true;
         _entry = new BodyMeasurement { Date = DateOnly.FromDateTime(_dateInput) };
