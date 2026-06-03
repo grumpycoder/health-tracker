@@ -9,6 +9,14 @@
         <div class="dash-date-sub">@DateTime.Now.ToString("dddd, MMM d")</div>
     </header>
 
+    <div class="segmented">
+        <button class="seg @(_tab == "meds" ? "active" : "")" @onclick='() => _tab = "meds"'>💊 Meds</button>
+        <button class="seg @(_tab == "labs" ? "active" : "")" @onclick='() => _tab = "labs"'>🧪 Labs</button>
+        <button class="seg @(_tab == "history" ? "active" : "")" @onclick='() => _tab = "history"'>📋 History</button>
+    </div>
+
+    @if (_tab == "meds")
+    {
     <section class="card">
         <h2>My medications</h2>
         @if (_schedules.Count == 0)
@@ -154,7 +162,10 @@
             <span class="warn-msg">@_medWarn</span>
         }
     </section>
+    }
 
+    @if (_tab == "labs")
+    {
     <section class="card">
         <h2>Log lab result</h2>
         <div class="field">
@@ -193,7 +204,10 @@
             <span class="warn-msg">@_labWarn</span>
         }
     </section>
+    }
 
+    @if (_tab == "history")
+    {
     <section class="card">
         <h2>Recent medications</h2>
         @if (_recentMeds.Count == 0)
@@ -296,9 +310,12 @@
             </ul>
         }
     </section>
+    }
 </div>
 
 @code {
+    private string _tab = "meds";
+
     private static readonly string[] CommonMeds =
         { "Testosterone Cypionate", "Vitamin D", "Fish oil" };
     private static readonly string[] InjectionSites =
