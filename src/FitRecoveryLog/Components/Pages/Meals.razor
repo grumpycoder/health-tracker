@@ -258,7 +258,9 @@
         { "High protein", "High carb", "High sodium", "Sweet drink", "Restaurant meal", "Home-cooked", "Recovery meal" };
 
     private string _tab = "meal";
-    private MealEntry _meal = new();
+    // Satisfied is the common case, so the form starts there instead of Unset.
+    private static MealEntry NewMeal() => new() { Satiety = Satiety.Satisfied };
+    private MealEntry _meal = NewMeal();
     private DrinkEntry _drink = new();
     private readonly HashSet<string> _mealTags = new();
     private bool _mealSaved, _drinkSaved;
@@ -394,7 +396,7 @@
         await db.SaveChangesAsync();
 
         _mealSaved = true;
-        _meal = new MealEntry();
+        _meal = NewMeal();
         _mealTags.Clear();
         await LoadToday();
     }
