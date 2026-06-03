@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:local="clr-namespace:FitRecoveryLog"
              xmlns:components="clr-namespace:FitRecoveryLog.Components"
-             x:Class="FitRecoveryLog.MainPage">
+             x:Class="FitRecoveryLog.MainPage"
+             BackgroundColor="{AppThemeBinding Light=#f5f6f8, Dark=#121316}">
 
     <BlazorWebView x:Name="blazorWebView" HostPage="wwwroot/index.html">
         <BlazorWebView.RootComponents>
