@@ -21,7 +21,9 @@
         <h2>Medication doses</h2>
         @if (_medSchedules.Count == 0)
         {
-            <p class="muted">No active medication schedules. Add them under Medication → My medications.</p>
+            <p class="muted">@(_loggedTodayCount > 0
+                ? "All doses logged for today ✓"
+                : "No active medication schedules. Add them under Medication → My medications.")</p>
         }
         else
         {
@@ -48,13 +50,13 @@
                                 }
                             </div>
                         }
-                        @if (_loggedSchedId == sc.Id)
-                        {
-                            <p class="saved-msg" style="margin:0.4rem 0 0">Logged ✓</p>
-                        }
                     </li>
                 }
             </ul>
+            @if (_loggedTodayCount > 0)
+            {
+                <p class="muted" style="margin:0.5rem 0 0">@_loggedTodayCount logged today ✓</p>
+            }
         }
     </section>
 
@@ -105,7 +107,7 @@
     private List<ReminderSetting> _settings = new();
     private Guid? _logSiteFor;
     private string? _suggestedSite;
-    private Guid? _loggedSchedId;
+    private int _loggedTodayCount;
 
     protected override async Task OnInitializedAsync()
     {
@@ -118,10 +120,20 @@
     private async Task Load()
     {
         var today = DateOnly.FromDateTime(DateTime.Now);
+        var startOfDay = DateTime.Now.Date;
         await using var db = await DbFactory.CreateDbContextAsync();
-        _medSchedules = await db.MedicationSchedules
+        var schedules = await db.MedicationSchedules
             .Where(s => s.Active && (s.EndDate == null || s.EndDate >= today))
             .OrderBy(s => s.Name).ToListAsync();
+
+        // Hide schedules already logged today; they reappear tomorrow.
+        var takenToday = await db.MedicationEntries
+            .Where(m => m.TakenAt >= startOfDay)
+            .Select(m => m.Name).ToListAsync();
+        _medSchedules = schedules
+            .Where(s => !takenToday.Contains(s.Name, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+        _loggedTodayCount = schedules.Count - _medSchedules.Count;
         _recentMeds = await db.MedicationEntries.OrderByDescending(m => m.TakenAt).Take(20).ToListAsync();
         _settings = await db.ReminderSettings.ToListAsync();
         _settings.Sort((a, b) => Order(a.Key).CompareTo(Order(b.Key)));
@@ -156,7 +168,6 @@
 
     private void LogMedClicked(MedicationSchedule sc)
     {
-        _loggedSchedId = null;
         if (sc.IsInjection)
         {
             var last = _recentMeds.FirstOrDefault(m =>
@@ -188,7 +199,6 @@
             await db.SaveChangesAsync();
         }
         _logSiteFor = null;
-        _loggedSchedId = sc.Id;
         await Load();
     }
 }
