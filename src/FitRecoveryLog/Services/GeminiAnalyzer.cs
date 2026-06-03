@@ -6,9 +6,10 @@ using Microsoft.EntityFrameworkCore;
 namespace FitRecoveryLog.Services;
 
 /// <summary>
-/// AI analysis of workouts, meals/drinks, and sleep via the Gemini API
-/// (free AI Studio tier; the user supplies their own key in Settings).
-/// Medications, labs, body measurements, and notes are deliberately NEVER sent.
+/// AI analysis of workouts, meals/drinks, sleep, and body-measurement numbers
+/// via the Gemini API (free AI Studio tier; the user supplies their own key in
+/// Settings). Medications, labs, notes, photos, and freeform measurement text
+/// are deliberately NEVER sent.
 /// </summary>
 public static class GeminiAnalyzer
 {
@@ -53,9 +54,10 @@ public static class GeminiAnalyzer
         sb.AppendLine("You are a concise fitness and recovery coach analyzing one person's self-tracked logs.");
         sb.AppendLine("Analyze the data below (last 8 weeks) and respond with these sections:");
         sb.AppendLine("1. WORKOUT PROGRESSION — per exercise: progress / hold / back off, with specific target numbers for next week.");
-        sb.AppendLine("2. MEAL PATTERNS — habits worth keeping or changing (timing, types, satiety, drinks/sugar).");
-        sb.AppendLine("3. SLEEP — how sleep looks and any apparent link to workout quality.");
-        sb.AppendLine("4. TOP 3 ACTIONS — the highest-impact changes for next week.");
+        sb.AppendLine("2. BODY TREND — what weight/waist are doing and whether the overall approach is working.");
+        sb.AppendLine("3. MEAL PATTERNS — habits worth keeping or changing (timing, types, satiety, drinks/sugar).");
+        sb.AppendLine("4. SLEEP — how sleep looks and any apparent link to workout quality.");
+        sb.AppendLine("5. TOP 3 ACTIONS — the highest-impact changes for next week.");
         sb.AppendLine("Be specific and reference the data. Say plainly where data is too sparse to conclude anything.");
         sb.AppendLine("Plain text only: short section headings and dash bullets, no markdown symbols.");
         sb.AppendLine();
@@ -102,6 +104,18 @@ public static class GeminiAnalyzer
             sb.AppendLine($"{d.Time:yyyy-MM-dd HH:mm} \"{d.Description}\"" +
                           (d.Ounces is { } oz ? $" {oz:0.#}oz" : "") +
                           (d.SugarCount is { } su ? $" sugar:{su}" : ""));
+
+        sb.AppendLine();
+        sb.AppendLine("BODY MEASUREMENTS (numbers only):");
+        var measurements = await db.BodyMeasurements.Where(m => m.Date >= since).OrderBy(m => m.Date).ToListAsync();
+        if (measurements.Count == 0) sb.AppendLine("(none)");
+        foreach (var m in measurements)
+            sb.AppendLine($"{m.Date:yyyy-MM-dd}" +
+                          (m.WeightLbs is { } w ? $" weight:{w:0.#}lbs" : "") +
+                          (m.WaistInches is { } wa ? $" waist:{wa:0.##}in" : "") +
+                          (m.ChestInches is { } c ? $" chest:{c:0.##}in" : "") +
+                          (m.ArmsInches is { } a ? $" arms:{a:0.##}in" : "") +
+                          (m.ThighsInches is { } t ? $" thighs:{t:0.##}in" : ""));
 
         sb.AppendLine();
         sb.AppendLine("SLEEP:");
