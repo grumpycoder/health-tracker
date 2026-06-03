@@ -44,8 +44,12 @@
 
     <!-- HealthKit entitlement applies to device builds; simulator doesn't enforce it
          and adding it there would force a signing certificate. -->
+    <!-- HealthKit needs a signed entitlement + a provisioning profile that includes
+         the HealthKit capability. Applied to device builds (ios-arm64); the
+         simulator build omits it so it still runs without provisioning. -->
     <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
         <CodesignEntitlements>Platforms/iOS/HealthKit.entitlements</CodesignEntitlements>
+        <CodesignKey>Apple Development: your-apple-id@example.com (XXXXXXXXXX)</CodesignKey>
     </PropertyGroup>
 
     <ItemGroup>
