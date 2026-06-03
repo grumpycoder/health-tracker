@@ -68,8 +68,8 @@ public static class MauiProgram
 
 			// One-time wipe + reseed from real history (health-history.json).
 			// The marker file keeps it from re-running on every launch.
-			// v3: reseed from the updated event-stream history file.
-			var importMarker = Path.Combine(FileSystem.AppDataDirectory, "history-import-v3.done");
+			// v4: current-week (Jun 1-3) events appended.
+			var importMarker = Path.Combine(FileSystem.AppDataDirectory, "history-import-v4.done");
 			if (!File.Exists(importMarker))
 			{
 				try
