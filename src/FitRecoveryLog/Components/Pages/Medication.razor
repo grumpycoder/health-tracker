@@ -37,7 +37,7 @@
                                     <div class="field"><label>Dose</label><input @bind="_schedEdit.Dose" /></div>
                                     <div class="field"><label>Repeat</label>
                                         <select @bind="_schedEdit.Repeat">
-                                            @foreach (var r in Enum.GetValues<ReminderRepeat>()) { <option value="@r">@r</option> }
+                                            @foreach (var r in RepeatOptions) { <option value="@r">@r</option> }
                                         </select>
                                     </div>
                                 </div>
@@ -97,7 +97,7 @@
                 <div class="field"><label>Dose</label><input @bind="_newSched.Dose" placeholder="100mg / 0.5mL" /></div>
                 <div class="field"><label>Repeat</label>
                     <select @bind="_newSched.Repeat">
-                        @foreach (var r in Enum.GetValues<ReminderRepeat>()) { <option value="@r">@r</option> }
+                        @foreach (var r in RepeatOptions) { <option value="@r">@r</option> }
                     </select>
                 </div>
             </div>
@@ -315,6 +315,10 @@
 
 @code {
     private string _tab = "meds";
+
+    // Display order for the Repeat dropdown (enum values stay as stored).
+    private static readonly ReminderRepeat[] RepeatOptions =
+        { ReminderRepeat.Once, ReminderRepeat.Daily, ReminderRepeat.Weekly, ReminderRepeat.Biweekly, ReminderRepeat.Monthly };
 
     private static readonly string[] CommonMeds =
         { "Testosterone Cypionate", "Vitamin D", "Fish oil" };
