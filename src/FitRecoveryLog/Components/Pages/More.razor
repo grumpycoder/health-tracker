@@ -1,0 +1,40 @@
+@page "/more"
+@inject NavigationManager Nav
+
+<PageTitle>More</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">More</div>
+        <div class="dash-date-sub">All screens</div>
+    </header>
+
+    <section class="card">
+        <div class="quick-grid">
+            @foreach (var item in Links)
+            {
+                <button class="quick-btn" @onclick="@(() => Nav.NavigateTo(item.Route))">
+                    <span class="quick-emoji">@item.Emoji</span> @item.Label
+                </button>
+            }
+        </div>
+    </section>
+</div>
+
+@code {
+    private static readonly (string Emoji, string Label, string Route)[] Links =
+    {
+        ("⚖️", "Body", "measurements"),
+        ("💊", "Meds & Labs", "medication"),
+        ("🥗", "Nutrition", "nutrition"),
+        ("🏡", "Workload", "workload"),
+        ("🏋️", "Routines", "routines"),
+        ("🕘", "Workout History", "workout-history"),
+        ("📈", "Trends", "trends"),
+        ("📊", "Progression", "progression"),
+        ("📅", "Weekly Review", "weekly-review"),
+        ("🔔", "Reminders", "reminders"),
+        ("📚", "Exercises", "exercises"),
+        ("⬇️", "Export", "export"),
+    };
+}
