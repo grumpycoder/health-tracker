@@ -221,7 +221,11 @@
     private async Task DeleteRoutine(WorkoutRoutine r)
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        // Re-fetch in this context and delete; its RoutineExercises cascade at the DB.
+        // Detach past workout sessions from this routine (keep their history),
+        // otherwise the WorkoutSession.RoutineId FK blocks the delete.
+        await db.WorkoutSessions.Where(s => s.RoutineId == r.Id)
+            .ExecuteUpdateAsync(u => u.SetProperty(s => s.RoutineId, (Guid?)null));
+        // The routine's RoutineExercises cascade at the DB.
         var e = await db.WorkoutRoutines.FindAsync(r.Id);
         if (e is not null)
         {
