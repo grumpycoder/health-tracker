@@ -50,6 +50,7 @@
     <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
         <CodesignEntitlements>Platforms/iOS/HealthKit.entitlements</CodesignEntitlements>
         <CodesignKey>Apple Development: your-apple-id@example.com (XXXXXXXXXX)</CodesignKey>
+        <CodesignProvision>iOS Team Provisioning Profile: com.mlawrence.fitrecoverylog</CodesignProvision>
     </PropertyGroup>
 
     <ItemGroup>
