@@ -23,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<MedicationEntry> MedicationEntries => Set<MedicationEntry>();
     public DbSet<LabResult> LabResults => Set<LabResult>();
     public DbSet<WeeklyReview> WeeklyReviews => Set<WeeklyReview>();
+    public DbSet<Reminder> Reminders => Set<Reminder>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

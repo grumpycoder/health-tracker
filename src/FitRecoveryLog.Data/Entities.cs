@@ -224,10 +224,18 @@ public class MedicationSchedule : EntityBase
 {
     public string Name { get; set; } = "";
     public string? Dose { get; set; }
-    public string? Frequency { get; set; }
     /// <summary>If true, logging prompts for an injection site (with rotation suggestion).</summary>
     public bool IsInjection { get; set; }
     public bool Active { get; set; } = true;
+
+    // Schedule → reminders. While active and within [StartDate, EndDate], this drives
+    // a recurring reminder; completing that reminder logs a dose.
+    public ReminderRepeat Repeat { get; set; } = ReminderRepeat.Daily;
+    public DateOnly StartDate { get; set; }
+    public DateOnly? EndDate { get; set; }
+    public TimeOnly ReminderTime { get; set; } = new(9, 0);
+    /// <summary>Stable id used to schedule/cancel this schedule's OS notification.</summary>
+    public int NotificationId { get; set; }
 }
 
 public class MedicationEntry : EntityBase
@@ -267,6 +275,18 @@ public class WeeklyReview : EntityBase
     public string? NutritionObservations { get; set; }
     public string? SleepRecoveryObservations { get; set; }
     public string? SuggestedFocus { get; set; }
+}
+
+/// <summary>A scheduled reminder backed by an OS local notification.</summary>
+public class Reminder : EntityBase
+{
+    public string Title { get; set; } = "";
+    public string? Notes { get; set; }
+    public DateTime NextDue { get; set; }
+    public ReminderRepeat Repeat { get; set; } = ReminderRepeat.Once;
+    public bool Active { get; set; } = true;
+    /// <summary>Stable integer id used to schedule/cancel the OS notification.</summary>
+    public int NotificationId { get; set; }
 }
 
 /// <summary>Helpers for CSV-backed multi-value string columns.</summary>

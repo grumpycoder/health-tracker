@@ -1,6 +1,7 @@
 using FitRecoveryLog.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Plugin.LocalNotification;
 
 namespace FitRecoveryLog;
 
@@ -25,6 +26,9 @@ public static class MauiProgram
 				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
 			});
 
+		// Local notifications are iOS-only here (the plugin has no MacCatalyst impl).
+		if (ReminderNotifier.IsSupported)
+			builder.UseLocalNotification();
 		builder.Services.AddMauiBlazorWebView();
 
 		// Local-first SQLite database stored in the app's private data directory.

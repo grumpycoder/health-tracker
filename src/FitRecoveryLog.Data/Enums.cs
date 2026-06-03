@@ -17,6 +17,14 @@ public enum ExerciseMeasure
     Duration
 }
 
+public enum ReminderRepeat
+{
+    Once = 0,
+    Daily,
+    Weekly,
+    Monthly
+}
+
 public enum MealType
 {
     Breakfast = 0,
