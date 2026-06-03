@@ -60,6 +60,11 @@ public static class DevSeed
             new MealEntry { Time = At(4, 21, 0), MealType = MealType.Dinner, Description = "Restaurant burger & fries", Tags = "Restaurant meal,High sodium", Satiety = Satiety.Bloated },
             new MealEntry { Time = At(5, 15, 0), MealType = MealType.Snack, Description = "Protein bar", Tags = "High protein", Satiety = Satiety.StillHungry });
 
+        db.ReminderSettings.AddRange(
+            new ReminderSetting { Key = "measurement", Repeat = ReminderRepeat.Weekly, Time = new(8, 0), Active = true, NotificationId = 2001 },
+            new ReminderSetting { Key = "labCheck", Repeat = ReminderRepeat.Monthly, Time = new(9, 0), Active = false, NotificationId = 2002 },
+            new ReminderSetting { Key = "weeklyReview", Repeat = ReminderRepeat.Weekly, Time = new(18, 0), Active = true, NotificationId = 2003 });
+
         db.MedicationSchedules.AddRange(
             new MedicationSchedule { Name = "Testosterone Cypionate", Dose = "100mg / 0.5mL", IsInjection = true, Repeat = ReminderRepeat.Weekly, StartDate = D(28), ReminderTime = new(9, 0), NotificationId = 1001 },
             new MedicationSchedule { Name = "Vitamin D", Dose = "5000 IU", IsInjection = false, Repeat = ReminderRepeat.Daily, StartDate = D(28), ReminderTime = new(8, 0), NotificationId = 1002 });

@@ -6,7 +6,7 @@
 <div class="dashboard">
     <header class="dash-header">
         <div class="dash-date">Reminders</div>
-        <div class="dash-date-sub">Injection, labs, measurements, weekly review</div>
+        <div class="dash-date-sub">Derived from your schedules</div>
     </header>
 
     @if (_permission == false)
@@ -18,7 +18,7 @@
     }
 
     <section class="card">
-        <h2>Medication reminders</h2>
+        <h2>Medication doses</h2>
         @if (_medSchedules.Count == 0)
         {
             <p class="muted">No active medication schedules. Add them under Medication → My medications.</p>
@@ -59,89 +59,50 @@
     </section>
 
     <section class="card">
-        <h2>New reminder</h2>
-        <div class="field"><label>Title</label><input @bind="_new.Title" placeholder="e.g. TRT injection" /></div>
-        <div class="field"><label>Notes</label><input @bind="_new.Notes" placeholder="optional" /></div>
-        <div class="field"><label>When</label><input type="datetime-local" @bind="_due" /></div>
-        <div class="field">
-            <label>Repeat</label>
-            <select @bind="_new.Repeat">
-                @foreach (var r in Enum.GetValues<ReminderRepeat>())
-                {
-                    <option value="@r">@r</option>
-                }
-            </select>
-        </div>
-        <button class="save-btn" @onclick="Add">Add reminder</button>
-    </section>
-
-    <section class="card">
-        <h2>Scheduled</h2>
-        @if (_reminders.Count == 0)
-        {
-            <p class="muted">No reminders yet.</p>
-        }
-        else
-        {
-            <ul class="timeline">
-                @foreach (var rem in _reminders)
-                {
-                    <li>
-                        @if (_editId == rem.Id)
-                        {
-                            <div class="edit-exercise" style="width:100%">
-                                <div class="field"><label>Title</label><input @bind="_edit.Title" /></div>
-                                <div class="field"><label>Notes</label><input @bind="_edit.Notes" /></div>
-                                <div class="field"><label>When</label><input type="datetime-local" @bind="_editDue" /></div>
-                                <div class="field">
-                                    <label>Repeat</label>
-                                    <select @bind="_edit.Repeat">
-                                        @foreach (var r in Enum.GetValues<ReminderRepeat>()) { <option value="@r">@r</option> }
-                                    </select>
-                                </div>
-                                <div class="routine-actions">
-                                    <button class="save-btn" @onclick="SaveEdit">Save</button>
-                                    <button class="link-btn" @onclick="() => _editId = null">Cancel</button>
-                                </div>
+        <h2>Routine reminders</h2>
+        <ul class="timeline">
+            @foreach (var s in _settings)
+            {
+                <li>
+                    <div class="ex-row" style="width:100%">
+                        <div>
+                            <span class="entry @(s.Active ? "" : "muted")"><strong>@Label(s.Key)</strong>
+                                <span class="muted"> @s.Repeat · @s.Time.ToString("h:mm tt")@(s.Active ? $" · next {ReminderNotifier.NextDue(s):MMM d}" : " · off")</span>
+                            </span>
+                        </div>
+                        <button class="link-btn" @onclick="() => ToggleSetting(s)">@(s.Active ? "On" : "Off")</button>
+                    </div>
+                    @if (s.Active)
+                    {
+                        <div class="inline-fields" style="margin-top:0.4rem">
+                            <div class="field">
+                                <label>Repeat</label>
+                                <select value="@s.Repeat" @onchange="e => ChangeRepeat(s, e)">
+                                    @foreach (var r in Repeats) { <option value="@r" selected="@(r == s.Repeat)">@r</option> }
+                                </select>
                             </div>
-                        }
-                        else
-                        {
-                            <div class="ex-row" style="width:100%">
-                                <div>
-                                    <span class="entry @(rem.Active ? "" : "muted")"><strong>@rem.Title</strong>
-                                        <span class="muted"> · @rem.NextDue.ToString("MMM d, h:mm tt")@(rem.Repeat == ReminderRepeat.Once ? "" : $" · {rem.Repeat}")@(rem.Active ? "" : " · off")</span>
-                                    </span>
-                                </div>
-                                <div class="routine-actions">
-                                    <button class="link-btn" @onclick="() => Toggle(rem)">@(rem.Active ? "Pause" : "Resume")</button>
-                                    <button class="icon-action" title="Edit" aria-label="Edit" @onclick="() => StartEdit(rem)">✏️</button>
-                                    <button class="icon-action danger" title="Delete" aria-label="Delete" @onclick="() => Delete(rem)">🗑</button>
-                                </div>
+                            <div class="field">
+                                <label>Time</label>
+                                <input type="time" value="@s.Time.ToString("HH:mm")" @onchange="e => ChangeTime(s, e)" />
                             </div>
-                        }
-                    </li>
-                }
-            </ul>
-        }
+                        </div>
+                    }
+                </li>
+            }
+        </ul>
     </section>
 </div>
 
 @code {
-    private List<Reminder> _reminders = new();
-    private Reminder _new = new() { Repeat = ReminderRepeat.Weekly };
-    private DateTime _due = DateTime.Now.AddHours(1);
-    private bool? _permission;
-
-    private Guid? _editId;
-    private Reminder _edit = new();
-    private DateTime _editDue = DateTime.Now;
-
-    // Medication reminders (from active schedules)
     private static readonly string[] InjectionSites =
         { "Left delt", "Right delt", "Left glute", "Right glute", "Left quad", "Right quad", "Left ventroglute", "Right ventroglute" };
+    private static readonly ReminderRepeat[] Repeats =
+        { ReminderRepeat.Daily, ReminderRepeat.Weekly, ReminderRepeat.Monthly };
+
+    private bool? _permission;
     private List<MedicationSchedule> _medSchedules = new();
     private List<MedicationEntry> _recentMeds = new();
+    private List<ReminderSetting> _settings = new();
     private Guid? _logSiteFor;
     private string? _suggestedSite;
     private Guid? _loggedSchedId;
@@ -150,23 +111,47 @@
     {
         try { _permission = await ReminderNotifier.RequestPermissionAsync(); } catch { _permission = null; }
         await Load();
-        // Re-assert OS schedules for active reminders and med schedules (idempotent).
-        foreach (var r in _reminders.Where(r => r.Active))
-            try { await ReminderNotifier.ScheduleAsync(r); } catch { }
-        foreach (var s in _medSchedules)
-            try { await ReminderNotifier.ScheduleAsync(s); } catch { }
+        foreach (var s in _medSchedules) try { await ReminderNotifier.ScheduleAsync(s); } catch { }
+        foreach (var s in _settings) try { await ReminderNotifier.ScheduleAsync(s, Label(s.Key)); } catch { }
     }
 
     private async Task Load()
     {
         var today = DateOnly.FromDateTime(DateTime.Now);
         await using var db = await DbFactory.CreateDbContextAsync();
-        _reminders = await db.Reminders.OrderBy(r => r.NextDue).ToListAsync();
         _medSchedules = await db.MedicationSchedules
             .Where(s => s.Active && (s.EndDate == null || s.EndDate >= today))
             .OrderBy(s => s.Name).ToListAsync();
-        _recentMeds = await db.MedicationEntries
-            .OrderByDescending(m => m.TakenAt).Take(20).ToListAsync();
+        _recentMeds = await db.MedicationEntries.OrderByDescending(m => m.TakenAt).Take(20).ToListAsync();
+        _settings = await db.ReminderSettings.ToListAsync();
+        _settings.Sort((a, b) => Order(a.Key).CompareTo(Order(b.Key)));
+    }
+
+    private static string Label(string key) => key switch
+    {
+        "measurement" => "Body measurement",
+        "labCheck" => "Lab check",
+        "weeklyReview" => "Weekly review",
+        _ => key
+    };
+    private static int Order(string key) => key switch { "measurement" => 0, "labCheck" => 1, "weeklyReview" => 2, _ => 9 };
+
+    private Task ToggleSetting(ReminderSetting s) => Update(s, x => x.Active = !x.Active);
+    private Task ChangeRepeat(ReminderSetting s, ChangeEventArgs e) =>
+        Enum.TryParse<ReminderRepeat>(e.Value?.ToString(), out var r) ? Update(s, x => x.Repeat = r) : Task.CompletedTask;
+    private Task ChangeTime(ReminderSetting s, ChangeEventArgs e) =>
+        TimeOnly.TryParse(e.Value?.ToString(), out var t) ? Update(s, x => x.Time = t) : Task.CompletedTask;
+
+    private async Task Update(ReminderSetting s, Action<ReminderSetting> apply)
+    {
+        ReminderSetting? saved = null;
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            var e = await db.ReminderSettings.FindAsync(s.Id);
+            if (e is not null) { apply(e); await db.SaveChangesAsync(); saved = e; }
+        }
+        if (saved is not null) try { await ReminderNotifier.ScheduleAsync(saved, Label(saved.Key)); } catch { }
+        await Load();
     }
 
     private void LogMedClicked(MedicationSchedule sc)
@@ -204,75 +189,6 @@
         }
         _logSiteFor = null;
         _loggedSchedId = sc.Id;
-        await Load();
-    }
-
-    private async Task Add()
-    {
-        if (string.IsNullOrWhiteSpace(_new.Title)) return;
-        _new.Title = _new.Title.Trim();
-        _new.NextDue = _due;
-        _new.NotificationId = Random.Shared.Next(1, int.MaxValue);
-        _new.Active = true;
-
-        await using (var db = await DbFactory.CreateDbContextAsync())
-        {
-            db.Reminders.Add(_new);
-            await db.SaveChangesAsync();
-        }
-        try { await ReminderNotifier.ScheduleAsync(_new); } catch { }
-
-        _new = new Reminder { Repeat = ReminderRepeat.Weekly };
-        _due = DateTime.Now.AddHours(1);
-        await Load();
-    }
-
-    private void StartEdit(Reminder r)
-    {
-        _editId = r.Id;
-        _edit = new Reminder { Title = r.Title, Notes = r.Notes, Repeat = r.Repeat, NotificationId = r.NotificationId, Active = r.Active };
-        _editDue = r.NextDue;
-    }
-
-    private async Task SaveEdit()
-    {
-        if (_editId is not { } id) return;
-        Reminder? saved = null;
-        await using (var db = await DbFactory.CreateDbContextAsync())
-        {
-            var e = await db.Reminders.FindAsync(id);
-            if (e is not null)
-            {
-                e.Title = _edit.Title; e.Notes = _edit.Notes; e.Repeat = _edit.Repeat; e.NextDue = _editDue;
-                await db.SaveChangesAsync();
-                saved = e;
-            }
-        }
-        if (saved is not null) try { await ReminderNotifier.ScheduleAsync(saved); } catch { }
-        _editId = null;
-        await Load();
-    }
-
-    private async Task Toggle(Reminder r)
-    {
-        await using (var db = await DbFactory.CreateDbContextAsync())
-        {
-            var e = await db.Reminders.FindAsync(r.Id);
-            if (e is not null) { e.Active = !e.Active; await db.SaveChangesAsync(); r = e; }
-        }
-        try { await ReminderNotifier.ScheduleAsync(r); } catch { } // cancels if now inactive
-        await Load();
-    }
-
-    private async Task Delete(Reminder r)
-    {
-        ReminderNotifier.Cancel(r.NotificationId);
-        await using (var db = await DbFactory.CreateDbContextAsync())
-        {
-            var e = await db.Reminders.FindAsync(r.Id);
-            if (e is not null) { db.Reminders.Remove(e); await db.SaveChangesAsync(); }
-        }
-        if (_editId == r.Id) _editId = null;
         await Load();
     }
 }

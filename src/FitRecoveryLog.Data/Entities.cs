@@ -277,15 +277,19 @@ public class WeeklyReview : EntityBase
     public string? SuggestedFocus { get; set; }
 }
 
-/// <summary>A scheduled reminder backed by an OS local notification.</summary>
-public class Reminder : EntityBase
+/// <summary>
+/// Cadence config for a built-in derived reminder (body measurement, lab check,
+/// weekly review). Reminders aren't hand-created — they're generated from these
+/// settings and from medication schedules.
+/// </summary>
+public class ReminderSetting : EntityBase
 {
-    public string Title { get; set; } = "";
-    public string? Notes { get; set; }
-    public DateTime NextDue { get; set; }
-    public ReminderRepeat Repeat { get; set; } = ReminderRepeat.Once;
-    public bool Active { get; set; } = true;
-    /// <summary>Stable integer id used to schedule/cancel the OS notification.</summary>
+    /// <summary>Stable key: "measurement", "labCheck", "weeklyReview".</summary>
+    public string Key { get; set; } = "";
+    public ReminderRepeat Repeat { get; set; } = ReminderRepeat.Weekly;
+    public TimeOnly Time { get; set; } = new(9, 0);
+    public bool Active { get; set; }
+    /// <summary>Stable id used to schedule/cancel the OS notification.</summary>
     public int NotificationId { get; set; }
 }
 

@@ -45,30 +45,35 @@ public static class ReminderNotifier
         });
     }
 
-    public static Task ScheduleAsync(Reminder r) =>
-        ScheduleAsync(r.NotificationId, r.Title, r.Notes, r.NextDue, r.Repeat, r.Active);
-
     public static Task ScheduleAsync(MedicationSchedule s)
     {
         var active = s.Active && (s.EndDate is null || s.EndDate.Value >= DateOnly.FromDateTime(DateTime.Now));
         return ScheduleAsync(s.NotificationId, $"Take {s.Name}", s.Dose, NextDue(s), s.Repeat, active);
     }
 
-    /// <summary>Next future occurrence at the schedule's reminder time.</summary>
-    public static DateTime NextDue(MedicationSchedule s)
+    public static Task ScheduleAsync(ReminderSetting s, string title) =>
+        ScheduleAsync(s.NotificationId, title, null, NextDue(s), s.Repeat, s.Active);
+
+    public static DateTime NextDue(MedicationSchedule s) =>
+        NextOccurrence(s.StartDate, s.ReminderTime, s.Repeat);
+
+    public static DateTime NextDue(ReminderSetting s) =>
+        NextOccurrence(DateOnly.FromDateTime(DateTime.Now), s.Time, s.Repeat);
+
+    /// <summary>Next future occurrence at the given time, stepping by the repeat.</summary>
+    public static DateTime NextOccurrence(DateOnly start, TimeOnly time, ReminderRepeat repeat)
     {
-        var when = s.StartDate.ToDateTime(s.ReminderTime);
+        var when = start.ToDateTime(time);
         var now = DateTime.Now;
-        while (when < now)
+        while (when < now && repeat != ReminderRepeat.Once)
         {
-            when = s.Repeat switch
+            when = repeat switch
             {
                 ReminderRepeat.Daily => when.AddDays(1),
                 ReminderRepeat.Weekly => when.AddDays(7),
                 ReminderRepeat.Monthly => when.AddMonths(1),
-                _ => when.AddYears(100) // Once: leave in the past -> won't reschedule
+                _ => when
             };
-            if (s.Repeat == ReminderRepeat.Once) break;
         }
         return when;
     }
