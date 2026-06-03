@@ -40,6 +40,22 @@
         <button class="save-btn" disabled="@_busy" @onclick="ExportCsv">Export @_csvCategory CSV</button>
     </section>
 
+    <section class="card">
+        <h2>Restore from Backup</h2>
+        <p class="muted" style="margin:0 0 0.6rem">Replaces ALL current data with a previously exported JSON backup.</p>
+        @if (_pendingRestore is null)
+        {
+            <button class="save-btn" disabled="@_busy" @onclick="PickRestoreFile">Choose Backup File</button>
+        }
+        else
+        {
+            <p style="margin:0 0 0.4rem"><strong>@_restoreFileName</strong> contains: @_restoreSummary.</p>
+            <p class="warn-msg" style="display:block;margin:0 0 0.6rem">Everything currently in the app will be erased.</p>
+            <button class="save-btn" disabled="@_busy" @onclick="ConfirmRestore">Restore Now</button>
+            <button class="link-btn" style="margin-left:0.6rem" @onclick="CancelRestore">Cancel</button>
+        }
+    </section>
+
     @if (_status is not null)
     {
         <section class="card"><p class="muted">@_status</p></section>
@@ -53,6 +69,69 @@
     private string _csvCategory = "Body measurements";
     private bool _busy;
     private string? _status;
+
+    // Restore flow: pick + parse first, apply only after explicit confirmation.
+    private BackupRestore.Backup? _pendingRestore;
+    private string? _restoreFileName;
+    private string? _restoreSummary;
+
+    private async Task PickRestoreFile()
+    {
+        _status = null;
+        try
+        {
+            var picked = await FilePicker.Default.PickAsync(new PickOptions
+            {
+                PickerTitle = "Pick a Fit Log backup (.json)",
+                FileTypes = new FilePickerFileType(new Dictionary<Microsoft.Maui.Devices.DevicePlatform, IEnumerable<string>>
+                {
+                    { Microsoft.Maui.Devices.DevicePlatform.iOS, new[] { "public.json", "public.plain-text" } },
+                    { Microsoft.Maui.Devices.DevicePlatform.MacCatalyst, new[] { "json", "txt" } },
+                })
+            });
+            if (picked is null) return; // user cancelled
+
+            using var stream = await picked.OpenReadAsync();
+            using var reader = new System.IO.StreamReader(stream);
+            var backup = BackupRestore.Parse(await reader.ReadToEndAsync());
+
+            _pendingRestore = backup;
+            _restoreFileName = picked.FileName;
+            _restoreSummary = BackupRestore.Summarize(backup);
+        }
+        catch (Exception ex)
+        {
+            _status = $"Could not read backup: {ex.Message}";
+        }
+    }
+
+    private void CancelRestore()
+    {
+        _pendingRestore = null;
+        _restoreFileName = null;
+        _restoreSummary = null;
+    }
+
+    private async Task ConfirmRestore()
+    {
+        if (_pendingRestore is null) return;
+        _busy = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            BackupRestore.Apply(db, _pendingRestore);
+            _status = $"Restored {_restoreFileName}: {_restoreSummary}.";
+            CancelRestore();
+        }
+        catch (Exception ex)
+        {
+            _status = $"Restore failed: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -85,6 +164,7 @@
                 exerciseSets = await db.ExerciseSets.ToListAsync(),
                 exerciseFeedback = await db.ExerciseFeedback.ToListAsync(),
                 weeklyReviews = await db.WeeklyReviews.ToListAsync(),
+                reminderSettings = await db.ReminderSettings.ToListAsync(),
             };
             return JsonSerializer.Serialize(data, JsonOpts);
         });

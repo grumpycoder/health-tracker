@@ -205,8 +205,9 @@ public static class HistorySeed
         db.SaveChanges();
     }
 
-    /// <summary>Delete every row in every table (children before parents).</summary>
-    private static void Wipe(AppDbContext db)
+    /// <summary>Delete every row in every table (children before parents).
+    /// Shared with BackupRestore.</summary>
+    internal static void Wipe(AppDbContext db)
     {
         db.ExerciseSets.ExecuteDelete();
         db.ExerciseFeedback.ExecuteDelete();
