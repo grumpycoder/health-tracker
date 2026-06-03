@@ -1,5 +1,6 @@
 @page "/sleep"
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject IHealthService Health
 
 <PageTitle>Sleep & Recovery</PageTitle>
 
@@ -88,6 +89,19 @@
         }
     </section>
 
+    @if (Health.IsAvailable)
+    {
+        <section class="card">
+            <button class="quick-btn wide" @onclick="PullFromHealth">
+                <span class="quick-emoji">❤️</span> Pull sleep from Apple Health
+            </button>
+            @if (_pullMsg is not null)
+            {
+                <p class="muted" style="margin:0.5rem 0 0">@_pullMsg</p>
+            }
+        </section>
+    }
+
     <section class="card">
         <h2>Recent sleep</h2>
         @if (_recentSleep.Count == 0)
@@ -157,8 +171,34 @@
     private Guid? _editId;
     private SleepEntry _edit = new();
     private DateTime _editDate = DateTime.Now.Date;
+    private string? _pullMsg;
 
-    protected override async Task OnInitializedAsync() => await LoadRecent();
+    protected override async Task OnInitializedAsync()
+    {
+        if (Health.IsAvailable) { try { await Health.RequestAuthorizationAsync(); } catch { } }
+        await LoadRecent();
+    }
+
+    private async Task PullFromHealth()
+    {
+        _pullMsg = null;
+        var nights = await Health.ReadSleepAsync(DateTime.Now.AddDays(-30));
+        if (nights.Count == 0) { _pullMsg = "No sleep found in Health (or access denied)."; return; }
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var existing = (await db.SleepEntries.Select(s => s.Date).ToListAsync()).ToHashSet();
+        var added = 0;
+        foreach (var (date, hours) in nights)
+        {
+            if (existing.Contains(date)) continue; // don't overwrite manual entries
+            db.SleepEntries.Add(new SleepEntry { Date = date, DurationHours = Math.Round(hours, 1) });
+            existing.Add(date);
+            added++;
+        }
+        if (added > 0) await db.SaveChangesAsync();
+        _pullMsg = added > 0 ? $"Imported {added} night(s) from Health." : "Already up to date with Health.";
+        await LoadRecent();
+    }
 
     private void StartEdit(SleepEntry s)
     {

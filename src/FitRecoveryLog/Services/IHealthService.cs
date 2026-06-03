@@ -19,6 +19,9 @@ public interface IHealthService
 
     /// <summary>Total step count for a single day, or null if unavailable.</summary>
     Task<int?> ReadStepsAsync(DateOnly date);
+
+    /// <summary>Asleep hours per night (keyed by the date you woke up) since the given time.</summary>
+    Task<IReadOnlyList<(DateOnly Date, double Hours)>> ReadSleepAsync(DateTime since);
 }
 
 /// <summary>Used on non-iOS targets (and when HealthKit is unavailable).</summary>
@@ -30,4 +33,6 @@ public sealed class NoopHealthService : IHealthService
     public Task<IReadOnlyList<(DateOnly, double)>> ReadWeightsAsync(DateTime since) =>
         Task.FromResult<IReadOnlyList<(DateOnly, double)>>(Array.Empty<(DateOnly, double)>());
     public Task<int?> ReadStepsAsync(DateOnly date) => Task.FromResult<int?>(null);
+    public Task<IReadOnlyList<(DateOnly, double)>> ReadSleepAsync(DateTime since) =>
+        Task.FromResult<IReadOnlyList<(DateOnly, double)>>(Array.Empty<(DateOnly, double)>());
 }
