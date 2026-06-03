@@ -195,7 +195,7 @@
                 .ThenInclude(e => e.ExerciseDefinition)
             .OrderBy(r => r.Name)
             .ToListAsync();
-        _library = (await db.ExerciseDefinitions.OrderBy(e => e.Name)
+        _library = (await db.ExerciseDefinitions.Where(e => !e.Retired).OrderBy(e => e.Name)
                 .Select(e => new { e.Name, e.Measure }).ToListAsync())
             .Select(x => (x.Name, x.Measure)).ToList();
         foreach (var r in _routines)

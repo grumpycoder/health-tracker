@@ -1,0 +1,228 @@
+@page "/exercises"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Exercise Library</PageTitle>
+
+<div class="dashboard">
+
+@if (_selected is null)
+{
+    <header class="dash-header">
+        <div class="dash-date">Exercise library</div>
+        <div class="dash-date-sub">@_exercises.Count exercise(s) · shared across routines</div>
+    </header>
+
+    @if (_exercises.Count == 0)
+    {
+        <section class="card"><p class="muted">No exercises yet. Add some when building a routine.</p></section>
+    }
+    else
+    {
+        @foreach (var ex in _exercises)
+        {
+            <section class="card exercise-card @(ex.Retired ? "retired" : "")" @onclick="() => Select(ex)">
+                <div class="routine-head">
+                    <h2>@ex.Name</h2>
+                    <span class="badge">@(ex.Measure == ExerciseMeasure.Duration ? "time" : "reps")</span>
+                </div>
+                <p class="muted">
+                    used in @RoutineUse(ex.Id) routine(s) · performed @TimesPerformed(ex.Id)×
+                    @if (ex.Retired)
+                    {
+                        <span> · retired</span>
+                    }
+                </p>
+            </section>
+        }
+    }
+}
+else
+{
+    var ex = _selected;
+    var history = BestPerSession(ex.Id);
+    <header class="dash-header">
+        <button class="link-btn" @onclick="() => _selected = null">‹ Library</button>
+        <div class="dash-date">@ex.Name</div>
+        <div class="dash-date-sub">@(ex.Measure == ExerciseMeasure.Duration ? "time-based" : "reps-based")@(ex.Retired ? " · retired" : "")</div>
+    </header>
+
+    <section class="card">
+        <h2>Lifetime</h2>
+        <table class="history"><tbody>
+            <tr><td>Used in routines</td><td class="num">@RoutineUse(ex.Id)</td></tr>
+            <tr><td>Times performed</td><td class="num">@TimesPerformed(ex.Id)</td></tr>
+            <tr><td>First / last</td><td class="num">@RangeText(history)</td></tr>
+        </tbody></table>
+    </section>
+
+    @if (history.Count >= 2)
+    {
+        <section class="card">
+            <LineChart Title="@(ex.Measure == ExerciseMeasure.Duration ? "Best hold per session" : "Best reps per session")"
+                       Unit="@(ex.Measure == ExerciseMeasure.Duration ? " s" : "")"
+                       Points="history" ValueFormat="0" />
+        </section>
+    }
+
+    @if (RecentDifficulty(ex.Id) is { Count: > 0 } diffs)
+    {
+        <section class="card">
+            <h2>Recent difficulty</h2>
+            <div class="feedback-row">
+                @foreach (var d in diffs)
+                {
+                    <span class="badge">@d</span>
+                }
+            </div>
+        </section>
+    }
+
+    <section class="card">
+        <h2>Manage</h2>
+        <div class="field">
+            <label>Rename</label>
+            <input @bind="_renameTo" />
+        </div>
+        <button class="save-btn" @onclick="() => Rename(ex)">Save name</button>
+
+        <div style="margin-top:1rem">
+            <button class="link-btn" @onclick="() => Retire(ex)">@(ex.Retired ? "Restore to pickers" : "Retire (hide from pickers)")</button>
+        </div>
+
+        <div class="field" style="margin-top:1rem">
+            <label>Merge into another exercise</label>
+            <select @bind="_mergeTargetId">
+                <option value="">— choose —</option>
+                @foreach (var other in _exercises.Where(e => e.Id != ex.Id && e.Measure == ex.Measure))
+                {
+                    <option value="@other.Id">@other.Name</option>
+                }
+            </select>
+        </div>
+        <p class="muted" style="font-size:0.75rem;margin:0 0 0.5rem">
+            Moves this exercise's history and routine slots into the chosen one, then deletes this exercise.
+        </p>
+        <button class="link-btn danger" disabled="@(_mergeTargetId is null)" @onclick="() => Merge(ex)">Merge & delete this</button>
+        @if (_status is not null)
+        {
+            <p class="muted" style="margin:0.5rem 0 0">@_status</p>
+        }
+    </section>
+}
+
+</div>
+
+@code {
+    private List<ExerciseDefinition> _exercises = new();
+    private List<RoutineExercise> _routineUse = new();
+    private List<(Guid Def, Guid Session, int? Reps, int? Dur)> _sets = new();
+    private Dictionary<Guid, DateOnly> _sessionDates = new();
+    private List<(Guid Def, Guid Session, Difficulty Diff)> _feedback = new();
+
+    private ExerciseDefinition? _selected;
+    private string _renameTo = "";
+    private Guid? _mergeTargetId;
+    private string? _status;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _exercises = await db.ExerciseDefinitions.OrderBy(e => e.Retired).ThenBy(e => e.Name).ToListAsync();
+        _routineUse = await db.RoutineExercises.ToListAsync();
+        _sets = (await db.ExerciseSets
+                .Select(s => new { s.ExerciseDefinitionId, s.WorkoutSessionId, s.Reps, s.DurationSeconds }).ToListAsync())
+            .Select(x => (x.ExerciseDefinitionId, x.WorkoutSessionId, x.Reps, x.DurationSeconds)).ToList();
+        _sessionDates = (await db.WorkoutSessions.Select(s => new { s.Id, s.Date }).ToListAsync())
+            .ToDictionary(x => x.Id, x => x.Date);
+        _feedback = (await db.ExerciseFeedback
+                .Select(f => new { f.ExerciseDefinitionId, f.WorkoutSessionId, f.Difficulty }).ToListAsync())
+            .Select(x => (x.ExerciseDefinitionId, x.WorkoutSessionId, x.Difficulty)).ToList();
+    }
+
+    private void Select(ExerciseDefinition ex)
+    {
+        _selected = ex;
+        _renameTo = ex.Name;
+        _mergeTargetId = null;
+        _status = null;
+    }
+
+    private int RoutineUse(Guid id) => _routineUse.Count(r => r.ExerciseDefinitionId == id);
+    private int TimesPerformed(Guid id) => _sets.Where(s => s.Def == id).Select(s => s.Session).Distinct().Count();
+
+    private List<(DateOnly Date, double Value)> BestPerSession(Guid id)
+    {
+        var measure = _exercises.FirstOrDefault(e => e.Id == id)?.Measure ?? ExerciseMeasure.Reps;
+        return _sets.Where(s => s.Def == id)
+            .GroupBy(s => s.Session)
+            .Where(g => _sessionDates.ContainsKey(g.Key))
+            .Select(g => (
+                Date: _sessionDates[g.Key],
+                Value: (double)(measure == ExerciseMeasure.Duration
+                    ? g.Max(x => x.Dur ?? 0)
+                    : g.Max(x => x.Reps ?? 0))))
+            .Where(p => p.Value > 0)
+            .OrderBy(p => p.Date)
+            .ToList();
+    }
+
+    private List<string> RecentDifficulty(Guid id) =>
+        _feedback.Where(f => f.Def == id && f.Diff != Difficulty.Unset && _sessionDates.ContainsKey(f.Session))
+            .OrderByDescending(f => _sessionDates[f.Session])
+            .Take(5)
+            .Select(f => Pretty(f.Diff.ToString()))
+            .ToList();
+
+    private static string RangeText(List<(DateOnly Date, double Value)> h) =>
+        h.Count == 0 ? "—" : $"{h[0].Date:MMM d} – {h[^1].Date:MMM d}";
+
+    private async Task Rename(ExerciseDefinition ex)
+    {
+        var name = _renameTo.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        // Guard the unique name constraint.
+        if (await db.ExerciseDefinitions.AnyAsync(e => e.Id != ex.Id && e.Name == name))
+        {
+            _status = $"“{name}” already exists — use Merge instead.";
+            return;
+        }
+        var e = await db.ExerciseDefinitions.FindAsync(ex.Id);
+        if (e is not null) { e.Name = name; await db.SaveChangesAsync(); }
+        _status = "Renamed.";
+        await Load();
+        _selected = _exercises.FirstOrDefault(x => x.Id == ex.Id);
+    }
+
+    private async Task Retire(ExerciseDefinition ex)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.ExerciseDefinitions.FindAsync(ex.Id);
+        if (e is not null) { e.Retired = !e.Retired; await db.SaveChangesAsync(); }
+        await Load();
+        _selected = _exercises.FirstOrDefault(x => x.Id == ex.Id);
+    }
+
+    private async Task Merge(ExerciseDefinition source)
+    {
+        if (_mergeTargetId is not { } targetId) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        // Repoint history and routine slots, then delete the source exercise.
+        await db.ExerciseSets.Where(x => x.ExerciseDefinitionId == source.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.ExerciseDefinitionId, targetId));
+        await db.ExerciseFeedback.Where(x => x.ExerciseDefinitionId == source.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.ExerciseDefinitionId, targetId));
+        await db.RoutineExercises.Where(x => x.ExerciseDefinitionId == source.Id)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.ExerciseDefinitionId, targetId));
+        var def = await db.ExerciseDefinitions.FindAsync(source.Id);
+        if (def is not null) { db.ExerciseDefinitions.Remove(def); await db.SaveChangesAsync(); }
+
+        _selected = null;
+        await Load();
+    }
+
+    private static string Pretty(string camel) =>
+        System.Text.RegularExpressions.Regex.Replace(camel, "(?<=.)([A-Z])", " $1");
+}

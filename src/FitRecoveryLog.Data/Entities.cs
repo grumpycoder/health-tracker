@@ -37,6 +37,8 @@ public class ExerciseDefinition : EntityBase
     public ExerciseMeasure Measure { get; set; } = ExerciseMeasure.Reps;
     public string? EquipmentNotes { get; set; }
     public string? ProgressionNotes { get; set; }
+    /// <summary>Hidden from routine pickers but kept for history.</summary>
+    public bool Retired { get; set; }
 }
 
 /// <summary>A reusable routine: an ordered list of exercises.</summary>

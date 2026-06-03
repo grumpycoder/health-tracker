@@ -376,3 +376,7 @@ select.field, .field select {
 }
 .icon-action:active { transform: scale(0.9); }
 .icon-action:hover { opacity: 1; background: var(--bg); }
+
+.exercise-card { cursor: pointer; }
+.exercise-card:active { transform: scale(0.99); }
+.exercise-card.retired { opacity: 0.6; }
