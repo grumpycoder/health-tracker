@@ -134,12 +134,106 @@ public static class GeminiAnalyzer
         return sb.ToString();
     }
 
+    public sealed record DailyCheck(string Tone, string Synopsis, List<string> Tips);
+
+    /// <summary>Builds the "how am I doing today" prompt from TODAY's data only
+    /// (meals/drinks, last night's sleep, workout, workload, plan — never meds/labs/notes).</summary>
+    public static async Task<string> BuildDailyPromptAsync(AppDbContext db)
+    {
+        var now = DateTime.Now;
+        var today = DateOnly.FromDateTime(now);
+        var dayStart = today.ToDateTime(TimeOnly.MinValue);
+        var dayEnd = dayStart.AddDays(1);
+        var sb = new StringBuilder();
+
+        sb.AppendLine("You are a supportive but honest health coach doing a quick mid-day check-in on one person's self-tracked day.");
+        sb.AppendLine("Respond with ONLY a JSON object:");
+        sb.AppendLine("""
+{
+  "tone": "good" | "mixed" | "poor",
+  "synopsis": "<2-3 sentences on how the day is going so far and the likely reasons — e.g. possible bloating from high-sodium restaurant food, sugary drinks adding up, short sleep dragging energy, solid workout done. Encouraging when earned, direct when not.>",
+  "tips": ["<up to 3 short, actionable suggestions for the REST of today>"]
+}
+""");
+        sb.AppendLine("Consider meal quality/timing/junk food, sugary drinks, sleep duration and score, whether a workout happened on a workout day, and physical workload. If little is logged yet, say so and suggest what to log.");
+        sb.AppendLine();
+        sb.AppendLine($"NOW: {now:yyyy-MM-dd HH:mm} ({now.DayOfWeek})");
+
+        var day = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == today);
+        sb.AppendLine($"PLANNED DAY TYPE: {(day is null || day.DayType == DayType.Unset ? "(not set)" : day.DayType.ToString())}");
+
+        var sleep = await db.SleepEntries.FirstOrDefaultAsync(s => s.Date == today);
+        sb.AppendLine("SLEEP (last night): " + (sleep is null
+            ? "(not logged)"
+            : $"{sleep.DurationHours:0.#}h score:{sleep.SleepScore} interruptions:{sleep.Interruptions}" +
+              (string.IsNullOrWhiteSpace(sleep.Notes) ? "" : $" note:\"{sleep.Notes}\"")));
+
+        sb.AppendLine("WORKOUT TODAY:");
+        var sessions = await db.WorkoutSessions.Where(s => s.Date == today)
+            .Include(s => s.Sets).ThenInclude(x => x.ExerciseDefinition).ToListAsync();
+        if (sessions.Count == 0) sb.AppendLine("(none yet)");
+        foreach (var s in sessions)
+        {
+            sb.AppendLine($"  {(s.TotalSeconds ?? 0) / 60}min, {s.Sets.Count(x => x.Completed)}/{s.Sets.Count} sets" +
+                          (string.IsNullOrWhiteSpace(s.Notes) ? "" : $" note:\"{s.Notes}\""));
+        }
+
+        sb.AppendLine("MEALS TODAY:");
+        var meals = await db.MealEntries.Where(m => m.Time >= dayStart && m.Time < dayEnd).OrderBy(m => m.Time).ToListAsync();
+        if (meals.Count == 0) sb.AppendLine("(none yet)");
+        foreach (var m in meals)
+            sb.AppendLine($"  {m.Time:HH:mm} {m.MealType} \"{m.Description}\"" +
+                          (string.IsNullOrWhiteSpace(m.PortionNote) ? "" : $" portion:\"{m.PortionNote}\"") +
+                          (m.TagList.Count == 0 ? "" : $" tags:{string.Join("/", m.TagList)}") +
+                          (m.Satiety == Satiety.Unset ? "" : $" satiety:{m.Satiety}"));
+
+        sb.AppendLine("DRINKS TODAY:");
+        var drinks = await db.DrinkEntries.Where(d => d.Time >= dayStart && d.Time < dayEnd).OrderBy(d => d.Time).ToListAsync();
+        if (drinks.Count == 0) sb.AppendLine("(none yet)");
+        foreach (var d in drinks)
+            sb.AppendLine($"  {d.Time:HH:mm} \"{d.Description}\"" +
+                          (d.Ounces is { } oz ? $" {oz:0.#}oz" : "") +
+                          (d.SugarCount is { } su ? $" sugar:{su}" : ""));
+
+        sb.AppendLine("PHYSICAL WORKLOAD TODAY:");
+        var work = await db.PhysicalWorkloadEntries.Where(w => w.Date == today).ToListAsync();
+        if (work.Count == 0) sb.AppendLine("(none)");
+        foreach (var w in work)
+            sb.AppendLine($"  {w.Activity} {(w.DurationMinutes is { } mins ? $"{mins}min " : "")}{w.Intensity}");
+
+        return sb.ToString();
+    }
+
+    /// <summary>Runs the daily check-in and parses the tone/synopsis/tips.</summary>
+    public static async Task<DailyCheck> DailyCheckAsync(string apiKey, string prompt)
+    {
+        var text = await GenerateAsync(apiKey, prompt);
+        if (string.IsNullOrWhiteSpace(text))
+            return new("mixed", "Gemini returned an empty response.", new());
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            var tone = root.TryGetProperty("tone", out var t) ? t.GetString()?.ToLowerInvariant() ?? "mixed" : "mixed";
+            var synopsis = root.TryGetProperty("synopsis", out var s) ? s.GetString() ?? "" : text;
+            var tips = new List<string>();
+            if (root.TryGetProperty("tips", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                tips.AddRange(arr.EnumerateArray().Select(x => x.GetString())
+                    .Where(x => !string.IsNullOrWhiteSpace(x))!.Cast<string>());
+            return new(tone, synopsis.Trim(), tips);
+        }
+        catch (JsonException)
+        {
+            return new("mixed", text.Trim(), new());
+        }
+    }
+
     public sealed record ExerciseAdvice(string Name, string Action, string? Target);
     public sealed record AiOutcome(string Analysis, List<ExerciseAdvice> Exercises, List<string> TopActions,
         List<string> MealFlags, string? BodyTrendStatus, string? BodyTrendNote);
 
-    /// <summary>Calls Gemini generateContent (JSON mode) and returns the parsed outcome.</summary>
-    public static async Task<AiOutcome> AnalyzeAsync(string apiKey, string prompt)
+    /// <summary>Raw JSON-mode generateContent call; returns the response text.</summary>
+    private static async Task<string?> GenerateAsync(string apiKey, string prompt)
     {
         var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Model}:generateContent";
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
@@ -167,8 +261,14 @@ public static class GeminiAnalyzer
         }
 
         using var doc = JsonDocument.Parse(body);
-        var text = doc.RootElement.GetProperty("candidates")[0]
+        return doc.RootElement.GetProperty("candidates")[0]
             .GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
+    }
+
+    /// <summary>Full 8-week analysis (JSON mode) returning the parsed outcome.</summary>
+    public static async Task<AiOutcome> AnalyzeAsync(string apiKey, string prompt)
+    {
+        var text = await GenerateAsync(apiKey, prompt);
         if (string.IsNullOrWhiteSpace(text))
             return new("Gemini returned an empty response.", new(), new(), new(), null, null);
 
@@ -279,6 +379,29 @@ public static class AiAdviceStore
             return json is null ? new() : JsonSerializer.Deserialize<List<string>>(json) ?? new();
         }
         catch { return new(); }
+    }
+
+    // ---- Daily check-in cache (one per calendar day) -----------------------------
+    public static void SaveDaily(GeminiAnalyzer.DailyCheck check, string when)
+    {
+        Prefs.Set("ai_daily_date", DateTime.Now.ToString("yyyy-MM-dd"));
+        Prefs.Set("ai_daily_when", when);
+        Prefs.Set("ai_daily_tone", check.Tone);
+        Prefs.Set("ai_daily_synopsis", check.Synopsis);
+        Prefs.Set("ai_daily_tips", JsonSerializer.Serialize(check.Tips));
+    }
+
+    /// <summary>Today's cached check-in, or null if none was run today.</summary>
+    public static (GeminiAnalyzer.DailyCheck Check, string When)? LoadDaily()
+    {
+        if (Prefs.Get("ai_daily_date", "") != DateTime.Now.ToString("yyyy-MM-dd")) return null;
+        try
+        {
+            var tips = JsonSerializer.Deserialize<List<string>>(Prefs.Get("ai_daily_tips", "[]")) ?? new();
+            return (new(Prefs.Get("ai_daily_tone", "mixed"), Prefs.Get("ai_daily_synopsis", ""), tips),
+                    Prefs.Get("ai_daily_when", ""));
+        }
+        catch { return null; }
     }
 
     public static string Glyph(string action) => action switch

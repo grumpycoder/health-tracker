@@ -22,6 +22,42 @@
         </section>
     }
 
+    @if (_hasAiKey)
+    {
+        <section class="card">
+            <h2>🤖 How Am I Doing Today?</h2>
+            @if (_daily is null)
+            {
+                <button class="save-btn" disabled="@_dailyBusy" @onclick="RunDailyCheck">
+                    @(_dailyBusy ? "Checking…" : "Check In")
+                </button>
+            }
+            else
+            {
+                <p style="margin:0 0 0.5rem">
+                    <span class="badge @(_daily.Tone == "good" ? "good" : _daily.Tone == "poor" ? "warn" : "")">
+                        @(_daily.Tone == "good" ? "😊 Good Day So Far" : _daily.Tone == "poor" ? "😕 Needs Attention" : "😐 Mixed Day")
+                    </span>
+                </p>
+                <p style="margin:0 0 0.5rem">@_daily.Synopsis</p>
+                @foreach (var tip in _daily.Tips)
+                {
+                    <div class="ai-li"><span class="ai-marker">–</span><span>@tip</span></div>
+                }
+                <div style="margin-top:0.4rem">
+                    <button class="link-btn" style="padding:0" disabled="@_dailyBusy" @onclick="RunDailyCheck">
+                        @(_dailyBusy ? "Checking…" : "Refresh")
+                    </button>
+                    <span class="muted" style="font-size:0.75rem;margin-left:0.6rem">as of @_dailyWhen</span>
+                </div>
+            }
+            @if (_dailyError is not null)
+            {
+                <p class="warn-msg" style="display:block;margin:0.5rem 0 0">@_dailyError</p>
+            }
+        </section>
+    }
+
     <section class="card">
         <h2>Today's plan</h2>
         <div class="daytype-grid">
@@ -133,9 +169,46 @@
     // Top actions from the latest AI analysis (empty until one is run).
     private List<string> _aiActions = new();
 
+    // Daily AI check-in (cached per calendar day).
+    private bool _hasAiKey, _dailyBusy;
+    private GeminiAnalyzer.DailyCheck? _daily;
+    private string? _dailyWhen, _dailyError;
+
+    private async Task RunDailyCheck()
+    {
+        _dailyBusy = true;
+        _dailyError = null;
+        StateHasChanged();
+        try
+        {
+            var key = await GeminiAnalyzer.KeyStore.GetAsync()
+                ?? throw new InvalidOperationException("No API key set.");
+            string prompt;
+            await using (var db = await DbFactory.CreateDbContextAsync())
+                prompt = await GeminiAnalyzer.BuildDailyPromptAsync(db);
+            _daily = await GeminiAnalyzer.DailyCheckAsync(key, prompt);
+            _dailyWhen = DateTime.Now.ToString("h:mm tt");
+            AiAdviceStore.SaveDaily(_daily, _dailyWhen);
+        }
+        catch (Exception ex)
+        {
+            _dailyError = $"Check-in failed: {ex.Message}";
+        }
+        finally
+        {
+            _dailyBusy = false;
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         _aiActions = AiAdviceStore.LoadActions();
+        _hasAiKey = !string.IsNullOrEmpty(await GeminiAnalyzer.KeyStore.GetAsync());
+        if (AiAdviceStore.LoadDaily() is { } cached)
+        {
+            _daily = cached.Check;
+            _dailyWhen = cached.When;
+        }
         await LoadForToday();
 
         if (Health.IsAvailable)
