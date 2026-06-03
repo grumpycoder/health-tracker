@@ -229,8 +229,8 @@ select.field, .field select {
     border-bottom: 1px solid var(--border);
 }
 .timeline li:last-child { border-bottom: none; }
-.timeline .time { color: var(--muted); font-size: 0.85rem; min-width: 5.5rem; }
-.timeline .entry { flex: 1; }
+.timeline .time { display: block; color: var(--muted); font-size: 0.8rem; margin-bottom: 0.15rem; }
+.timeline .entry { display: block; flex: 1; }
 
 /* routines + workout */
 .routine-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
