@@ -1,0 +1,258 @@
+@page "/insights"
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Insights</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Insights</div>
+        <div class="dash-date-sub">How your metrics affect each other</div>
+    </header>
+
+    <section class="card">
+        <h2>Sleep → Workout Performance</h2>
+        @if (_sleepGood is { } g && _sleepPoor is { } p)
+        {
+            <p style="margin:0 0 0.3rem">
+                After <strong>good sleep</strong> (score ≥ @SleepCutoff, n=@g.N):
+                difficulty @g.Difficulty.ToString("0.0")/4 · @((g.Completion * 100).ToString("0"))% sets completed
+            </p>
+            <p style="margin:0 0 0.3rem">
+                After <strong>poor sleep</strong> (score &lt; @SleepCutoff, n=@p.N):
+                difficulty @p.Difficulty.ToString("0.0")/4 · @((p.Completion * 100).ToString("0"))% sets completed
+            </p>
+            <p class="muted" style="margin:0.4rem 0 0">@SleepVerdict(g, p)</p>
+        }
+        else
+        {
+            <p class="muted">Not enough overlap yet — needs workouts on days with a sleep entry
+            (have @_sleepPairs pair(s); need 2+ in both good and poor buckets).</p>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Eating on Active Days</h2>
+        @if (_eatActive is { } ea && _eatRest is { } er)
+        {
+            <p style="margin:0 0 0.3rem"><strong>Active days</strong> (n=@ea.N): @ea.Meals.ToString("0.0") meals/snacks per day</p>
+            <p style="margin:0 0 0.3rem"><strong>Rest days</strong> (n=@er.N): @er.Meals.ToString("0.0") meals/snacks per day</p>
+            @if (_hungerActive + _hungerRest > 0)
+            {
+                <p style="margin:0 0 0.3rem">Hunger notes (“hungry / shaky / empty”): @_hungerActive on active days · @_hungerRest on rest days</p>
+            }
+            <p class="muted" style="margin:0.4rem 0 0">@EatingVerdict(ea, er)</p>
+        }
+        else
+        {
+            <p class="muted">Not enough data yet — needs meals logged on both active (workout/heavy-workload) and rest days.</p>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Foods ↔ Bloating</h2>
+        @if (_bloatRows.Count > 0)
+        {
+            <p class="muted" style="margin:0 0 0.4rem">@_bloatedMeals of @_totalMeals logged meals were rated bloated.</p>
+            <ul class="timeline">
+                @foreach (var b in _bloatRows)
+                {
+                    <li><span class="entry"><strong>@b.Name</strong>
+                        <span class="muted"> bloated @b.Bloated of @b.Total time(s)</span></span></li>
+                }
+            </ul>
+        }
+        else
+        {
+            <p class="muted">No bloated meals logged yet. Rate a meal's satiety as “Bloated” and
+            repeat offenders will surface here (by food and by tag).</p>
+        }
+    </section>
+
+    <section class="card">
+        <h2>Injection Timing → Energy & Performance</h2>
+        @if (_injWeek1 is { } w1 && _injWeek2 is { } w2)
+        {
+            <p style="margin:0 0 0.3rem"><strong>Week 1 after injection</strong> (n=@w1.N): difficulty @w1.Difficulty.ToString("0.0")/4 · @((w1.Completion * 100).ToString("0"))% completed</p>
+            <p style="margin:0 0 0.3rem"><strong>Week 2+ after injection</strong> (n=@w2.N): difficulty @w2.Difficulty.ToString("0.0")/4 · @((w2.Completion * 100).ToString("0"))% completed</p>
+            <p class="muted" style="margin:0.4rem 0 0">@InjectionVerdict(w1, w2)</p>
+        }
+        else
+        {
+            <p class="muted">Not enough overlap yet — needs workouts in both week 1 and week 2+ after
+            an injection (have @_injPairs workout(s) with a prior injection on record).</p>
+        }
+        @if (_energyNotes.Count > 0)
+        {
+            <p class="muted" style="margin:0.5rem 0 0.2rem">Energy-related notes by days since injection:</p>
+            <ul class="timeline">
+                @foreach (var n in _energyNotes)
+                {
+                    <li><span class="entry"><span class="muted">day @n.Days:</span> @n.Text</span></li>
+                }
+            </ul>
+        }
+    </section>
+
+    <section class="card">
+        <p class="muted" style="margin:0">These are simple comparisons, not medical conclusions —
+        small sample sizes shift easily. They sharpen as you keep logging.</p>
+    </section>
+</div>
+
+@code {
+    private const int SleepCutoff = 75;
+
+    private sealed record Bucket(int N, double Difficulty, double Completion);
+    private sealed record EatBucket(int N, double Meals);
+    private sealed record BloatRow(string Name, int Bloated, int Total);
+    private sealed record EnergyNote(int Days, string Text);
+
+    private Bucket? _sleepGood, _sleepPoor, _injWeek1, _injWeek2;
+    private int _sleepPairs, _injPairs;
+    private EatBucket? _eatActive, _eatRest;
+    private int _hungerActive, _hungerRest;
+    private List<BloatRow> _bloatRows = new();
+    private int _bloatedMeals, _totalMeals;
+    private List<EnergyNote> _energyNotes = new();
+
+    private static readonly string[] HungerWords = { "hungry", "hunger", "shaky", "empty stomach", "starving" };
+    private static readonly string[] EnergyWords = { "tired", "fatigue", "energy", "drained", "sluggish", "weak" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        var sessions = await db.WorkoutSessions
+            .Include(s => s.Sets).Include(s => s.Feedback).ToListAsync();
+        var sleep = await db.SleepEntries.ToListAsync();
+        var meals = await db.MealEntries.ToListAsync();
+        var notes = await db.NoteEntries.ToListAsync();
+        var workload = await db.PhysicalWorkloadEntries.ToListAsync();
+        var injectionNames = await db.MedicationSchedules.Where(s => s.IsInjection).Select(s => s.Name).ToListAsync();
+        var meds = await db.MedicationEntries.ToListAsync();
+
+        // Per-session performance: avg rated difficulty (1-4) + completed-set ratio.
+        var perf = sessions
+            .Where(s => s.Sets.Count > 0)
+            .Select(s => new
+            {
+                s.Date,
+                Difficulty = s.Feedback.Where(f => f.Difficulty != Difficulty.Unset)
+                    .Select(f => (double)f.Difficulty).DefaultIfEmpty(0).Average(),
+                Completion = (double)s.Sets.Count(x => x.Completed) / s.Sets.Count
+            })
+            .Where(x => x.Difficulty > 0)
+            .ToList();
+
+        // --- 1. Sleep (same wake-day) vs workout performance ---------------------
+        var sleepByDate = sleep.Where(s => s.SleepScore != null).ToDictionary(s => s.Date, s => s.SleepScore!.Value);
+        var pairs = perf.Where(x => sleepByDate.ContainsKey(x.Date))
+            .Select(x => (Score: sleepByDate[x.Date], x.Difficulty, x.Completion)).ToList();
+        _sleepPairs = pairs.Count;
+        var good = pairs.Where(x => x.Score >= SleepCutoff).ToList();
+        var poor = pairs.Where(x => x.Score < SleepCutoff).ToList();
+        if (good.Count >= 2 && poor.Count >= 2)
+        {
+            _sleepGood = new(good.Count, good.Average(x => x.Difficulty), good.Average(x => x.Completion));
+            _sleepPoor = new(poor.Count, poor.Average(x => x.Difficulty), poor.Average(x => x.Completion));
+        }
+
+        // --- 2. Eating on active vs rest days ------------------------------------
+        var activeDays = sessions.Select(s => s.Date)
+            .Concat(workload.Where(w => w.Intensity == Intensity.Heavy).Select(w => w.Date))
+            .ToHashSet();
+        var mealsByDay = meals.GroupBy(m => DateOnly.FromDateTime(m.Time))
+            .ToDictionary(g => g.Key, g => g.Count());
+        var activeCounts = mealsByDay.Where(kv => activeDays.Contains(kv.Key)).Select(kv => kv.Value).ToList();
+        var restCounts = mealsByDay.Where(kv => !activeDays.Contains(kv.Key)).Select(kv => kv.Value).ToList();
+        if (activeCounts.Count >= 1 && restCounts.Count >= 1)
+        {
+            _eatActive = new(activeCounts.Count, activeCounts.Average());
+            _eatRest = new(restCounts.Count, restCounts.Average());
+        }
+        foreach (var n in notes)
+        {
+            if (!HungerWords.Any(w => n.Text.Contains(w, StringComparison.OrdinalIgnoreCase))) continue;
+            if (activeDays.Contains(DateOnly.FromDateTime(n.Time))) _hungerActive++; else _hungerRest++;
+        }
+
+        // --- 3. Foods/tags appearing in bloated meals -----------------------------
+        _totalMeals = meals.Count;
+        var bloated = meals.Where(m => m.Satiety == Satiety.Bloated).ToList();
+        _bloatedMeals = bloated.Count;
+        if (bloated.Count > 0)
+        {
+            var rows = new List<BloatRow>();
+            foreach (var g in meals.GroupBy(m => m.Description.Trim(), StringComparer.OrdinalIgnoreCase))
+            {
+                var b = g.Count(m => m.Satiety == Satiety.Bloated);
+                if (b > 0) rows.Add(new(g.Key, b, g.Count()));
+            }
+            foreach (var g in meals.SelectMany(m => m.TagList.Select(t => (Tag: t, Meal: m)))
+                         .GroupBy(x => x.Tag, StringComparer.OrdinalIgnoreCase))
+            {
+                var b = g.Count(x => x.Meal.Satiety == Satiety.Bloated);
+                if (b > 0) rows.Add(new($"[{g.Key}]", b, g.Count()));
+            }
+            _bloatRows = rows.OrderByDescending(r => r.Bloated).ThenBy(r => r.Total).Take(8).ToList();
+        }
+
+        // --- 4. Days since injection vs performance and energy notes --------------
+        var injectionDates = meds
+            .Where(m => m.InjectionSite != null
+                        || injectionNames.Any(n => string.Equals(n, m.Name, StringComparison.OrdinalIgnoreCase)))
+            .Select(m => DateOnly.FromDateTime(m.TakenAt))
+            .OrderBy(d => d).ToList();
+        int? DaysSince(DateOnly d)
+        {
+            var last = injectionDates.Where(i => i <= d).Cast<DateOnly?>().LastOrDefault();
+            return last is null ? null : d.DayNumber - last.Value.DayNumber;
+        }
+
+        var injPerf = perf.Select(x => (Days: DaysSince(x.Date), x.Difficulty, x.Completion))
+            .Where(x => x.Days != null).ToList();
+        _injPairs = injPerf.Count;
+        var w1 = injPerf.Where(x => x.Days < 7).ToList();
+        var w2 = injPerf.Where(x => x.Days >= 7).ToList();
+        if (w1.Count >= 2 && w2.Count >= 2)
+        {
+            _injWeek1 = new(w1.Count, w1.Average(x => x.Difficulty), w1.Average(x => x.Completion));
+            _injWeek2 = new(w2.Count, w2.Average(x => x.Difficulty), w2.Average(x => x.Completion));
+        }
+
+        _energyNotes = notes
+            .Where(n => EnergyWords.Any(w => n.Text.Contains(w, StringComparison.OrdinalIgnoreCase)))
+            .Select(n => (Days: DaysSince(DateOnly.FromDateTime(n.Time)), n.Text))
+            .Where(x => x.Days != null)
+            .OrderBy(x => x.Days)
+            .Select(x => new EnergyNote(x.Days!.Value, x.Text))
+            .Take(10).ToList();
+    }
+
+    private static string SleepVerdict(Bucket good, Bucket poor)
+    {
+        var dd = poor.Difficulty - good.Difficulty;
+        var dc = good.Completion - poor.Completion;
+        if (dd >= 0.4 || dc >= 0.1)
+            return "Workouts feel harder (or complete less) after poor sleep — sleep looks like it matters for you.";
+        if (dd <= -0.4)
+            return "Unexpectedly, workouts rated harder after good sleep — likely other factors at play.";
+        return "No clear difference yet between good- and poor-sleep workouts.";
+    }
+
+    private static string EatingVerdict(EatBucket active, EatBucket rest)
+    {
+        var diff = active.Meals - rest.Meals;
+        if (diff <= -0.8) return "You eat noticeably less on active days — consider planning extra food on workout/heavy days.";
+        if (diff >= 0.8) return "You already eat more on active days — good fueling pattern.";
+        return "Similar intake on active and rest days.";
+    }
+
+    private static string InjectionVerdict(Bucket w1, Bucket w2)
+    {
+        var dd = w2.Difficulty - w1.Difficulty;
+        if (dd >= 0.4) return "Workouts trend harder in week 2 after an injection — worth watching as more data accumulates.";
+        if (dd <= -0.4) return "Workouts trend easier in week 2 — timing doesn't appear to hurt performance.";
+        return "No clear performance difference across the injection cycle yet.";
+    }
+}
