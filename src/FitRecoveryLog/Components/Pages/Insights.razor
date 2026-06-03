@@ -260,10 +260,10 @@
             string prompt;
             await using (var db = await DbFactory.CreateDbContextAsync())
                 prompt = await GeminiAnalyzer.BuildPromptAsync(db);
-            _aiResult = await GeminiAnalyzer.AnalyzeAsync(key, prompt);
+            var outcome = await GeminiAnalyzer.AnalyzeAsync(key, prompt);
+            _aiResult = outcome.Analysis;
             _aiWhen = DateTime.Now.ToString("MMM d, h:mm tt");
-            Microsoft.Maui.Storage.Preferences.Default.Set("ai_last_result", _aiResult);
-            Microsoft.Maui.Storage.Preferences.Default.Set("ai_last_when", _aiWhen);
+            AiAdviceStore.Save(outcome, _aiWhen);
         }
         catch (Exception ex)
         {
@@ -281,8 +281,7 @@
     protected override async Task OnInitializedAsync()
     {
         _hasAiKey = !string.IsNullOrEmpty(await GeminiAnalyzer.KeyStore.GetAsync());
-        _aiResult = Microsoft.Maui.Storage.Preferences.Default.Get<string?>("ai_last_result", null);
-        _aiWhen = Microsoft.Maui.Storage.Preferences.Default.Get<string?>("ai_last_when", null);
+        (_aiResult, _aiWhen) = AiAdviceStore.LoadAnalysis();
 
         await using var db = await DbFactory.CreateDbContextAsync();
 

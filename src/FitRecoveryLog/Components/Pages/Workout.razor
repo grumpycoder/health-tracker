@@ -1,4 +1,5 @@
 @page "/workout"
+@using FitRecoveryLog.Services
 @implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
@@ -76,6 +77,12 @@ else if (_state == State.Active)
             <h2 style="text-transform:none;letter-spacing:0;color:var(--text);font-size:1.5rem;margin:0 0 0.7rem">
                 @cur.Ex.Def.Name
             </h2>
+            @if (_advice.TryGetValue(cur.Ex.Def.Name, out var adv))
+            {
+                <p class="muted" style="margin:-0.4rem 0 0.7rem">
+                    🤖 AI suggests: <span class="badge @AiAdviceStore.BadgeClass(adv.Action)">@AiAdviceStore.Glyph(adv.Action) @(adv.Target ?? adv.Action)</span>
+                </p>
+            }
 
             @if (isTime)
             {
@@ -284,8 +291,12 @@ else // Feedback
         if (Current is null) GoToFeedback();
     }
 
+    // Latest AI per-exercise suggestions (empty until an analysis is run).
+    private Dictionary<string, GeminiAnalyzer.ExerciseAdvice> _advice = new(StringComparer.OrdinalIgnoreCase);
+
     protected override async Task OnInitializedAsync()
     {
+        _advice = AiAdviceStore.LoadExercises();
         await using var db = await DbFactory.CreateDbContextAsync();
         _routines = await db.WorkoutRoutines
             .Include(r => r.Exercises).ThenInclude(e => e.ExerciseDefinition)

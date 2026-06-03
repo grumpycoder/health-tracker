@@ -51,15 +51,16 @@ public static class GeminiAnalyzer
         var sinceDt = since.ToDateTime(TimeOnly.MinValue);
         var sb = new StringBuilder();
 
-        sb.AppendLine("You are a concise fitness and recovery coach analyzing one person's self-tracked logs.");
-        sb.AppendLine("Analyze the data below (last 8 weeks) and respond with these sections:");
-        sb.AppendLine("1. WORKOUT PROGRESSION — per exercise: progress / hold / back off, with specific target numbers for next week.");
-        sb.AppendLine("2. BODY TREND — what weight/waist are doing and whether the overall approach is working.");
-        sb.AppendLine("3. MEAL PATTERNS — habits worth keeping or changing (timing, types, satiety, drinks/sugar).");
-        sb.AppendLine("4. SLEEP — how sleep looks and any apparent link to workout quality.");
-        sb.AppendLine("5. TOP 3 ACTIONS — the highest-impact changes for next week.");
+        sb.AppendLine("You are a concise fitness and recovery coach analyzing one person's self-tracked logs (last 8 weeks).");
+        sb.AppendLine("Respond with ONLY a JSON object in this shape:");
+        sb.AppendLine("""
+{
+  "analysis": "plain-text analysis with sections: WORKOUT PROGRESSION, BODY TREND, MEAL PATTERNS, SLEEP, TOP 3 ACTIONS. Short uppercase headings and dash bullets, no markdown symbols.",
+  "exercises": [{ "name": "<exercise name exactly as it appears in the data>", "action": "progress" | "hold" | "backoff", "target": "<next-week target, e.g. 3x22 reps or 3x35s>" }],
+  "topActions": ["<highest-impact action>", "<second>", "<third>"]
+}
+""");
         sb.AppendLine("Be specific and reference the data. Say plainly where data is too sparse to conclude anything.");
-        sb.AppendLine("Plain text only: short section headings and dash bullets, no markdown symbols.");
         sb.AppendLine();
 
         sb.AppendLine("WORKOUTS:");
@@ -131,15 +132,19 @@ public static class GeminiAnalyzer
         return sb.ToString();
     }
 
-    /// <summary>Calls Gemini generateContent and returns the response text.</summary>
-    public static async Task<string> AnalyzeAsync(string apiKey, string prompt)
+    public sealed record ExerciseAdvice(string Name, string Action, string? Target);
+    public sealed record AiOutcome(string Analysis, List<ExerciseAdvice> Exercises, List<string> TopActions);
+
+    /// <summary>Calls Gemini generateContent (JSON mode) and returns the parsed outcome.</summary>
+    public static async Task<AiOutcome> AnalyzeAsync(string apiKey, string prompt)
     {
         var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Model}:generateContent";
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Headers.Add("x-goog-api-key", apiKey);
         req.Content = new StringContent(JsonSerializer.Serialize(new
         {
-            contents = new[] { new { parts = new[] { new { text = prompt } } } }
+            contents = new[] { new { parts = new[] { new { text = prompt } } } },
+            generationConfig = new { response_mime_type = "application/json" }
         }), Encoding.UTF8, "application/json");
 
         using var resp = await Http.SendAsync(req);
@@ -161,6 +166,91 @@ public static class GeminiAnalyzer
         using var doc = JsonDocument.Parse(body);
         var text = doc.RootElement.GetProperty("candidates")[0]
             .GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
-        return string.IsNullOrWhiteSpace(text) ? "Gemini returned an empty response." : text.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return new("Gemini returned an empty response.", new(), new());
+
+        // Parse the structured response; fall back to raw text if it isn't valid JSON.
+        try
+        {
+            using var outDoc = JsonDocument.Parse(text);
+            var root = outDoc.RootElement;
+            var analysis = root.TryGetProperty("analysis", out var a) ? a.GetString() ?? "" : text;
+
+            var exercises = new List<ExerciseAdvice>();
+            if (root.TryGetProperty("exercises", out var exArr) && exArr.ValueKind == JsonValueKind.Array)
+                foreach (var e in exArr.EnumerateArray())
+                {
+                    var name = e.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+                    exercises.Add(new(name,
+                        e.TryGetProperty("action", out var act) ? act.GetString()?.ToLowerInvariant() ?? "hold" : "hold",
+                        e.TryGetProperty("target", out var t) ? t.GetString() : null));
+                }
+
+            var actions = new List<string>();
+            if (root.TryGetProperty("topActions", out var actArr) && actArr.ValueKind == JsonValueKind.Array)
+                actions.AddRange(actArr.EnumerateArray()
+                    .Select(x => x.GetString())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))!
+                    .Cast<string>());
+
+            return new(analysis.Trim(), exercises, actions);
+        }
+        catch (JsonException)
+        {
+            return new(text.Trim(), new(), new());
+        }
     }
+}
+
+/// <summary>Persists the latest structured AI advice so other screens
+/// (routines, workout runner, dashboard) can show indicators.</summary>
+public static class AiAdviceStore
+{
+    private static Microsoft.Maui.Storage.IPreferences Prefs => Microsoft.Maui.Storage.Preferences.Default;
+
+    public static void Save(GeminiAnalyzer.AiOutcome outcome, string when)
+    {
+        Prefs.Set("ai_last_result", outcome.Analysis);
+        Prefs.Set("ai_last_when", when);
+        Prefs.Set("ai_exercises", JsonSerializer.Serialize(outcome.Exercises));
+        Prefs.Set("ai_actions", JsonSerializer.Serialize(outcome.TopActions));
+    }
+
+    public static (string? Analysis, string? When) LoadAnalysis() =>
+        (Prefs.Get<string?>("ai_last_result", null), Prefs.Get<string?>("ai_last_when", null));
+
+    /// <summary>Per-exercise advice keyed by exercise name (case-insensitive).</summary>
+    public static Dictionary<string, GeminiAnalyzer.ExerciseAdvice> LoadExercises()
+    {
+        try
+        {
+            var json = Prefs.Get<string?>("ai_exercises", null);
+            if (json is null) return new(StringComparer.OrdinalIgnoreCase);
+            var list = JsonSerializer.Deserialize<List<GeminiAnalyzer.ExerciseAdvice>>(json) ?? new();
+            return list.GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        }
+        catch { return new(StringComparer.OrdinalIgnoreCase); }
+    }
+
+    public static List<string> LoadActions()
+    {
+        try
+        {
+            var json = Prefs.Get<string?>("ai_actions", null);
+            return json is null ? new() : JsonSerializer.Deserialize<List<string>>(json) ?? new();
+        }
+        catch { return new(); }
+    }
+
+    public static string Glyph(string action) => action switch
+    {
+        "progress" => "⬆", "backoff" => "⬇", _ => "⏸"
+    };
+
+    public static string BadgeClass(string action) => action switch
+    {
+        "progress" => "good", "backoff" => "warn", _ => ""
+    };
 }

@@ -1,4 +1,5 @@
 @page "/routines"
+@using FitRecoveryLog.Services
 @implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
@@ -82,6 +83,12 @@
                                     <div>
                                         <span class="drag-handle" title="Drag to reorder">⠿</span>
                                         <span class="ex-name">@def?.Name</span>
+                                        @if (def?.Name is { } dn && _advice.TryGetValue(dn, out var adv))
+                                        {
+                                            <span class="badge @AiAdviceStore.BadgeClass(adv.Action)" title="AI suggestion">
+                                                @AiAdviceStore.Glyph(adv.Action) @(adv.Target ?? adv.Action)
+                                            </span>
+                                        }
                                         <span class="ex-target">@FormatTarget(ex, def)</span>
                                     </div>
                                     <div class="routine-actions">
@@ -255,7 +262,14 @@
         public int Rest { get; set; } = 60;
     }
 
-    protected override async Task OnInitializedAsync() => await Load();
+    // Latest AI per-exercise suggestions (empty until an analysis is run).
+    private Dictionary<string, GeminiAnalyzer.ExerciseAdvice> _advice = new(StringComparer.OrdinalIgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _advice = AiAdviceStore.LoadExercises();
+        await Load();
+    }
 
     private async Task Load()
     {

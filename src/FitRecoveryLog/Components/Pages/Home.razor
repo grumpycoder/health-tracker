@@ -1,4 +1,5 @@
 @page "/"
+@using FitRecoveryLog.Services
 @implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
@@ -33,6 +34,20 @@
             }
         </div>
     </section>
+
+    @if (_aiActions.Count > 0)
+    {
+        <section class="card">
+            <h2>🤖 This Week's Focus</h2>
+            <ul class="timeline">
+                @foreach (var a in _aiActions)
+                {
+                    <li><span class="entry">@a</span></li>
+                }
+            </ul>
+            <p class="muted" style="margin:0.3rem 0 0">From your AI analysis · <a class="link-btn" style="padding:0" @onclick="@(() => Nav.NavigateTo("insights"))">re-run on Insights</a></p>
+        </section>
+    }
 
     <section class="card">
         <h2>Quick log</h2>
@@ -115,8 +130,12 @@
     private string _noteText = "";
     private List<NoteEntry> _todayNotes = new();
 
+    // Top actions from the latest AI analysis (empty until one is run).
+    private List<string> _aiActions = new();
+
     protected override async Task OnInitializedAsync()
     {
+        _aiActions = AiAdviceStore.LoadActions();
         await LoadForToday();
 
         if (Health.IsAvailable)
