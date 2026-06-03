@@ -1,4 +1,5 @@
 @page "/trends"
+@using FitRecoveryLog.Services
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject IHealthService Health
 
@@ -9,6 +10,20 @@
         <div class="dash-date">Trends</div>
         <div class="dash-date-sub">How things are changing over time</div>
     </header>
+
+    @if (_bodyStatus is not null)
+    {
+        <section class="card">
+            <span class="badge @(_bodyStatus == "on-track" ? "good" : _bodyStatus == "off-track" ? "warn" : "")">
+                @(_bodyStatus == "on-track" ? "✓ On Track" : _bodyStatus == "off-track" ? "✗ Off Track" : "? Unclear")
+            </span>
+            @if (_bodyNote is not null)
+            {
+                <span style="margin-left:0.5rem">@_bodyNote</span>
+            }
+            <p class="muted" style="margin:0.3rem 0 0;font-size:0.75rem">From your AI analysis</p>
+        </section>
+    }
 
     @if (!_loaded)
     {
@@ -54,8 +69,12 @@
     private List<(DateOnly Date, double Value)> _steps = new();
     private List<(string Name, List<(DateOnly Date, double Value)> Points)> _drinks = new();
 
+    // Body-trend verdict from the latest AI analysis (null until one is run).
+    private string? _bodyStatus, _bodyNote;
+
     protected override async Task OnInitializedAsync()
     {
+        (_bodyStatus, _bodyNote) = AiAdviceStore.LoadBodyTrend();
         await using var db = await DbFactory.CreateDbContextAsync();
 
         // Project to anonymous types server-side (translation-safe), map to tuples in memory.

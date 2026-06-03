@@ -57,7 +57,9 @@ public static class GeminiAnalyzer
 {
   "analysis": "plain-text analysis with sections: WORKOUT PROGRESSION, BODY TREND, MEAL PATTERNS, SLEEP, TOP 3 ACTIONS. Short uppercase headings and dash bullets, no markdown symbols.",
   "exercises": [{ "name": "<exercise name exactly as it appears in the data>", "action": "progress" | "hold" | "backoff", "target": "<next-week target, e.g. 3x22 reps or 3x35s>" }],
-  "topActions": ["<highest-impact action>", "<second>", "<third>"]
+  "topActions": ["<highest-impact action>", "<second>", "<third>"],
+  "mealFlags": ["<0-3 short flags about eating/drinking habits worth attention, e.g. 'Watch sweet tea: 3x/week'>"],
+  "bodyTrend": { "status": "on-track" | "off-track" | "unclear", "note": "<one short sentence, e.g. 'Weight down ~1 lb/week'>" }
 }
 """);
         sb.AppendLine("Be specific and reference the data. Say plainly where data is too sparse to conclude anything.");
@@ -133,7 +135,8 @@ public static class GeminiAnalyzer
     }
 
     public sealed record ExerciseAdvice(string Name, string Action, string? Target);
-    public sealed record AiOutcome(string Analysis, List<ExerciseAdvice> Exercises, List<string> TopActions);
+    public sealed record AiOutcome(string Analysis, List<ExerciseAdvice> Exercises, List<string> TopActions,
+        List<string> MealFlags, string? BodyTrendStatus, string? BodyTrendNote);
 
     /// <summary>Calls Gemini generateContent (JSON mode) and returns the parsed outcome.</summary>
     public static async Task<AiOutcome> AnalyzeAsync(string apiKey, string prompt)
@@ -167,7 +170,7 @@ public static class GeminiAnalyzer
         var text = doc.RootElement.GetProperty("candidates")[0]
             .GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
         if (string.IsNullOrWhiteSpace(text))
-            return new("Gemini returned an empty response.", new(), new());
+            return new("Gemini returned an empty response.", new(), new(), new(), null, null);
 
         // Parse the structured response; fall back to raw text if it isn't valid JSON.
         try
@@ -187,18 +190,32 @@ public static class GeminiAnalyzer
                         e.TryGetProperty("target", out var t) ? t.GetString() : null));
                 }
 
-            var actions = new List<string>();
-            if (root.TryGetProperty("topActions", out var actArr) && actArr.ValueKind == JsonValueKind.Array)
-                actions.AddRange(actArr.EnumerateArray()
-                    .Select(x => x.GetString())
-                    .Where(s => !string.IsNullOrWhiteSpace(s))!
-                    .Cast<string>());
+            var actions = StringList(root, "topActions");
+            var mealFlags = StringList(root, "mealFlags");
 
-            return new(analysis.Trim(), exercises, actions);
+            string? bodyStatus = null, bodyNote = null;
+            if (root.TryGetProperty("bodyTrend", out var bt) && bt.ValueKind == JsonValueKind.Object)
+            {
+                bodyStatus = bt.TryGetProperty("status", out var st) ? st.GetString()?.ToLowerInvariant() : null;
+                bodyNote = bt.TryGetProperty("note", out var nt) ? nt.GetString() : null;
+            }
+
+            return new(analysis.Trim(), exercises, actions, mealFlags, bodyStatus, bodyNote);
         }
         catch (JsonException)
         {
-            return new(text.Trim(), new(), new());
+            return new(text.Trim(), new(), new(), new(), null, null);
+        }
+
+        static List<string> StringList(JsonElement root, string prop)
+        {
+            var list = new List<string>();
+            if (root.TryGetProperty(prop, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                list.AddRange(arr.EnumerateArray()
+                    .Select(x => x.GetString())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))!
+                    .Cast<string>());
+            return list;
         }
     }
 }
@@ -215,6 +232,26 @@ public static class AiAdviceStore
         Prefs.Set("ai_last_when", when);
         Prefs.Set("ai_exercises", JsonSerializer.Serialize(outcome.Exercises));
         Prefs.Set("ai_actions", JsonSerializer.Serialize(outcome.TopActions));
+        Prefs.Set("ai_meal_flags", JsonSerializer.Serialize(outcome.MealFlags));
+        Prefs.Set("ai_body_status", outcome.BodyTrendStatus ?? "");
+        Prefs.Set("ai_body_note", outcome.BodyTrendNote ?? "");
+    }
+
+    public static List<string> LoadMealFlags()
+    {
+        try
+        {
+            var json = Prefs.Get<string?>("ai_meal_flags", null);
+            return json is null ? new() : JsonSerializer.Deserialize<List<string>>(json) ?? new();
+        }
+        catch { return new(); }
+    }
+
+    public static (string? Status, string? Note) LoadBodyTrend()
+    {
+        var s = Prefs.Get("ai_body_status", "");
+        var n = Prefs.Get("ai_body_note", "");
+        return (s.Length == 0 ? null : s, n.Length == 0 ? null : n);
     }
 
     public static (string? Analysis, string? When) LoadAnalysis() =>

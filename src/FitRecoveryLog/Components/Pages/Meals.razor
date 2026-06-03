@@ -1,4 +1,5 @@
 @page "/meals"
+@using FitRecoveryLog.Services
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
 
@@ -9,6 +10,17 @@
         <div class="dash-date">Meals & Drinks</div>
         <div class="dash-date-sub">@DateTime.Now.ToString("dddd, MMM d")</div>
     </header>
+
+    @if (_mealFlags.Count > 0)
+    {
+        <section class="card">
+            @foreach (var f in _mealFlags)
+            {
+                <p style="margin:0 0 0.25rem">🤖 @f</p>
+            }
+            <p class="muted" style="margin:0.2rem 0 0;font-size:0.75rem">From your AI analysis</p>
+        </section>
+    }
 
     <section class="card">
         <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("nutrition"))">
@@ -301,7 +313,14 @@
     private Guid? _editDrinkId;
     private DrinkEntry _drinkEdit = new();
 
-    protected override async Task OnInitializedAsync() => await LoadToday();
+    // Flags from the latest AI analysis (empty until one is run).
+    private List<string> _mealFlags = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _mealFlags = AiAdviceStore.LoadMealFlags();
+        await LoadToday();
+    }
 
     private void StartEditMeal(MealEntry m)
     {
