@@ -1,0 +1,142 @@
+@page "/search"
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Search</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Search</div>
+        <div class="dash-date-sub">Food, tag, exercise, med, or symptom</div>
+    </header>
+
+    <section class="card">
+        <div class="field">
+            <input value="@_q" @oninput="OnInput" placeholder="e.g. sweet tea, planks, soreness…" />
+        </div>
+        @if (_hits.Count > 0)
+        {
+            <div class="chip-row">
+                @foreach (var c in Categories())
+                {
+                    <button type="button" class="chip @(_cat == c ? "selected" : "")"
+                            @onclick="() => _cat = c">@c</button>
+                }
+            </div>
+        }
+    </section>
+
+    @if (_q.Trim().Length >= 2)
+    {
+        <section class="card">
+            @if (Filtered.Count == 0)
+            {
+                <p class="muted">No matches for “@_q”.</p>
+            }
+            else
+            {
+                <p class="muted" style="margin:0 0 0.4rem">@Filtered.Count match(es) — tap to open that day</p>
+                <ul class="timeline">
+                    @foreach (var h in Filtered)
+                    {
+                        <li style="cursor:pointer" @onclick="@(() => Nav.NavigateTo($"calendar?date={h.Date:yyyy-MM-dd}"))">
+                            <span class="time">@h.Date.ToString("MMM d, yyyy")</span>
+                            <span class="entry">@h.Emoji @h.Text</span>
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private string _q = "";
+    private string _cat = "All";
+    private List<Hit> _hits = new();
+
+    private sealed record Hit(DateOnly Date, DateTime Sort, string Emoji, string Category, string Text);
+
+    private List<Hit> Filtered => _cat == "All" ? _hits : _hits.Where(h => h.Category == _cat).ToList();
+
+    private IEnumerable<string> Categories() =>
+        new[] { "All" }.Concat(_hits.Select(h => h.Category).Distinct().OrderBy(x => x));
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        _q = e.Value?.ToString() ?? "";
+        await RunSearch();
+    }
+
+    private async Task RunSearch()
+    {
+        var q = _q.Trim();
+        if (q.Length < 2) { _hits = new(); return; }
+
+        var hits = new List<Hit>();
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        foreach (var m in await db.MealEntries.Where(m =>
+                m.Description.Contains(q)
+                || (m.PortionNote != null && m.PortionNote.Contains(q))
+                || (m.Tags != null && m.Tags.Contains(q))).ToListAsync())
+            hits.Add(new(DateOnly.FromDateTime(m.Time), m.Time, "🍽️", "Meals",
+                $"{m.MealType}: {m.Description}{(m.TagList.Count > 0 ? $" [{string.Join(", ", m.TagList)}]" : "")}"));
+
+        foreach (var d in await db.DrinkEntries.Where(d => d.Description.Contains(q)).ToListAsync())
+            hits.Add(new(DateOnly.FromDateTime(d.Time), d.Time, "🥤", "Drinks",
+                $"{d.Description}{(d.Ounces is { } oz ? $" ({oz:0.#} oz)" : "")}"));
+
+        foreach (var l in await db.DailyLogs.Where(l => l.Note != null && l.Note.Contains(q)).ToListAsync())
+            hits.Add(new(l.Date, l.Date.ToDateTime(TimeOnly.MinValue), "📝", "Notes", $"Note: {l.Note}"));
+
+        foreach (var s in await db.SleepEntries.Where(s => s.Notes != null && s.Notes.Contains(q)).ToListAsync())
+            hits.Add(new(s.Date, s.Date.ToDateTime(TimeOnly.MinValue), "😴", "Sleep", $"Sleep: {s.Notes}"));
+
+        foreach (var r in await db.RecoveryEntries.Where(r =>
+                (r.Notes != null && r.Notes.Contains(q))
+                || (r.SorenessLocations != null && r.SorenessLocations.Contains(q))).ToListAsync())
+            hits.Add(new(r.Date, r.Date.ToDateTime(TimeOnly.MinValue), "🛌", "Recovery",
+                $"Recovery: {(r.SorenessLocationList.Count > 0 ? $"sore {string.Join(", ", r.SorenessLocationList)} " : "")}{r.Notes}"));
+
+        foreach (var w in await db.PhysicalWorkloadEntries.Where(w =>
+                w.Activity.Contains(q)
+                || (w.Notes != null && w.Notes.Contains(q))
+                || (w.BodyAreasAffected != null && w.BodyAreasAffected.Contains(q))).ToListAsync())
+            hits.Add(new(w.Date, w.Date.ToDateTime(TimeOnly.MinValue), "🏡", "Workload",
+                $"{w.Activity}{(string.IsNullOrWhiteSpace(w.Notes) ? "" : $" — {w.Notes}")}"));
+
+        foreach (var m in await db.MedicationEntries.Where(m =>
+                m.Name.Contains(q)
+                || (m.Dose != null && m.Dose.Contains(q))
+                || (m.InjectionSite != null && m.InjectionSite.Contains(q))
+                || (m.ReactionNotes != null && m.ReactionNotes.Contains(q))).ToListAsync())
+            hits.Add(new(DateOnly.FromDateTime(m.TakenAt), m.TakenAt, "💊", "Meds",
+                $"{m.Name} {m.Dose}{(string.IsNullOrWhiteSpace(m.InjectionSite) ? "" : $" @ {m.InjectionSite}")}"));
+
+        foreach (var l in await db.LabResults.Where(l =>
+                l.LabName.Contains(q) || (l.Notes != null && l.Notes.Contains(q))).ToListAsync())
+            hits.Add(new(l.Date, l.Date.ToDateTime(TimeOnly.MinValue), "🧪", "Labs",
+                $"{l.LabName}: {l.Value?.ToString("0.##")} {l.Unit}"));
+
+        foreach (var s in await db.WorkoutSessions.Where(s => s.Notes != null && s.Notes.Contains(q)).ToListAsync())
+            hits.Add(new(s.Date, s.Date.ToDateTime(TimeOnly.MinValue), "🏋️", "Workouts", $"Workout note: {s.Notes}"));
+
+        // Workouts containing a matching exercise name (e.g. "planks").
+        var exDays = await db.ExerciseSets
+            .Where(s => s.ExerciseDefinition!.Name.Contains(q) && s.WorkoutSession != null)
+            .Select(s => new { s.WorkoutSession!.Date, s.ExerciseDefinition!.Name })
+            .Distinct().ToListAsync();
+        foreach (var x in exDays)
+            hits.Add(new(x.Date, x.Date.ToDateTime(TimeOnly.MinValue), "🏋️", "Workouts", $"Workout with {x.Name}"));
+
+        foreach (var f in await db.ExerciseFeedback
+                .Where(f => f.Comment != null && f.Comment.Contains(q) && f.WorkoutSession != null)
+                .Select(f => new { f.WorkoutSession!.Date, Name = f.ExerciseDefinition!.Name, f.Comment })
+                .ToListAsync())
+            hits.Add(new(f.Date, f.Date.ToDateTime(TimeOnly.MinValue), "🏋️", "Workouts", $"{f.Name} feedback: {f.Comment}"));
+
+        _hits = hits.OrderByDescending(h => h.Sort).Take(200).ToList();
+        if (_cat != "All" && _hits.All(h => h.Category != _cat)) _cat = "All";
+    }
+}

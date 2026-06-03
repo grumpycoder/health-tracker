@@ -187,6 +187,9 @@
 </div>
 
 @code {
+    /// <summary>Deep link: /calendar?date=2026-05-26 (used by search results).</summary>
+    [Parameter, SupplyParameterFromQuery] public string? Date { get; set; }
+
     private static DateOnly Today => DateOnly.FromDateTime(DateTime.Now);
 
     private DateOnly _month = new(DateTime.Now.Year, DateTime.Now.Month, 1);
@@ -211,6 +214,11 @@
 
     protected override async Task OnInitializedAsync()
     {
+        if (DateOnly.TryParse(Date, out var linked))
+        {
+            _selected = linked;
+            _month = new DateOnly(linked.Year, linked.Month, 1);
+        }
         await LoadMonth();
         await LoadDay();
     }
