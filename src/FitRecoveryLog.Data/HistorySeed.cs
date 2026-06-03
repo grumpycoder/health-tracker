@@ -76,7 +76,7 @@ public static class HistorySeed
         // Prescribe the routine from the most recent workout's numbers.
         if (workouts.Count > 0)
         {
-            var routine = new WorkoutRoutine { Name = "Bodyweight Routine" };
+            var routine = new WorkoutRoutine { Name = "Morning Workout" };
             db.WorkoutRoutines.Add(routine);
             var latest = workouts[^1].Exercises ?? [];
             for (var i = 0; i < latest.Count; i++)
@@ -91,7 +91,8 @@ public static class HistorySeed
                     TargetSets = ex.Sets,
                     TargetReps = ex.Reps,
                     TargetDurationSeconds = ex.Seconds,
-                    RestSeconds = 60
+                    // No rest between exercises except 30s between plank holds.
+                    RestSeconds = string.Equals(ex.Name, "Planks", StringComparison.OrdinalIgnoreCase) ? 30 : null
                 });
             }
 
