@@ -30,7 +30,32 @@
             }
             @if (_aiResult is not null)
             {
-                <div class="ai-result">@_aiResult</div>
+                <div class="ai-result">
+                    @foreach (var seg in AiSegments(_aiResult))
+                    {
+                        @if (seg.Kind == "h")
+                        {
+                            <h3 class="ai-h">@seg.Text</h3>
+                        }
+                        else if (seg.Kind == "li")
+                        {
+                            <div class="ai-li">
+                                <span class="ai-marker">@seg.Marker</span>
+                                <span>
+                                    @if (seg.Label is not null)
+                                    {
+                                        <strong>@seg.Label:</strong>
+                                    }
+                                    @seg.Text
+                                </span>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="ai-p">@seg.Text</p>
+                        }
+                    }
+                </div>
                 <p class="muted" style="margin:0.5rem 0 0">Generated @_aiWhen · sends workouts, meals & sleep,
                 and measurement numbers from the last 8 weeks (never meds, labs, photos, or notes)</p>
             }
@@ -182,6 +207,46 @@
     // AI analysis (Gemini, user-supplied key; workouts/meals/sleep only).
     private bool _hasAiKey, _aiBusy;
     private string? _aiResult, _aiError, _aiWhen;
+
+    private sealed record AiSeg(string Kind, string Marker, string? Label, string Text);
+
+    /// <summary>Parses the plain-text AI response into headings, bullets, and
+    /// paragraphs so it renders scannably instead of as one block.</summary>
+    private static IEnumerable<AiSeg> AiSegments(string text)
+    {
+        foreach (var raw in text.Replace("**", "").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+
+            // "1. WORKOUT PROGRESSION" or "WORKOUT PROGRESSION" → heading
+            var unnumbered = System.Text.RegularExpressions.Regex.Replace(line, @"^\d+\.\s*", "");
+            if (unnumbered.Length is > 0 and <= 60
+                && unnumbered == unnumbered.ToUpperInvariant()
+                && unnumbered.Any(char.IsLetter))
+            {
+                yield return new("h", "", null, ToTitle(unnumbered));
+                continue;
+            }
+
+            // "- bullet" or "2. numbered item" → list item, bolding a leading "Label:"
+            var m = System.Text.RegularExpressions.Regex.Match(line, @"^(-|\d+\.)\s+(.*)$");
+            if (m.Success)
+            {
+                var body = m.Groups[2].Value;
+                string? label = null;
+                var colon = body.IndexOf(": ", StringComparison.Ordinal);
+                if (colon is > 0 and <= 40) { label = body[..colon]; body = body[(colon + 1)..].TrimStart(); }
+                yield return new("li", m.Groups[1].Value == "-" ? "–" : m.Groups[1].Value, label, body);
+                continue;
+            }
+
+            yield return new("p", "", null, line);
+        }
+    }
+
+    private static string ToTitle(string caps) =>
+        System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(caps.ToLowerInvariant());
 
     private async Task RunAi()
     {

@@ -237,14 +237,25 @@ select.field, .field select {
 /* AI analysis result */
 .ai-result {
     margin-top: 0.7rem;
-    padding: 0.7rem 0.8rem;
+    padding: 0.8rem 0.9rem;
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 10px;
-    white-space: pre-wrap;
     font-size: 0.9rem;
     line-height: 1.45;
 }
+.ai-h {
+    margin: 1rem 0 0.45rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+.ai-h:first-child { margin-top: 0; }
+.ai-li { display: flex; gap: 0.5rem; margin: 0 0 0.5rem; }
+.ai-li .ai-marker { color: var(--accent); flex-shrink: 0; }
+.ai-p { margin: 0 0 0.5rem; }
 
 /* progress photos */
 .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
