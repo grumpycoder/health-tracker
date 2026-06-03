@@ -25,7 +25,7 @@
                 <h2>@r.Name</h2>
                 <div class="routine-actions">
                     <button class="link-btn" @onclick="@(() => Nav.NavigateTo($"workout?routineId={r.Id}"))">Start ▶</button>
-                    <button class="link-btn danger" @onclick="@(() => DeleteRoutine(r))">Delete</button>
+                    <button class="icon-action danger" title="Delete" aria-label="Delete" @onclick="@(() => DeleteRoutine(r))">🗑</button>
                 </div>
             </div>
 
@@ -74,8 +74,8 @@
                                         <span class="muted">@FormatTarget(ex, def)</span>
                                     </div>
                                     <div class="routine-actions">
-                                        <button class="link-btn" @onclick="@(() => StartEdit(ex))">Edit</button>
-                                        <button class="link-btn danger" @onclick="@(() => RemoveExercise(ex))">Remove</button>
+                                        <button class="icon-action" title="Edit" aria-label="Edit" @onclick="@(() => StartEdit(ex))">✏️</button>
+                                        <button class="icon-action danger" title="Remove" aria-label="Remove" @onclick="@(() => RemoveExercise(ex))">🗑</button>
                                     </div>
                                 </div>
                             }

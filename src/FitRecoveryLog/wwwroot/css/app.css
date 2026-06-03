@@ -362,3 +362,17 @@ select.field, .field select {
 }
 .icon-btn:active { transform: scale(0.92); }
 .icon-btn.stop { background: #dc2626; }
+
+/* subtle icon buttons for row actions (edit / delete) */
+.icon-action {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.05rem;
+    line-height: 1;
+    padding: 0.3rem 0.4rem;
+    border-radius: 8px;
+    opacity: 0.85;
+}
+.icon-action:active { transform: scale(0.9); }
+.icon-action:hover { opacity: 1; background: var(--bg); }
