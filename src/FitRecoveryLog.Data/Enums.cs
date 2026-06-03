@@ -22,7 +22,9 @@ public enum ReminderRepeat
     Once = 0,
     Daily,
     Weekly,
-    Monthly
+    Monthly,
+    // Appended (not inserted) so existing stored values stay valid.
+    Biweekly
 }
 
 public enum MealType

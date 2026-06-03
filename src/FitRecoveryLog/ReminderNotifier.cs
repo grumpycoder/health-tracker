@@ -71,6 +71,7 @@ public static class ReminderNotifier
             {
                 ReminderRepeat.Daily => when.AddDays(1),
                 ReminderRepeat.Weekly => when.AddDays(7),
+                ReminderRepeat.Biweekly => when.AddDays(14),
                 ReminderRepeat.Monthly => when.AddMonths(1),
                 _ => when
             };
@@ -82,6 +83,7 @@ public static class ReminderNotifier
     {
         ReminderRepeat.Daily => (NotificationRepeat.Daily, null),
         ReminderRepeat.Weekly => (NotificationRepeat.Weekly, null),
+        ReminderRepeat.Biweekly => (NotificationRepeat.TimeInterval, TimeSpan.FromDays(14)),
         ReminderRepeat.Monthly => (NotificationRepeat.TimeInterval, TimeSpan.FromDays(30)),
         _ => (NotificationRepeat.No, null),
     };
