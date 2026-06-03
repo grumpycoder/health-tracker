@@ -94,7 +94,42 @@
     </section>
 
     <section class="card">
-        <p class="muted" style="margin:0">These are simple comparisons, not medical conclusions —
+        <div class="routine-head" style="cursor:pointer" @onclick="() => _showHelp = !_showHelp">
+            <h2>@(_showHelp ? "▾" : "▸") ℹ️ How These Are Calculated</h2>
+        </div>
+        @if (_showHelp)
+        {
+            <div style="margin-top:0.5rem">
+                <p class="muted" style="margin:0 0 0.45rem">
+                    <strong>Workout performance:</strong> difficulty is the average of your post-workout
+                    ratings (Easy=1 … Very Hard=4); completion is completed sets ÷ total sets.
+                </p>
+                <p class="muted" style="margin:0 0 0.45rem">
+                    <strong>Sleep:</strong> each workout is paired with the sleep entry on the same date
+                    (the night before). Good sleep = score ≥ @SleepCutoff, poor &lt; @SleepCutoff.
+                    Needs 2+ workouts in both buckets before showing a comparison.
+                </p>
+                <p class="muted" style="margin:0 0 0.45rem">
+                    <strong>Active days:</strong> a day with a workout or Heavy-intensity workload.
+                    Meals are averaged only over days where food was logged. Hunger notes are your
+                    timestamped notes containing words like “hungry, shaky, empty stomach”.
+                </p>
+                <p class="muted" style="margin:0 0 0.45rem">
+                    <strong>Bloating:</strong> a plain frequency count — for each food (and [tag]), how many
+                    of its meals you rated Bloated out of how many times you logged it.
+                </p>
+                <p class="muted" style="margin:0 0 0.45rem">
+                    <strong>Injection timing:</strong> injections are med entries with a site (or matching an
+                    injection schedule like TRT). Each workout gets days-since-last-injection: week 1 = under 7
+                    days, week 2+ = 7 or more. Energy notes match words like “tired, fatigue, drained”.
+                </p>
+                <p class="muted" style="margin:0">
+                    Verdicts trigger on meaningful gaps (≥0.4 difficulty points, ≥10% completion,
+                    ≥0.8 meals/day) — thresholds are pragmatic defaults, not clinical standards.
+                </p>
+            </div>
+        }
+        <p class="muted" style="margin:0.6rem 0 0">These are simple comparisons, not medical conclusions —
         small sample sizes shift easily. They sharpen as you keep logging.</p>
     </section>
 </div>
@@ -114,6 +149,7 @@
     private List<BloatRow> _bloatRows = new();
     private int _bloatedMeals, _totalMeals;
     private List<EnergyNote> _energyNotes = new();
+    private bool _showHelp;
 
     private static readonly string[] HungerWords = { "hungry", "hunger", "shaky", "empty stomach", "starving" };
     private static readonly string[] EnergyWords = { "tired", "fatigue", "energy", "drained", "sluggish", "weak" };
