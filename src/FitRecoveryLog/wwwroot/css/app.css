@@ -234,6 +234,18 @@ select.field, .field select {
 .timeline .time { display: block; color: var(--muted); font-size: 0.8rem; margin-bottom: 0.15rem; }
 .timeline .entry { display: block; flex: 1; }
 
+/* AI analysis result */
+.ai-result {
+    margin-top: 0.7rem;
+    padding: 0.7rem 0.8rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    white-space: pre-wrap;
+    font-size: 0.9rem;
+    line-height: 1.45;
+}
+
 /* progress photos */
 .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
 .photo-cell { position: relative; cursor: pointer; }

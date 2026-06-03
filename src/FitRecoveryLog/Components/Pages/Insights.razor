@@ -1,5 +1,7 @@
 @page "/insights"
+@using FitRecoveryLog.Services
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
 
 <PageTitle>Insights</PageTitle>
 
@@ -8,6 +10,32 @@
         <div class="dash-date">Insights</div>
         <div class="dash-date-sub">How your metrics affect each other</div>
     </header>
+
+    <section class="card">
+        <h2>🤖 AI Analysis</h2>
+        @if (!_hasAiKey)
+        {
+            <p class="muted" style="margin:0 0 0.6rem">Add a free Gemini API key to get a coach-style
+            analysis of your workouts, meals, and sleep.</p>
+            <button class="save-btn" @onclick="@(() => Nav.NavigateTo("settings"))">Open Settings</button>
+        }
+        else
+        {
+            <button class="save-btn" disabled="@_aiBusy" @onclick="RunAi">
+                @(_aiBusy ? "Analyzing…" : "Analyze My Data")
+            </button>
+            @if (_aiError is not null)
+            {
+                <p class="warn-msg" style="display:block;margin:0.5rem 0 0">@_aiError</p>
+            }
+            @if (_aiResult is not null)
+            {
+                <div class="ai-result">@_aiResult</div>
+                <p class="muted" style="margin:0.5rem 0 0">Generated @_aiWhen · sends workouts, meals & sleep
+                from the last 8 weeks (never meds, labs, measurements, or notes)</p>
+            }
+        }
+    </section>
 
     <section class="card">
         <h2>Sleep → Workout Performance</h2>
@@ -151,11 +179,46 @@
     private List<EnergyNote> _energyNotes = new();
     private bool _showHelp;
 
+    // AI analysis (Gemini, user-supplied key; workouts/meals/sleep only).
+    private bool _hasAiKey, _aiBusy;
+    private string? _aiResult, _aiError, _aiWhen;
+
+    private async Task RunAi()
+    {
+        _aiBusy = true;
+        _aiError = null;
+        StateHasChanged();
+        try
+        {
+            var key = await GeminiAnalyzer.KeyStore.GetAsync()
+                ?? throw new InvalidOperationException("No API key set.");
+            string prompt;
+            await using (var db = await DbFactory.CreateDbContextAsync())
+                prompt = await GeminiAnalyzer.BuildPromptAsync(db);
+            _aiResult = await GeminiAnalyzer.AnalyzeAsync(key, prompt);
+            _aiWhen = DateTime.Now.ToString("MMM d, h:mm tt");
+            Microsoft.Maui.Storage.Preferences.Default.Set("ai_last_result", _aiResult);
+            Microsoft.Maui.Storage.Preferences.Default.Set("ai_last_when", _aiWhen);
+        }
+        catch (Exception ex)
+        {
+            _aiError = $"Analysis failed: {ex.Message}";
+        }
+        finally
+        {
+            _aiBusy = false;
+        }
+    }
+
     private static readonly string[] HungerWords = { "hungry", "hunger", "shaky", "empty stomach", "starving" };
     private static readonly string[] EnergyWords = { "tired", "fatigue", "energy", "drained", "sluggish", "weak" };
 
     protected override async Task OnInitializedAsync()
     {
+        _hasAiKey = !string.IsNullOrEmpty(await GeminiAnalyzer.KeyStore.GetAsync());
+        _aiResult = Microsoft.Maui.Storage.Preferences.Default.Get<string?>("ai_last_result", null);
+        _aiWhen = Microsoft.Maui.Storage.Preferences.Default.Get<string?>("ai_last_when", null);
+
         await using var db = await DbFactory.CreateDbContextAsync();
 
         var sessions = await db.WorkoutSessions

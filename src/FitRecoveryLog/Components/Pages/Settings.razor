@@ -1,0 +1,72 @@
+@page "/settings"
+@using FitRecoveryLog.Services
+
+<PageTitle>Settings</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Settings</div>
+        <div class="dash-date-sub">App configuration</div>
+    </header>
+
+    <section class="card">
+        <h2>AI Analysis (Gemini)</h2>
+        <p class="muted" style="margin:0 0 0.6rem">
+            Enables the AI analysis on the Insights page. Create a free API key at
+            Google AI Studio (aistudio.google.com → Get API key) and paste it here.
+            The free tier is plenty — an analysis uses ~2 of its 1,500 daily requests.
+        </p>
+        <div class="field">
+            <label>Gemini API Key</label>
+            <input type="password" @bind="_key" placeholder="AIza…" autocomplete="off" />
+        </div>
+        <button class="save-btn" @onclick="SaveKey">Save Key</button>
+        @if (_saved)
+        {
+            <span class="saved-msg">Saved ✓</span>
+        }
+        @if (_hasKey)
+        {
+            <button class="link-btn danger" style="margin-left:0.6rem" @onclick="ClearKey">Remove Key</button>
+        }
+    </section>
+
+    <section class="card">
+        <h2>What Gets Sent to the AI</h2>
+        <p style="margin:0 0 0.4rem"><strong>Sent</strong> (last 8 weeks): workouts (exercises, sets, ratings,
+        comments), meals & drinks, and sleep entries.</p>
+        <p style="margin:0 0 0.4rem"><strong>Never sent:</strong> medications, labs, body measurements,
+        photos, daily notes, or anything identifying.</p>
+        <p class="muted" style="margin:0">Heads-up: Google's free tier may use submitted text to improve
+        its models. That's why medication and lab data are excluded by design.</p>
+    </section>
+</div>
+
+@code {
+    private string _key = "";
+    private bool _saved, _hasKey;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var existing = await GeminiAnalyzer.KeyStore.GetAsync();
+        _hasKey = !string.IsNullOrEmpty(existing);
+        if (_hasKey) _key = existing!;
+    }
+
+    private async Task SaveKey()
+    {
+        var k = _key.Trim();
+        if (k.Length == 0) return;
+        await GeminiAnalyzer.KeyStore.SetAsync(k);
+        _saved = true;
+        _hasKey = true;
+    }
+
+    private async Task ClearKey()
+    {
+        await GeminiAnalyzer.KeyStore.SetAsync("");
+        _key = "";
+        _hasKey = false;
+        _saved = false;
+    }
+}
