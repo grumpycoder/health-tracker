@@ -21,6 +21,18 @@ public static class ReminderNotifier
         LocalNotificationCenter.Current.Cancel(notificationId);
     }
 
+    /// <summary>Cancels pending OS notifications that no longer belong to any known
+    /// schedule/setting — e.g. a med removed by a reseed/restore while its recurring
+    /// notification lived on. The transient hold-timer alert is always kept.</summary>
+    public static async Task CancelOrphanedAsync(IReadOnlySet<int> validIds)
+    {
+        if (!IsSupported) return;
+        var pending = await LocalNotificationCenter.Current.GetPendingNotificationList();
+        foreach (var n in pending)
+            if (n.NotificationId != HoldTimerNotificationId && !validIds.Contains(n.NotificationId))
+                LocalNotificationCenter.Current.Cancel(n.NotificationId);
+    }
+
     /// <summary>Schedule (or cancel, if inactive/past) a recurring local notification.</summary>
     public static async Task ScheduleAsync(int notificationId, string title, string? notes,
         DateTime nextDue, ReminderRepeat repeat, bool active)
@@ -76,6 +88,32 @@ public static class ReminderNotifier
 
     public static DateTime NextDue(MedicationSchedule s) =>
         NextOccurrence(s.StartDate, s.ReminderTime, s.Repeat);
+
+    /// <summary>The schedule's most recent due date on or before today, or null if it
+    /// hasn't started yet. A dose is outstanding while nothing has been logged since
+    /// this date — so missed doses stay visible as overdue until logged.</summary>
+    public static DateOnly? LastDue(MedicationSchedule s)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (!s.Active || s.StartDate > today) return null;
+        var days = today.DayNumber - s.StartDate.DayNumber;
+        return s.Repeat switch
+        {
+            ReminderRepeat.Once => s.StartDate,
+            ReminderRepeat.Daily => today,
+            ReminderRepeat.Weekly => today.AddDays(-(days % 7)),
+            ReminderRepeat.Biweekly => today.AddDays(-(days % 14)),
+            ReminderRepeat.Monthly => MonthlyLast(s.StartDate, today),
+            _ => today
+        };
+
+        static DateOnly MonthlyLast(DateOnly start, DateOnly today)
+        {
+            var d = start; // handles month-end clamping via AddMonths
+            while (d.AddMonths(1) <= today) d = d.AddMonths(1);
+            return d;
+        }
+    }
 
     public static DateTime NextDue(ReminderSetting s) =>
         NextOccurrence(DateOnly.FromDateTime(DateTime.Now), s.Time, s.Repeat);

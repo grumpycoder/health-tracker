@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject NavigationManager Nav
+@inject IDbContextFactory<AppDbContext> DbFactory
 
 <div class="app-shell">
     <article class="content">
@@ -43,6 +44,21 @@
     // Warm tap: hop onto the renderer thread before navigating.
     private void OnRouteRequested(string route) =>
         _ = InvokeAsync(() => Nav.NavigateTo(route));
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Once per launch: cancel OS notifications whose schedule/setting no longer
+        // exists (e.g. a med dropped by a reseed left its daily notification behind).
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var valid = (await db.MedicationSchedules.Select(s => s.NotificationId).ToListAsync())
+                .Concat(await db.ReminderSettings.Select(s => s.NotificationId).ToListAsync())
+                .ToHashSet();
+            await ReminderNotifier.CancelOrphanedAsync(valid);
+        }
+        catch { /* never block app startup on notification cleanup */ }
+    }
 
     public void Dispose() => NotificationNav.RouteRequested -= OnRouteRequested;
 }

@@ -23,7 +23,9 @@
         {
             <p class="muted">@(_loggedTodayCount > 0
                 ? "All doses logged for today ✓"
-                : "No active medication schedules. Add them under Medication → My medications.")</p>
+                : _activeSchedules.Count == 0
+                    ? "No active medication schedules. Add them under Medication → My medications."
+                    : "No doses due today.")</p>
         }
         else
         {
@@ -34,7 +36,7 @@
                         <div class="ex-row" style="width:100%">
                             <div>
                                 <span class="entry"><strong>@sc.Name</strong>
-                                    <span class="muted"> @sc.Repeat · next @ReminderNotifier.NextDue(sc).ToString("MMM d, h:mm tt")</span>
+                                    <span class="muted"> @sc.Repeat · @DueLabel(sc)</span>
                                 </span>
                             </div>
                             <button class="save-btn" style="padding:0.4rem 0.9rem" @onclick="() => LogMedClicked(sc)">Log Dose</button>
@@ -102,7 +104,8 @@
         { ReminderRepeat.Daily, ReminderRepeat.Weekly, ReminderRepeat.Monthly };
 
     private bool? _permission;
-    private List<MedicationSchedule> _medSchedules = new();
+    private List<MedicationSchedule> _activeSchedules = new(); // all active (drives OS scheduling)
+    private List<MedicationSchedule> _medSchedules = new();    // due today and not yet logged
     private List<MedicationEntry> _recentMeds = new();
     private List<ReminderSetting> _settings = new();
     private Guid? _logSiteFor;
@@ -113,27 +116,30 @@
     {
         try { _permission = await ReminderNotifier.RequestPermissionAsync(); } catch { _permission = null; }
         await Load();
-        foreach (var s in _medSchedules) try { await ReminderNotifier.ScheduleAsync(s); } catch { }
+        foreach (var s in _activeSchedules) try { await ReminderNotifier.ScheduleAsync(s); } catch { }
         foreach (var s in _settings) try { await ReminderNotifier.ScheduleAsync(s, Label(s.Key)); } catch { }
     }
 
     private async Task Load()
     {
         var today = DateOnly.FromDateTime(DateTime.Now);
-        var startOfDay = DateTime.Now.Date;
         await using var db = await DbFactory.CreateDbContextAsync();
-        var schedules = await db.MedicationSchedules
+        _activeSchedules = await db.MedicationSchedules
             .Where(s => s.Active && (s.EndDate == null || s.EndDate >= today))
             .OrderBy(s => s.Name).ToListAsync();
 
-        // Hide schedules already logged today; they reappear tomorrow.
-        var takenToday = await db.MedicationEntries
-            .Where(m => m.TakenAt >= startOfDay)
-            .Select(m => m.Name).ToListAsync();
-        _medSchedules = schedules
-            .Where(s => !takenToday.Contains(s.Name, StringComparer.OrdinalIgnoreCase))
+        // Outstanding = due date reached (today or overdue) and nothing logged since.
+        var lastTaken = (await db.MedicationEntries
+                .GroupBy(m => m.Name)
+                .Select(g => new { Name = g.Key, Last = g.Max(m => m.TakenAt) })
+                .ToListAsync())
+            .ToDictionary(x => x.Name, x => DateOnly.FromDateTime(x.Last), StringComparer.OrdinalIgnoreCase);
+        _medSchedules = _activeSchedules
+            .Where(s => ReminderNotifier.LastDue(s) is { } due
+                        && (!lastTaken.TryGetValue(s.Name, out var taken) || taken < due))
             .ToList();
-        _loggedTodayCount = schedules.Count - _medSchedules.Count;
+        _loggedTodayCount = _activeSchedules.Count(s =>
+            lastTaken.TryGetValue(s.Name, out var t) && t == today);
         _recentMeds = await db.MedicationEntries.OrderByDescending(m => m.TakenAt).Take(20).ToListAsync();
         _settings = await db.ReminderSettings.ToListAsync();
 
@@ -147,6 +153,16 @@
         }
 
         _settings.Sort((a, b) => Order(a.Key).CompareTo(Order(b.Key)));
+    }
+
+    /// <summary>"due today 9:00 AM", or "overdue — was due Jun 2" once the date slips.</summary>
+    private static string DueLabel(MedicationSchedule sc)
+    {
+        var due = ReminderNotifier.LastDue(sc);
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        return due is { } d && d < today
+            ? $"overdue — was due {d:MMM d}"
+            : $"due today {sc.ReminderTime.ToString("h:mm tt")}";
     }
 
     private static string Label(string key) => key switch
@@ -179,7 +195,7 @@
 
     private void LogMedClicked(MedicationSchedule sc)
     {
-        if (sc.IsInjection)
+        if (sc.Form == MedicationForm.Injection)
         {
             var last = _recentMeds.FirstOrDefault(m =>
                 string.Equals(m.Name, sc.Name, StringComparison.OrdinalIgnoreCase)
