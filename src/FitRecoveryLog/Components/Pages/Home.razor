@@ -22,42 +22,6 @@
         </section>
     }
 
-    @if (_hasAiKey)
-    {
-        <section class="card">
-            <h2>🤖 How Am I Doing Today?</h2>
-            @if (_daily is null)
-            {
-                <button class="save-btn" disabled="@_dailyBusy" @onclick="RunDailyCheck">
-                    @(_dailyBusy ? "Checking…" : "Check In")
-                </button>
-            }
-            else
-            {
-                <p style="margin:0 0 0.5rem">
-                    <span class="badge @(_daily.Tone == "good" ? "good" : _daily.Tone == "poor" ? "warn" : "")">
-                        @(_daily.Tone == "good" ? "😊 Good Day So Far" : _daily.Tone == "poor" ? "😕 Needs Attention" : "😐 Mixed Day")
-                    </span>
-                </p>
-                <p style="margin:0 0 0.5rem">@_daily.Synopsis</p>
-                @foreach (var tip in _daily.Tips)
-                {
-                    <div class="ai-li"><span class="ai-marker">–</span><span>@tip</span></div>
-                }
-                <div style="margin-top:0.4rem">
-                    <button class="link-btn" style="padding:0" disabled="@_dailyBusy" @onclick="RunDailyCheck">
-                        @(_dailyBusy ? "Checking…" : "Refresh")
-                    </button>
-                    <span class="muted" style="font-size:0.75rem;margin-left:0.6rem">as of @_dailyWhen</span>
-                </div>
-            }
-            @if (_dailyError is not null)
-            {
-                <p class="warn-msg" style="display:block;margin:0.5rem 0 0">@_dailyError</p>
-            }
-        </section>
-    }
-
     <section class="card">
         <h2>Today's plan</h2>
         <div class="daytype-grid">
@@ -70,6 +34,61 @@
             }
         </div>
     </section>
+
+    <section class="card">
+        <h2>Quick log</h2>
+        <div class="quick-grid">
+            @foreach (var item in QuickLinks)
+            {
+                <button class="quick-btn" @onclick="@(() => Nav.NavigateTo(item.Route))">
+                    <span class="quick-emoji">@item.Emoji</span> @item.Label
+                </button>
+            }
+        </div>
+    </section>
+
+    @if (_hasAiKey)
+    {
+        <section class="card">
+            <h2 style="cursor:pointer;display:flex;justify-content:space-between;align-items:center"
+                @onclick="ToggleCheckin">
+                <span>🤖 How Am I Doing Today?</span>
+                <span class="muted">@(_checkinCollapsed ? "▸" : "▾")</span>
+            </h2>
+            @if (!_checkinCollapsed)
+            {
+                @if (_daily is null)
+                {
+                    <button class="save-btn" disabled="@_dailyBusy" @onclick="RunDailyCheck">
+                        @(_dailyBusy ? "Checking…" : "Check In")
+                    </button>
+                }
+                else
+                {
+                    <p style="margin:0 0 0.5rem">
+                        <span class="badge @(_daily.Tone == "good" ? "good" : _daily.Tone == "poor" ? "warn" : "")">
+                            @(_daily.Tone == "good" ? "😊 Good Day So Far" : _daily.Tone == "poor" ? "😕 Needs Attention" : "😐 Mixed Day")
+                        </span>
+                    </p>
+                    <p style="margin:0 0 0.5rem">@_daily.Synopsis</p>
+                    @foreach (var tip in _daily.Tips)
+                    {
+                        <div class="ai-li"><span class="ai-marker">–</span><span>@tip</span></div>
+                    }
+                    <div style="margin-top:0.4rem">
+                        <button class="link-btn" style="padding:0" disabled="@_dailyBusy" @onclick="RunDailyCheck">
+                            @(_dailyBusy ? "Checking…" : "Refresh")
+                        </button>
+                        <span class="muted" style="font-size:0.75rem;margin-left:0.6rem">as of @_dailyWhen</span>
+                    </div>
+                }
+                @if (_dailyError is not null)
+                {
+                    <p class="warn-msg" style="display:block;margin:0.5rem 0 0">@_dailyError</p>
+                }
+            }
+        </section>
+    }
 
     @if (_aiActions.Count > 0)
     {
@@ -84,18 +103,6 @@
             <p class="muted" style="margin:0.3rem 0 0">From your AI analysis · <a class="link-btn" style="padding:0" @onclick="@(() => Nav.NavigateTo("insights"))">re-run on Insights</a></p>
         </section>
     }
-
-    <section class="card">
-        <h2>Quick log</h2>
-        <div class="quick-grid">
-            @foreach (var item in QuickLinks)
-            {
-                <button class="quick-btn" @onclick="@(() => Nav.NavigateTo(item.Route))">
-                    <span class="quick-emoji">@item.Emoji</span> @item.Label
-                </button>
-            }
-        </div>
-    </section>
 
     <section class="card">
         <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("trends"))">
@@ -173,6 +180,15 @@
     private bool _hasAiKey, _dailyBusy;
     private GeminiAnalyzer.DailyCheck? _daily;
     private string? _dailyWhen, _dailyError;
+
+    // Collapsed state persists across launches.
+    private bool _checkinCollapsed = Microsoft.Maui.Storage.Preferences.Default.Get("home_checkin_collapsed", false);
+
+    private void ToggleCheckin()
+    {
+        _checkinCollapsed = !_checkinCollapsed;
+        Microsoft.Maui.Storage.Preferences.Default.Set("home_checkin_collapsed", _checkinCollapsed);
+    }
 
     private async Task RunDailyCheck()
     {
