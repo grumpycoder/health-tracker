@@ -8,7 +8,7 @@ public interface IHealthService
 {
     bool IsAvailable { get; }
 
-    /// <summary>Prompt for read/write access (body mass, step count). Returns false if unavailable/denied.</summary>
+    /// <summary>Prompt for read/write access (body mass, waist, workouts, step count). Returns false if unavailable/denied.</summary>
     Task<bool> RequestAuthorizationAsync();
 
     /// <summary>Write a body-mass sample to Health, tagged with the source measurement id.</summary>
@@ -16,6 +16,15 @@ public interface IHealthService
 
     /// <summary>Body-mass samples since the given time (pounds), newest first; excludes samples this app wrote.</summary>
     Task<IReadOnlyList<(DateOnly Date, double Pounds)>> ReadWeightsAsync(DateTime since);
+
+    /// <summary>Write a waist-circumference sample to Health, tagged with the source measurement id.</summary>
+    Task WriteWaistAsync(DateOnly date, double inches, Guid sourceId);
+
+    /// <summary>Waist samples since the given time (inches), newest first; excludes samples this app wrote.</summary>
+    Task<IReadOnlyList<(DateOnly Date, double Inches)>> ReadWaistsAsync(DateTime since);
+
+    /// <summary>Write a completed strength workout to Health (shows up in Fitness).</summary>
+    Task WriteWorkoutAsync(DateTime start, DateTime end, string name);
 
     /// <summary>Total step count for a single day, or null if unavailable.</summary>
     Task<int?> ReadStepsAsync(DateOnly date);
@@ -32,6 +41,10 @@ public sealed class NoopHealthService : IHealthService
     public Task WriteWeightAsync(DateOnly date, double pounds, Guid sourceId) => Task.CompletedTask;
     public Task<IReadOnlyList<(DateOnly, double)>> ReadWeightsAsync(DateTime since) =>
         Task.FromResult<IReadOnlyList<(DateOnly, double)>>(Array.Empty<(DateOnly, double)>());
+    public Task WriteWaistAsync(DateOnly date, double inches, Guid sourceId) => Task.CompletedTask;
+    public Task<IReadOnlyList<(DateOnly, double)>> ReadWaistsAsync(DateTime since) =>
+        Task.FromResult<IReadOnlyList<(DateOnly, double)>>(Array.Empty<(DateOnly, double)>());
+    public Task WriteWorkoutAsync(DateTime start, DateTime end, string name) => Task.CompletedTask;
     public Task<int?> ReadStepsAsync(DateOnly date) => Task.FromResult<int?>(null);
     public Task<IReadOnlyList<(DateOnly, double)>> ReadSleepAsync(DateTime since) =>
         Task.FromResult<IReadOnlyList<(DateOnly, double)>>(Array.Empty<(DateOnly, double)>());

@@ -4,6 +4,7 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject IHealthService Health
 
 <PageTitle>Workout</PageTitle>
 
@@ -468,6 +469,12 @@ else // Feedback
         await using var db = await DbFactory.CreateDbContextAsync();
         db.WorkoutSessions.Add(session);
         await db.SaveChangesAsync();
+
+        // Mirror the session to Apple Health/Fitness (iOS only; no-op otherwise).
+        if (Health.IsAvailable && session.EndedAt is { } ended && ended > session.StartedAt)
+        {
+            try { await Health.WriteWorkoutAsync(session.StartedAt!.Value, ended, _routineName); } catch { }
+        }
 
         Nav.NavigateTo("");
     }

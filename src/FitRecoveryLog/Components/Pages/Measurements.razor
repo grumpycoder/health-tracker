@@ -58,7 +58,7 @@
     {
         <section class="card">
             <button class="quick-btn wide" @onclick="PullFromHealth">
-                <span class="quick-emoji">❤️</span> Pull Weight from Apple Health
+                <span class="quick-emoji">❤️</span> Pull from Apple Health
             </button>
             @if (_pullMsg is not null)
             {
@@ -269,22 +269,50 @@
     private async Task PullFromHealth()
     {
         _pullMsg = null;
-        var weights = await Health.ReadWeightsAsync(DateTime.Now.AddDays(-365));
-        if (weights.Count == 0) { _pullMsg = "No weights found in Health (or access denied)."; return; }
+        var since = DateTime.Now.AddDays(-365);
+        var weights = await Health.ReadWeightsAsync(since);
+        var waists = await Health.ReadWaistsAsync(since);
+        if (weights.Count == 0 && waists.Count == 0)
+        {
+            // Own-app samples are skipped by design, and iOS hides read-denial.
+            _pullMsg = "Nothing to import. Pull only brings in entries from other sources "
+                       + "(Health app, scale, Watch) — this app's own entries are skipped. "
+                       + "If you expected data, check read access under Health → Apps.";
+            return;
+        }
+
+        // Latest sample per date for each metric.
+        var weightByDate = weights.GroupBy(w => w.Date).ToDictionary(g => g.Key, g => g.First().Pounds);
+        var waistByDate = waists.GroupBy(w => w.Date).ToDictionary(g => g.Key, g => g.First().Inches);
 
         await using var db = await DbFactory.CreateDbContextAsync();
-        var existing = (await db.BodyMeasurements.Select(m => m.Date).ToListAsync()).ToHashSet();
-        // One import per date, only for dates we don't already have.
+        var existing = await db.BodyMeasurements.ToDictionaryAsync(m => m.Date);
         var added = 0;
-        foreach (var (date, lbs) in weights.GroupBy(w => w.Date).Select(g => g.First()))
+        var filled = 0;
+        foreach (var date in weightByDate.Keys.Union(waistByDate.Keys))
         {
-            if (existing.Contains(date)) continue;
-            db.BodyMeasurements.Add(new BodyMeasurement { Date = date, WeightLbs = Math.Round(lbs, 1) });
-            existing.Add(date);
+            if (existing.TryGetValue(date, out var row))
+            {
+                // Conservative: only fill a waist the row doesn't have yet.
+                if (row.WaistInches is null && waistByDate.TryGetValue(date, out var w))
+                {
+                    row.WaistInches = Math.Round(w, 2);
+                    filled++;
+                }
+                continue;
+            }
+            db.BodyMeasurements.Add(new BodyMeasurement
+            {
+                Date = date,
+                WeightLbs = weightByDate.TryGetValue(date, out var lbs) ? Math.Round(lbs, 1) : null,
+                WaistInches = waistByDate.TryGetValue(date, out var wi) ? Math.Round(wi, 2) : null
+            });
             added++;
         }
-        if (added > 0) await db.SaveChangesAsync();
-        _pullMsg = added > 0 ? $"Imported {added} weight(s) from Health." : "Already up to date with Health.";
+        if (added > 0 || filled > 0) await db.SaveChangesAsync();
+        _pullMsg = added > 0 || filled > 0
+            ? $"Imported {added} day(s){(filled > 0 ? $", filled waist on {filled}" : "")} from Health."
+            : "Already up to date with Health.";
         await LoadHistory();
     }
 
@@ -355,10 +383,13 @@
         db.BodyMeasurements.Add(entry);
         await db.SaveChangesAsync();
 
-        // Mirror weight to Apple Health (iOS only; no-op otherwise).
-        if (Health.IsAvailable && entry.WeightLbs is { } lbs)
+        // Mirror weight and waist to Apple Health (iOS only; no-op otherwise).
+        if (Health.IsAvailable)
         {
-            try { await Health.WriteWeightAsync(entry.Date, lbs, entry.Id); } catch { }
+            if (entry.WeightLbs is { } lbs)
+                try { await Health.WriteWeightAsync(entry.Date, lbs, entry.Id); } catch { }
+            if (entry.WaistInches is { } waist)
+                try { await Health.WriteWaistAsync(entry.Date, waist, entry.Id); } catch { }
         }
 
         _saved = true;

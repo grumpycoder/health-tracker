@@ -9,9 +9,11 @@ public sealed class HealthKitService : IHealthService
 {
     private readonly HKHealthStore? _store = HKHealthStore.IsHealthDataAvailable ? new HKHealthStore() : null;
     private readonly HKQuantityType _bodyMass = HKQuantityType.Create(HKQuantityTypeIdentifier.BodyMass)!;
+    private readonly HKQuantityType _waist = HKQuantityType.Create(HKQuantityTypeIdentifier.WaistCircumference)!;
     private readonly HKQuantityType _steps = HKQuantityType.Create(HKQuantityTypeIdentifier.StepCount)!;
     private readonly HKCategoryType _sleep = HKCategoryType.Create(HKCategoryTypeIdentifier.SleepAnalysis)!;
     private static readonly HKUnit Pound = HKUnit.FromString("lb");
+    private static readonly HKUnit Inch = HKUnit.FromString("in");
     private static readonly HKUnit Count = HKUnit.FromString("count");
 
     public bool IsAvailable => _store is not null;
@@ -19,25 +21,37 @@ public sealed class HealthKitService : IHealthService
     public Task<bool> RequestAuthorizationAsync()
     {
         if (_store is null) return Task.FromResult(false);
-        var share = new NSSet<HKSampleType>(_bodyMass);
-        var read = new NSSet<HKObjectType>(_bodyMass, _steps, _sleep);
+        var share = new NSSet<HKSampleType>(_bodyMass, _waist, HKObjectType.WorkoutType);
+        var read = new NSSet<HKObjectType>(_bodyMass, _waist, _steps, _sleep);
         var tcs = new TaskCompletionSource<bool>();
         _store.RequestAuthorizationToShare(share, read, (ok, _) => tcs.TrySetResult(ok));
         return tcs.Task;
     }
 
-    public Task WriteWeightAsync(DateOnly date, double pounds, Guid sourceId)
+    public Task WriteWeightAsync(DateOnly date, double pounds, Guid sourceId) =>
+        WriteQuantityAsync(_bodyMass, Pound, date, pounds);
+
+    public Task WriteWaistAsync(DateOnly date, double inches, Guid sourceId) =>
+        WriteQuantityAsync(_waist, Inch, date, inches);
+
+    public Task<IReadOnlyList<(DateOnly, double)>> ReadWeightsAsync(DateTime since) =>
+        ReadQuantitiesAsync(_bodyMass, Pound, since);
+
+    public Task<IReadOnlyList<(DateOnly, double)>> ReadWaistsAsync(DateTime since) =>
+        ReadQuantitiesAsync(_waist, Inch, since);
+
+    private Task WriteQuantityAsync(HKQuantityType type, HKUnit unit, DateOnly date, double value)
     {
         if (_store is null) return Task.CompletedTask;
         var when = (NSDate)date.ToDateTime(new TimeOnly(12, 0)).ToUniversalTime();
-        var quantity = HKQuantity.FromQuantity(Pound, pounds);
-        var sample = HKQuantitySample.FromType(_bodyMass, quantity, when, when);
+        var quantity = HKQuantity.FromQuantity(unit, value);
+        var sample = HKQuantitySample.FromType(type, quantity, when, when);
         var tcs = new TaskCompletionSource<bool>();
         _store.SaveObject(sample, (ok, _) => tcs.TrySetResult(ok));
         return tcs.Task;
     }
 
-    public Task<IReadOnlyList<(DateOnly, double)>> ReadWeightsAsync(DateTime since)
+    private Task<IReadOnlyList<(DateOnly, double)>> ReadQuantitiesAsync(HKQuantityType type, HKUnit unit, DateTime since)
     {
         var empty = (IReadOnlyList<(DateOnly, double)>)Array.Empty<(DateOnly, double)>();
         if (_store is null) return Task.FromResult(empty);
@@ -45,7 +59,7 @@ public sealed class HealthKitService : IHealthService
         var ownBundleId = NSBundle.MainBundle.BundleIdentifier;
         var predicate = HKQuery.GetPredicateForSamples((NSDate)since.ToUniversalTime(), null, HKQueryOptions.None);
         var tcs = new TaskCompletionSource<IReadOnlyList<(DateOnly, double)>>();
-        var query = new HKSampleQuery(_bodyMass, predicate, 0, null, (_, results, _) =>
+        var query = new HKSampleQuery(type, predicate, 0, null, (_, results, _) =>
         {
             var list = new List<(DateOnly, double)>();
             if (results is not null)
@@ -54,15 +68,36 @@ public sealed class HealthKitService : IHealthService
                 {
                     // Skip samples this app wrote (avoid re-importing our own data).
                     if (s.SourceRevision?.Source?.BundleIdentifier == ownBundleId) continue;
-                    var lbs = s.Quantity.GetDoubleValue(Pound);
+                    var value = s.Quantity.GetDoubleValue(unit);
                     var date = DateOnly.FromDateTime(((DateTime)s.StartDate).ToLocalTime());
-                    list.Add((date, lbs));
+                    list.Add((date, value));
                 }
             }
             tcs.TrySetResult(list.OrderByDescending(x => x.Item1).ToList());
         });
         _store.ExecuteQuery(query);
         return tcs.Task;
+    }
+
+    public async Task WriteWorkoutAsync(DateTime start, DateTime end, string name)
+    {
+        if (_store is null) return;
+        var config = new HKWorkoutConfiguration { ActivityType = HKWorkoutActivityType.TraditionalStrengthTraining };
+        var builder = new HKWorkoutBuilder(_store, config, HKDevice.LocalDevice);
+        await builder.BeginCollectionAsync((NSDate)start.ToUniversalTime());
+        try
+        {
+            // Label the workout with the routine name where Fitness shows a brand.
+            var meta = new HKMetadata { WorkoutBrandName = name };
+            var mtcs = new TaskCompletionSource<bool>();
+            builder.Add(meta, (ok, _) => mtcs.TrySetResult(ok));
+            await mtcs.Task;
+        }
+        catch { /* metadata is cosmetic */ }
+        await builder.EndCollectionAsync((NSDate)end.ToUniversalTime());
+        var tcs = new TaskCompletionSource<bool>();
+        builder.FinishWorkout((_, error) => tcs.TrySetResult(error is null));
+        await tcs.Task;
     }
 
     public Task<int?> ReadStepsAsync(DateOnly date)

@@ -111,9 +111,13 @@ only if steps are later wanted in **export** or the **Mac build**.
   the dashboard and a 14-day steps trend. Entitlement (`HealthKit.entitlements`)
   applied to device builds only; runtime HealthKit behavior to be verified on
   simulator/device.
-- **Phase 2 (optional):** waist circumference; write workouts to Health; background
-  observer (`HKObserverQuery`/anchored) for true live two-way sync; persist
-  `DailyLog.Steps` if export/Mac coverage is wanted.
+- **Phase 2 — ✅ DONE (2026-06-04, partial by choice):** waist circumference
+  (write-on-save + pull; pull fills missing waists on existing rows, never
+  overwrites); workouts written to Health as Traditional Strength Training with
+  the routine name as brand. Verified on device: write, read/import for
+  non-app sources, per-date dedup. **Deliberately skipped:** background observer
+  (iOS throttles it; manual pull covers the need) and persisted `DailyLog.Steps`
+  (no export/Mac need yet).
 
 ## Out of scope
 
