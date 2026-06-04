@@ -1,0 +1,8 @@
+{
+  "id": "40",
+  "subject": "Discuss a cessation tracker (quit tobacco/drinking)",
+  "description": "Design discussion before building: a habit-cessation feature to help quit habits like tobacco or alcohol. Topics to cover: what to track (quit date, cravings, slips/lapses, triggers, units per day tapering vs cold turkey), streak/milestone display (days quit, money saved, health timeline), where it lives (own page + dashboard tile?), reminders/encouragement (could tie into daily AI check-in — flag cravings context), privacy considerations for AI payload (substance use is sensitive — likely exclude from Gemini by default per fitlog-ai-privacy-scope), and how slips are handled non-judgmentally (reset vs running tally). Possible data model: CessationGoal (substance, quit date, baseline usage, cost/unit) + CravingEntry / SlipEntry events.",
+  "status": "pending",
+  "blocks": [],
+  "blockedBy": []
+}

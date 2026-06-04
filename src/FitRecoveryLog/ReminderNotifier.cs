@@ -45,6 +45,26 @@ public static class ReminderNotifier
         });
     }
 
+    /// <summary>One-shot "hold complete" alert for the in-workout set timer, so the
+    /// end of a timed hold still reaches the user if the device locks or the app
+    /// is backgrounded (the in-app beep/haptic only fire in the foreground).</summary>
+    public const int HoldTimerNotificationId = 3001;
+
+    public static async Task ScheduleHoldEndAsync(string exerciseName, int seconds)
+    {
+        if (!IsSupported) return;
+        LocalNotificationCenter.Current.Cancel(HoldTimerNotificationId);
+        await LocalNotificationCenter.Current.Show(new NotificationRequest
+        {
+            NotificationId = HoldTimerNotificationId,
+            Title = "Hold complete ✅",
+            Description = $"{exerciseName} — {seconds}s done",
+            Schedule = new NotificationRequestSchedule { NotifyTime = DateTime.Now.AddSeconds(seconds) }
+        });
+    }
+
+    public static void CancelHoldEnd() => Cancel(HoldTimerNotificationId);
+
     public static Task ScheduleAsync(MedicationSchedule s)
     {
         var active = s.Active && (s.EndDate is null || s.EndDate.Value >= DateOnly.FromDateTime(DateTime.Now));

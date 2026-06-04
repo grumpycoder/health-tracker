@@ -1,0 +1,8 @@
+{
+  "id": "39",
+  "subject": "Prep TestFlight distribution for family/friends",
+  "description": "Private invite-only distribution via TestFlight. Steps: (1) Mark enrolls in paid Apple Developer Program ($99/yr — also ends the 7-day re-sign treadmill); (2) strip the embedded health-history.json seeding from shared builds — Mark's personal TRT/weight data currently auto-seeds every fresh install (his own device keeps data via the v4 marker file); (3) blank-slate first-run experience (empty states already mostly exist; verify onboarding makes sense with no data); (4) upload build to App Store Connect / TestFlight, pass beta review; (5) send invites. Notes: builds expire every 90 days (quarterly re-upload); each tester needs their own Gemini key for AI features (everything else works without).",
+  "status": "pending",
+  "blocks": [],
+  "blockedBy": []
+}

@@ -96,12 +96,19 @@ else if (_state == State.Active)
                 }
                 else
                 {
+                    @if (_holdDoneSet == cur.Set)
+                    {
+                        <p class="muted" style="text-align:center;margin:0 0 0.5rem">
+                            ✅ Full @(cur.Set.DurationSeconds)s hold — tap Complete Set
+                        </p>
+                    }
                     <div class="inline-fields">
                         <div class="field"><label>Hold (s)</label>
                             <input type="number" inputmode="decimal" min="0" @bind="cur.Set.DurationSeconds" />
                         </div>
                     </div>
                     <button class="save-btn" @onclick="() => StartSetTimer(cur.Set)">▶ Start Hold</button>
+                    <button class="save-btn" style="margin-top:0.6rem" @onclick="CompleteCurrentSet">Complete Set ✓</button>
                 }
             }
             else
@@ -216,6 +223,7 @@ else // Feedback
 
     // Live hold countdown for a timed set (e.g. planks).
     private SetVM? _timingSet;
+    private SetVM? _holdDoneSet; // hit the full target; awaiting explicit Complete Set
     private DateTime _setStart;
     private int _holdTarget;
     private int SetElapsed => (int)(DateTime.Now - _setStart).TotalSeconds;
@@ -279,6 +287,7 @@ else // Feedback
     {
         if (Current is not { } cur) return;
         cur.Set.Completed = true;
+        _holdDoneSet = null;
         AfterSetCompleted(cur.Ex);
     }
 
@@ -287,6 +296,7 @@ else // Feedback
         if (Current is not { } cur) return;
         cur.Ex.Skipped = true;
         if (_timingSet is not null && cur.Ex.Sets.Contains(_timingSet)) _timingSet = null;
+        if (_holdDoneSet is not null && cur.Ex.Sets.Contains(_holdDoneSet)) _holdDoneSet = null;
         Advance();
         if (Current is null) GoToFeedback();
     }
@@ -340,6 +350,14 @@ else // Feedback
         _startedAt = DateTime.Now;
         _state = State.Active;
         _timer = new System.Threading.Timer(_ => Tick(), null, 1000, 1000);
+        SetKeepScreenOn(true);
+        _ = ReminderNotifier.RequestPermissionAsync(); // so hold-end alerts can fire
+    }
+
+    /// <summary>Prevent the device from auto-locking mid-workout (timed holds especially).</summary>
+    private static void SetKeepScreenOn(bool on)
+    {
+        try { Microsoft.Maui.Devices.DeviceDisplay.Current.KeepScreenOn = on; } catch { }
     }
 
     private void Tick() => InvokeAsync(async () =>
@@ -357,40 +375,48 @@ else // Feedback
     {
         // Only one set timed at a time; record the previous if still running.
         if (_timingSet is not null) StopSetTimer(_timingSet);
+        _holdDoneSet = null;
         _holdTarget = s.DurationSeconds is > 0 ? s.DurationSeconds.Value : 30;
         _setStart = DateTime.Now;
         _timingSet = s;
         // Unlock audio within this user gesture so the end-of-hold beep can play.
         try { await JS.InvokeVoidAsync("holdTimer.arm"); } catch { }
+        // Backup OS notification in case the device locks or the app is backgrounded
+        // (the in-app beep/haptic only fire while in the foreground).
+        if (Current?.Set == s)
+            try { await ReminderNotifier.ScheduleHoldEndAsync(Current.Ex.Def.Name, _holdTarget); } catch { }
     }
 
-    // Stopped early — record the actual time held.
+    // Stopped early — record the actual time held; completing the set stays manual.
     private void StopSetTimer(SetVM s)
     {
+        ReminderNotifier.CancelHoldEnd();
         s.DurationSeconds = Math.Min(SetElapsed, _holdTarget);
-        s.Completed = true;
         _timingSet = null;
-        if (Current?.Set == s) AfterSetCompleted(Current.Ex);
     }
 
-    // Countdown reached zero — held the full target; alert and record it.
+    // Countdown reached zero — record the full target and alert, but wait for an
+    // explicit "Complete Set" tap before advancing.
     private async Task CompleteHold()
     {
+        ReminderNotifier.CancelHoldEnd(); // foreground path: in-app beep/haptic suffice
         var s = _timingSet!;
         s.DurationSeconds = _holdTarget;
-        s.Completed = true;
         _timingSet = null;
+        _holdDoneSet = s;
         try { await JS.InvokeVoidAsync("holdTimer.beep"); } catch { }
         try { Microsoft.Maui.Devices.HapticFeedback.Default.Perform(Microsoft.Maui.Devices.HapticFeedbackType.LongPress); } catch { }
-        if (Current?.Set == s) AfterSetCompleted(Current.Ex);
     }
 
     private void DiscardWorkout()
     {
         // Nothing is persisted until Save, so just tear down and return to the chooser.
+        SetKeepScreenOn(false);
+        ReminderNotifier.CancelHoldEnd();
         _timer?.Dispose();
         _timer = null;
         _timingSet = null;
+        _holdDoneSet = null;
         _rest = 0;
         _exercises.Clear();
         _steps.Clear();
@@ -401,6 +427,7 @@ else // Feedback
     private void GoToFeedback()
     {
         if (_timingSet is not null) StopSetTimer(_timingSet); // capture an in-progress hold
+        SetKeepScreenOn(false);
         _timer?.Dispose();
         _timer = null;
         _totalMinutes = (int)Math.Round((DateTime.Now - _startedAt).TotalMinutes);
@@ -448,5 +475,11 @@ else // Feedback
     private static string Pretty(string camel) =>
         System.Text.RegularExpressions.Regex.Replace(camel, "(?<=.)([A-Z])", " $1");
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose()
+    {
+        // Covers navigating away mid-workout (back button, deep link, etc.).
+        SetKeepScreenOn(false);
+        ReminderNotifier.CancelHoldEnd();
+        _timer?.Dispose();
+    }
 }

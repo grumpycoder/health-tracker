@@ -52,7 +52,13 @@
     };
 
     window.holdTimer = {
-        arm() { try { ensure(); } catch (e) { } },
+        arm() {
+            try { ensure(); } catch (e) { }
+            // Drop keyboard focus from the Hold(s) input: dismisses the keyboard and
+            // clears the edit context, so jolting the phone (setting it down) doesn't
+            // trigger iOS shake-to-undo ("Undo Typing") mid-hold.
+            try { document.activeElement?.blur(); } catch (e) { }
+        },
         beep() {
             try {
                 if (!ensure()) return;
