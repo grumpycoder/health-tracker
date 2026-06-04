@@ -1,8 +1,8 @@
 {
   "id": "45",
-  "subject": "Discuss AI auto-tagging of meals on entry (high protein, high sodium, etc.)",
-  "description": "When logging a meal, have AI infer the tag values (High protein, High sodium, etc.) from the free-text Description/PortionNote instead of (or pre-filling) manual tag selection. MealEntry.Tags is already a CSV consumed via TagList, so output maps straight onto the existing field. Concerns to discuss: each meal entry would cost a Gemini API call — consider batching (tag untagged meals during the daily AI check-in / GeminiAnalyzer run instead of per-entry), an on-save call with suggested tags the user confirms, or a cheap local keyword fallback when offline/no key. Tags should stay user-editable (AI suggests, user can correct); decide whether AI-suggested tags are visually distinguished. Constrain the model to the app's known tag vocabulary so tags stay consistent for trends/insights.",
-  "status": "pending",
+  "subject": "AI meal tag suggestions via ✨ button (scoped, ready to build)",
+  "description": "DISCUSSED 2026-06-04, decisions made. Build: a ✨ 'Suggest tags' button next to the tag chip row on the meal form, drink form, and edit form in Meals.razor. Tap -> Gemini call (new GeminiAnalyzer method, reuse GenerateAsync) with description + portion note + meal type; response pre-selects chips from the known vocabulary and may propose AT MOST 1 new tag, rendered as a visually distinct 'proposed' chip the user must tap to accept (prompt strongly prefers existing vocabulary to limit drift). Accepted custom tags join the chip row for future entries (chips = fixed 7 + distinct tags already used in the DB). Nothing is applied without the user seeing it before save. Fallback when no key/offline/API error: a small static keyword map (protein foods -> High protein, restaurant/chain names -> Restaurant meal + High sodium, sweet drinks -> Sweet drink, etc.) fills what it can via the same button — fallback only, not a parallel always-on system. Save stays instant; no background or batch tagging (rejected: auto-on-save, daily-batch).",
+  "status": "completed",
   "blocks": [],
   "blockedBy": []
 }

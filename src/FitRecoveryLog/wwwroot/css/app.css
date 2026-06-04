@@ -210,6 +210,8 @@ body { background: var(--bg); color: var(--text); }
     cursor: pointer;
 }
 .chip.selected { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+/* AI-proposed new tag: visually distinct until the user taps to accept it */
+.chip.proposed { border-style: dashed; border-color: var(--accent); color: var(--accent); background: transparent; }
 
 select.field, .field select {
     width: 100%;

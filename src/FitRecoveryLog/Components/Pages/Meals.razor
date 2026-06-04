@@ -73,17 +73,7 @@
             <label>Portion note</label>
             <input @bind="_meal.PortionNote" placeholder="e.g. 2 eggs, 1 cup rice" />
         </div>
-        <div class="field">
-            <label>Tags</label>
-            <div class="chip-row">
-                @foreach (var tag in MealTags)
-                {
-                    <button type="button"
-                            class="chip @(_mealTags.Contains(tag) ? "selected" : "")"
-                            @onclick="() => ToggleMealTag(tag)">@tag</button>
-                }
-            </div>
-        </div>
+        @TagField(_mealTagBox, () => SuggestTagsAsync(_mealTagBox, _meal.MealType.ToString(), _meal.Description, _meal.PortionNote))
         <div class="field">
             <label>Satiety</label>
             <select @bind="_meal.Satiety">
@@ -136,6 +126,7 @@
             <label>Sugar (cubes / tsp)</label>
             <input type="number" inputmode="decimal" step="1" @bind="_drink.SugarCount" placeholder="e.g. 2" />
         </div>
+        @TagField(_drinkTagBox, () => SuggestTagsAsync(_drinkTagBox, "Drink", _drink.Description, DrinkPortion(_drink)))
         <button class="save-btn" @onclick="SaveDrink">Save Drink</button>
         @if (_drinkSaved)
         {
@@ -176,16 +167,7 @@
                                 </div>
                                 <div class="field"><label>Food</label><input @bind="_mealEdit.Description" /></div>
                                 <div class="field"><label>Portion note</label><input @bind="_mealEdit.PortionNote" /></div>
-                                <div class="field">
-                                    <label>Tags</label>
-                                    <div class="chip-row">
-                                        @foreach (var tag in MealTags)
-                                        {
-                                            <button type="button" class="chip @(_mealEditTags.Contains(tag) ? "selected" : "")"
-                                                    @onclick="() => ToggleEditTag(tag)">@tag</button>
-                                        }
-                                    </div>
-                                </div>
+                                @TagField(_mealEditTagBox, () => SuggestTagsAsync(_mealEditTagBox, _mealEdit.MealType.ToString(), _mealEdit.Description, _mealEdit.PortionNote))
                                 <div class="field">
                                     <label>Satiety</label>
                                     <select @bind="_mealEdit.Satiety">
@@ -229,6 +211,7 @@
                                     <div class="field"><label>Ounces</label><input type="number" inputmode="decimal" @bind="_drinkEdit.Ounces" /></div>
                                     <div class="field"><label>Sugar</label><input type="number" inputmode="decimal" @bind="_drinkEdit.SugarCount" /></div>
                                 </div>
+                                @TagField(_drinkEditTagBox, () => SuggestTagsAsync(_drinkEditTagBox, "Drink", _drinkEdit.Description, DrinkPortion(_drinkEdit)))
                                 <div class="routine-actions">
                                     <button class="save-btn" @onclick="SaveDrinkEdit">Save</button>
                                     <button class="link-btn" @onclick="() => _editDrinkId = null">Cancel</button>
@@ -274,7 +257,6 @@
     private static MealEntry NewMeal() => new() { Satiety = Satiety.Satisfied };
     private MealEntry _meal = NewMeal();
     private DrinkEntry _drink = new();
-    private readonly HashSet<string> _mealTags = new();
     private bool _mealSaved, _drinkSaved;
     private string? _mealWarn, _drinkWarn;
 
@@ -309,9 +291,115 @@
     // Inline edit state for today's entries.
     private Guid? _editMealId;
     private MealEntry _mealEdit = new();
-    private readonly HashSet<string> _mealEditTags = new();
     private Guid? _editDrinkId;
     private DrinkEntry _drinkEdit = new();
+
+    // ---- Tag selection + AI suggestions ------------------------------------------
+
+    /// <summary>Per-form tag state: selected chips, an AI-proposed new tag awaiting
+    /// an explicit accept tap, a short status note, and a busy flag.</summary>
+    private sealed class TagBox
+    {
+        public readonly HashSet<string> Selected = new();
+        public string? Proposed;
+        public string? Note;
+        public bool Busy;
+        public bool Adding;     // "＋" tapped — inline new-tag input is open
+        public string? Draft;   // text in the new-tag input
+        public void Toggle(string t) { if (!Selected.Add(t)) Selected.Remove(t); }
+        public void Accept() { if (Proposed is { } p) { Selected.Add(p); Proposed = null; } }
+        public void Reset() { Selected.Clear(); Proposed = null; Note = null; Busy = false; Adding = false; Draft = null; }
+        public void Load(IEnumerable<string> tags) { Reset(); foreach (var t in tags) Selected.Add(t); }
+    }
+
+    private readonly TagBox _mealTagBox = new();
+    private readonly TagBox _mealEditTagBox = new();
+    private readonly TagBox _drinkTagBox = new();
+    private readonly TagBox _drinkEditTagBox = new();
+
+    // Chip vocabulary: the fixed tags + any custom tags already used in the data.
+    private List<string> _tagOptions = MealTags.ToList();
+
+    private RenderFragment TagField(TagBox box, Func<Task> suggest) =>
+        @<div class="field">
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+                <label>Tags</label>
+                <button type="button" class="link-btn" disabled="@box.Busy"
+                        @onclick="() => suggest()">@(box.Busy ? "Suggesting…" : "✨ Suggest")</button>
+            </div>
+            <div class="chip-row">
+                @foreach (var tag in _tagOptions)
+                {
+                    <button type="button" class="chip @(box.Selected.Contains(tag) ? "selected" : "")"
+                            @onclick="() => box.Toggle(tag)">@tag</button>
+                }
+                @if (box.Proposed is { } p)
+                {
+                    <button type="button" class="chip proposed" title="AI-proposed new tag — tap to accept"
+                            @onclick="() => box.Accept()">＋ @p</button>
+                }
+                @if (box.Adding)
+                {
+                    <input style="flex:1;min-width:7rem;max-width:11rem;border-radius:999px;padding:0.3rem 0.8rem"
+                           placeholder="New tag" @bind="box.Draft" @bind:event="oninput"
+                           @onkeydown="@(e => { if (e.Key == "Enter") AddCustomTag(box); })" />
+                    <button type="button" class="chip" @onclick="() => AddCustomTag(box)">Add</button>
+                }
+                else
+                {
+                    <button type="button" class="chip" title="Add a custom tag"
+                            @onclick="() => box.Adding = true">＋</button>
+                }
+            </div>
+            @if (box.Note is not null)
+            {
+                <span class="muted" style="font-size:0.75rem">@box.Note</span>
+            }
+        </div>;
+
+    /// <summary>AI tag suggestions for one entry; falls back to keyword matching when
+    /// the Gemini call can't happen (no key, offline, error). Only pre-selects chips —
+    /// nothing is saved until the user saves the form.</summary>
+    private async Task SuggestTagsAsync(TagBox box, string mealType, string? description, string? portion)
+    {
+        var desc = description?.Trim();
+        if (string.IsNullOrWhiteSpace(desc)) { box.Note = "Enter a description first."; return; }
+        box.Busy = true;
+        box.Note = null;
+        try
+        {
+            var key = await GeminiAnalyzer.KeyStore.GetAsync()
+                      ?? throw new InvalidOperationException("No API key");
+            var s = await GeminiAnalyzer.SuggestMealTagsAsync(key, mealType, desc, portion, _tagOptions);
+            foreach (var t in s.Known) box.Selected.Add(t);
+            box.Proposed = s.Proposed;
+            if (s.Known.Count == 0 && s.Proposed is null) box.Note = "No tags suggested.";
+        }
+        catch
+        {
+            var guesses = MealTagFallback.Suggest($"{desc} {portion}");
+            foreach (var t in guesses) box.Selected.Add(t);
+            box.Note = guesses.Count > 0 ? "AI unavailable — keyword guess" : "AI unavailable — pick tags manually";
+        }
+        box.Busy = false;
+    }
+
+    /// <summary>Manually add a custom tag: select it and add it to the chip vocabulary
+    /// (reusing the existing casing if the tag already exists).</summary>
+    private void AddCustomTag(TagBox box)
+    {
+        var t = box.Draft?.Trim();
+        box.Adding = false;
+        box.Draft = null;
+        if (string.IsNullOrWhiteSpace(t)) return;
+        var existing = _tagOptions.FirstOrDefault(x => x.Equals(t, StringComparison.OrdinalIgnoreCase));
+        if (existing is null) _tagOptions.Add(t); else t = existing;
+        box.Selected.Add(t);
+    }
+
+    private static string DrinkPortion(DrinkEntry d) =>
+        (d.Ounces is { } oz ? $"{oz:0.#} oz" : "") +
+        (d.SugarCount is { } su ? $" sugar:{su}" : "");
 
     // Flags from the latest AI analysis (empty until one is run).
     private List<string> _mealFlags = new();
@@ -331,13 +419,7 @@
             Description = m.Description, MealType = m.MealType,
             PortionNote = m.PortionNote, Satiety = m.Satiety
         };
-        _mealEditTags.Clear();
-        foreach (var t in m.TagList) _mealEditTags.Add(t);
-    }
-
-    private void ToggleEditTag(string tag)
-    {
-        if (!_mealEditTags.Add(tag)) _mealEditTags.Remove(tag);
+        _mealEditTagBox.Load(m.TagList);
     }
 
     private async Task SaveMealEdit()
@@ -351,7 +433,7 @@
             e.MealType = _mealEdit.MealType;
             e.PortionNote = _mealEdit.PortionNote;
             e.Satiety = _mealEdit.Satiety;
-            e.Tags = CsvField.Join(_mealEditTags);
+            e.Tags = CsvField.Join(_mealEditTagBox.Selected);
             await db.SaveChangesAsync();
         }
         _editMealId = null;
@@ -372,6 +454,7 @@
         _editMealId = null;
         _editDrinkId = d.Id;
         _drinkEdit = new DrinkEntry { Description = d.Description, Ounces = d.Ounces, SugarCount = d.SugarCount };
+        _drinkEditTagBox.Load(d.TagList);
     }
 
     private async Task SaveDrinkEdit()
@@ -384,6 +467,7 @@
             e.Description = _drinkEdit.Description;
             e.Ounces = _drinkEdit.Ounces;
             e.SugarCount = _drinkEdit.SugarCount;
+            e.Tags = CsvField.Join(_drinkEditTagBox.Selected);
             await db.SaveChangesAsync();
         }
         _editDrinkId = null;
@@ -399,24 +483,19 @@
         await LoadToday();
     }
 
-    private void ToggleMealTag(string tag)
-    {
-        if (!_mealTags.Add(tag)) _mealTags.Remove(tag);
-    }
-
     private async Task SaveMeal()
     {
         if (string.IsNullOrWhiteSpace(_meal.Description)) { _mealWarn = "Enter a food first."; _mealSaved = false; return; }
         _mealWarn = null;
         _meal.Time = DateTime.Now;
-        _meal.Tags = CsvField.Join(_mealTags);
+        _meal.Tags = CsvField.Join(_mealTagBox.Selected);
         await using var db = await DbFactory.CreateDbContextAsync();
         db.MealEntries.Add(_meal);
         await db.SaveChangesAsync();
 
         _mealSaved = true;
         _meal = NewMeal();
-        _mealTags.Clear();
+        _mealTagBox.Reset();
         await LoadToday();
     }
 
@@ -425,12 +504,14 @@
         if (string.IsNullOrWhiteSpace(_drink.Description)) { _drinkWarn = "Enter a drink first."; _drinkSaved = false; return; }
         _drinkWarn = null;
         _drink.Time = DateTime.Now;
+        _drink.Tags = CsvField.Join(_drinkTagBox.Selected);
         await using var db = await DbFactory.CreateDbContextAsync();
         db.DrinkEntries.Add(_drink);
         await db.SaveChangesAsync();
 
         _drinkSaved = true;
         _drink = new DrinkEntry();
+        _drinkTagBox.Reset();
         await LoadToday();
     }
 
@@ -462,6 +543,13 @@
             .Where(d => !string.IsNullOrWhiteSpace(d.Description))
             .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => (g.First().Ounces, g.First().SugarCount), StringComparer.OrdinalIgnoreCase);
+
+        // Tag vocabulary: fixed tags + custom (accepted AI-proposed) tags already in use.
+        var usedTags = (await db.MealEntries.Select(m => m.Tags).ToListAsync())
+            .Concat(await db.DrinkEntries.Select(d => d.Tags).ToListAsync())
+            .SelectMany(CsvField.Split);
+        _tagOptions = MealTags.Concat(usedTags)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private static string Pretty(string camel) =>

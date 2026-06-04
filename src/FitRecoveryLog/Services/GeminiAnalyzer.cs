@@ -228,6 +228,86 @@ public static class GeminiAnalyzer
         }
     }
 
+    public sealed record TagSuggestion(List<string> Known, string? Proposed);
+
+    /// <summary>Suggests tags for one meal from its free-text description (meal text is
+    /// already part of the analysis payloads, so this sends no new data category).
+    /// Returns matches from <paramref name="vocabulary"/> plus at most one proposed new tag.</summary>
+    public static async Task<TagSuggestion> SuggestMealTagsAsync(string apiKey, string mealType,
+        string description, string? portionNote, IReadOnlyList<string> vocabulary)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Tag one logged meal for a personal nutrition tracker.");
+        sb.AppendLine("Respond with ONLY a JSON object:");
+        sb.AppendLine("""{ "tags": ["<existing tags that clearly apply>"], "newTag": "<one new tag ONLY if something important has no existing tag, else null>" }""");
+        sb.AppendLine($"Existing tags (use these exact strings, strongly prefer them): {string.Join(" | ", vocabulary)}");
+        sb.AppendLine("Only include tags well supported by the text; when unsure, leave a tag out. " +
+                      "A newTag must be short (1-3 words, e.g. 'High sugar'), broadly reusable, and not a synonym of an existing tag. " +
+                      "Tags describe nutritional quality or food source. The entry already records its type " +
+                      "(breakfast/lunch/dinner/snack/drink), time, and portion — NEVER suggest those as tags.");
+        sb.AppendLine();
+        sb.AppendLine($"MEAL: {mealType} \"{description}\"" +
+                      (string.IsNullOrWhiteSpace(portionNote) ? "" : $" portion:\"{portionNote}\""));
+
+        var text = await GenerateAsync(apiKey, sb.ToString());
+        if (string.IsNullOrWhiteSpace(text)) return new(new(), null);
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            // Map results back onto canonical vocabulary casing; drop anything else.
+            var canon = vocabulary.ToDictionary(v => v, v => v, StringComparer.OrdinalIgnoreCase);
+            var known = new List<string>();
+            if (root.TryGetProperty("tags", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                foreach (var t in arr.EnumerateArray())
+                    if (t.GetString() is { } s && canon.TryGetValue(s.Trim(), out var c) && !known.Contains(c))
+                        known.Add(c);
+            var proposed = root.TryGetProperty("newTag", out var nt) ? nt.GetString()?.Trim() : null;
+            if (!string.IsNullOrWhiteSpace(proposed))
+            {
+                // Near-duplicate of an existing tag (typo, plural, etc.) → select the
+                // real tag instead of proposing a misspelled twin.
+                var close = vocabulary.FirstOrDefault(v => Levenshtein(v, proposed) <= 2);
+                if (close is not null)
+                {
+                    if (!known.Contains(close)) known.Add(close);
+                    proposed = null;
+                }
+                else if (canon.ContainsKey(proposed) || IsRedundantTag(proposed))
+                {
+                    proposed = null;
+                }
+            }
+            else proposed = null;
+            return new(known, proposed);
+        }
+        catch (JsonException)
+        {
+            return new(new(), null);
+        }
+    }
+
+    /// <summary>Case-insensitive edit distance, for catching typo'd near-duplicate tags.</summary>
+    private static int Levenshtein(string a, string b)
+    {
+        a = a.ToLowerInvariant(); b = b.ToLowerInvariant();
+        var d = new int[a.Length + 1, b.Length + 1];
+        for (var i = 0; i <= a.Length; i++) d[i, 0] = i;
+        for (var j = 0; j <= b.Length; j++) d[0, j] = j;
+        for (var i = 1; i <= a.Length; i++)
+            for (var j = 1; j <= b.Length; j++)
+                d[i, j] = Math.Min(Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1),
+                    d[i - 1, j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1));
+        return d[a.Length, b.Length];
+    }
+
+    /// <summary>Proposed tags that duplicate structured fields the entry already has
+    /// (meal type, timing) — e.g. "Snack" on a snack log — are rejected.</summary>
+    private static bool IsRedundantTag(string tag) =>
+        Enum.GetNames<MealType>().Any(t => tag.Contains(t, StringComparison.OrdinalIgnoreCase))
+        || new[] { "meal", "drink", "morning", "evening", "late night" }
+            .Any(w => tag.Equals(w, StringComparison.OrdinalIgnoreCase));
+
     public sealed record ExerciseAdvice(string Name, string Action, string? Target);
     public sealed record AiOutcome(string Analysis, List<ExerciseAdvice> Exercises, List<string> TopActions,
         List<string> MealFlags, string? BodyTrendStatus, string? BodyTrendNote);
