@@ -35,11 +35,24 @@
         </div>
     </section>
 
+    @if (_cessationLines.Count > 0)
+    {
+        <section class="card" style="cursor:pointer" @onclick="@(() => Nav.NavigateTo("cessation"))">
+            @foreach (var line in _cessationLines)
+            {
+                <p style="margin:0 0 0.25rem">@line</p>
+            }
+            <p class="muted" style="margin:0.2rem 0 0;font-size:0.75rem">Tap for cravings, slips & milestones</p>
+        </section>
+    }
+
     <section class="card">
         <h2>Quick log</h2>
         <div class="quick-grid">
             @foreach (var item in QuickLinks)
             {
+                @* Cessation logging only matters once a goal exists (More → Cessation to start one). *@
+                if (item.Route == "cessation" && _cessationLines.Count == 0) continue;
                 <button class="quick-btn" @onclick="@(() => Nav.NavigateTo(item.Route))">
                     <span class="quick-emoji">@item.Emoji</span> @item.Label
                 </button>
@@ -164,6 +177,7 @@
         ("💊", "Medication", "medication"),
         ("😴", "Sleep / Recovery", "sleep"),
         ("🏡", "Physical Workload", "workload"),
+        ("🚭", "Craving / Slip", "cessation"),
     };
 
     private DailyLog _log = new();
@@ -175,6 +189,9 @@
 
     // Top actions from the latest AI analysis (empty until one is run).
     private List<string> _aiActions = new();
+
+    // One-line status per active cessation goal.
+    private List<string> _cessationLines = new();
 
     // Daily AI check-in (cached per calendar day).
     private bool _hasAiKey, _dailyBusy;
@@ -246,6 +263,46 @@
         var existing = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == _today);
         _log = existing ?? new DailyLog { Date = _today };
         await LoadNotes(db);
+        await LoadCessation(db);
+    }
+
+    private async Task LoadCessation(AppDbContext db)
+    {
+        _cessationLines.Clear();
+        var goals = await db.CessationGoals.Where(g => g.Active).OrderBy(g => g.Substance).ToListAsync();
+        foreach (var g in goals)
+        {
+            // Tapering toward a future quit date: show today's allowance progress.
+            if (g.Taper && g.TaperStartDate is { } start && _today < g.QuitDate)
+            {
+                var total = g.QuitDate.DayNumber - start.DayNumber;
+                var allow = g.BaselineUnitsPerDay is { } b && total > 0
+                    ? (int)Math.Ceiling(b * (g.QuitDate.DayNumber - _today.DayNumber) / (double)total)
+                    : 0;
+                var used = await db.CessationEvents
+                    .Where(e => e.GoalId == g.Id && e.Type == CessationEventType.Slip && e.Time >= _today.ToDateTime(TimeOnly.MinValue))
+                    .SumAsync(e => e.Amount ?? 1);
+                _cessationLines.Add($"🚭 {g.Substance} — taper {used:0.#}/{allow} today · quit {g.QuitDate:MMM d}");
+                continue;
+            }
+
+            var daysQuit = _today.DayNumber - g.QuitDate.DayNumber;
+            var lastSlip = await db.CessationEvents
+                .Where(e => e.GoalId == g.Id && e.Type == CessationEventType.Slip)
+                .OrderByDescending(e => e.Time).FirstOrDefaultAsync();
+            var since = lastSlip is null ? "no slips ✨"
+                : $"{_today.DayNumber - DateOnly.FromDateTime(lastSlip.Time).DayNumber}d since slip";
+            var money = "";
+            var unitCost = g.CostPerUnit is { } c ? c / (g.UnitsPerPack is { } p && p > 0 ? p : 1) : (double?)null;
+            if (g.BaselineUnitsPerDay is { } perDay && unitCost is { } cost && daysQuit > 0)
+            {
+                var slipped = await db.CessationEvents
+                    .Where(e => e.GoalId == g.Id && e.Type == CessationEventType.Slip)
+                    .SumAsync(e => e.Amount ?? 1);
+                money = $" · {Math.Max(0, daysQuit * perDay * cost - slipped * cost):C0} saved";
+            }
+            _cessationLines.Add($"🚭 {g.Substance} — {daysQuit}d quit · {since}{money}");
+        }
     }
 
     private async Task LoadNotes(AppDbContext db)

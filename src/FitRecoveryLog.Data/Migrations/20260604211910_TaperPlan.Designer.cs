@@ -3,6 +3,7 @@ using System;
 using FitRecoveryLog.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FitRecoveryLog.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260604211910_TaperPlan")]
+    partial class TaperPlan
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.9");
@@ -124,9 +127,6 @@ namespace FitRecoveryLog.Data.Migrations
                     b.Property<int>("NotificationId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("PackName")
-                        .HasColumnType("TEXT");
-
                     b.Property<DateOnly>("QuitDate")
                         .HasColumnType("TEXT");
 
@@ -142,9 +142,6 @@ namespace FitRecoveryLog.Data.Migrations
 
                     b.Property<string>("UnitName")
                         .HasColumnType("TEXT");
-
-                    b.Property<double?>("UnitsPerPack")
-                        .HasColumnType("REAL");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT");

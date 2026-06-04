@@ -9,10 +9,13 @@ namespace FitRecoveryLog.Services;
 /// AI analysis of workouts, meals/drinks, sleep, and body-measurement numbers
 /// via the Gemini API (free AI Studio tier; the user supplies their own key in
 /// Settings). Medications, labs, notes, photos, and freeform measurement text
-/// are deliberately NEVER sent.
+/// are deliberately NEVER sent. Cessation (substance) data is sent ONLY when the
+/// user explicitly opts in via <see cref="IncludeCessationPrefKey"/>.
 /// </summary>
 public static class GeminiAnalyzer
 {
+    /// <summary>Preferences key for the explicit cessation-data opt-in (default off).</summary>
+    public const string IncludeCessationPrefKey = "ai_include_cessation";
     private const string Model = "gemini-2.5-flash";
     private const int WindowDays = 56; // 8 weeks
 
@@ -200,6 +203,41 @@ public static class GeminiAnalyzer
         if (work.Count == 0) sb.AppendLine("(none)");
         foreach (var w in work)
             sb.AppendLine($"  {w.Activity} {(w.DurationMinutes is { } mins ? $"{mins}min " : "")}{w.Intensity}");
+
+        // Substance-cessation data is sensitive: included ONLY with explicit opt-in.
+        if (Microsoft.Maui.Storage.Preferences.Default.Get(IncludeCessationPrefKey, false))
+        {
+            var goals = await db.CessationGoals.Where(g => g.Active).ToListAsync();
+            if (goals.Count > 0)
+            {
+                sb.AppendLine("CESSATION GOALS (user opted in — be supportive; never judgmental about slips):");
+                foreach (var g in goals)
+                {
+                    var todayEvents = await db.CessationEvents
+                        .Where(e => e.GoalId == g.Id && e.Time >= dayStart && e.Time < dayEnd).ToListAsync();
+                    var cravings = todayEvents.Count(e => e.Type == CessationEventType.Craving);
+                    var usedToday = todayEvents.Where(e => e.Type == CessationEventType.Slip).Sum(e => e.Amount ?? 1);
+
+                    if (g.Taper && g.TaperStartDate is { } start && today < g.QuitDate)
+                    {
+                        var total = g.QuitDate.DayNumber - start.DayNumber;
+                        var allow = g.BaselineUnitsPerDay is { } b && total > 0
+                            ? (int)Math.Ceiling(b * (g.QuitDate.DayNumber - today.DayNumber) / (double)total) : 0;
+                        sb.AppendLine($"  {g.Substance}: tapering, quit day {g.QuitDate:yyyy-MM-dd}; " +
+                                      $"today used {usedToday:0.#} of {allow} allowed, {cravings} craving(s)");
+                        continue;
+                    }
+
+                    var daysQuit = today.DayNumber - g.QuitDate.DayNumber;
+                    var lastSlip = await db.CessationEvents
+                        .Where(e => e.GoalId == g.Id && e.Type == CessationEventType.Slip)
+                        .OrderByDescending(e => e.Time).FirstOrDefaultAsync();
+                    sb.AppendLine($"  {g.Substance}: quit {daysQuit} day(s) ago; today " +
+                                  $"{cravings} craving(s), {usedToday:0.#} slip unit(s)" +
+                                  (lastSlip is null ? "; no slips ever" : $"; last slip {DateOnly.FromDateTime(lastSlip.Time):yyyy-MM-dd}"));
+                }
+            }
+        }
 
         return sb.ToString();
     }

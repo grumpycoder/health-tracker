@@ -1,0 +1,508 @@
+@page "/cessation"
+@using FitRecoveryLog.Services
+@implements IDisposable
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Cessation</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <button class="link-btn" @onclick="@(() => Nav.NavigateTo(""))">‹ Home</button>
+        <div class="dash-date">Cessation</div>
+        <div class="dash-date-sub">Progress, not perfection — slips are data, not failure</div>
+    </header>
+
+    @foreach (var g in _goals.Where(x => x.Active))
+    {
+        var s = Stats(g);
+        var taper = InTaper(g);
+        var unitName = g.UnitName ?? "unit";
+        <section class="card">
+            <div class="routine-head">
+                <h2>🚭 @g.Substance</h2>
+                @if (taper)
+                {
+                    <span class="badge">quit day in @(-s.DaysQuit)d</span>
+                }
+                else if (s.DaysQuit >= 0)
+                {
+                    <span class="badge good">@s.DaysQuit day@(s.DaysQuit == 1 ? "" : "s")</span>
+                }
+            </div>
+            <table class="history"><tbody>
+                @if (taper)
+                {
+                    <tr><td>Target quit date</td><td class="num">@g.QuitDate.ToString("MMM d, yyyy")</td></tr>
+                    @if (TodaysAllowance(g) is { } allow)
+                    {
+                        var used = UsedToday(g);
+                        <tr><td>Today's allowance</td>
+                            <td class="num">@($"{used:0.#} of {allow} {unitName}(s)")@(used > allow ? " ⚠ over plan" : "")</td></tr>
+                    }
+                    <tr><td>Plan</td><td class="num">@(g.BaselineUnitsPerDay?.ToString("0.#") ?? "?")/day → 0 by @g.QuitDate.ToString("MMM d")</td></tr>
+                }
+                else
+                {
+                    <tr><td>Quit date</td><td class="num">@g.QuitDate.ToString("MMM d, yyyy")</td></tr>
+                    <tr><td>Since last slip</td><td class="num">@(s.DaysSinceSlip is { } d ? $"{d} day{(d == 1 ? "" : "s")}" : "no slips ✨")</td></tr>
+                }
+                @if (s.MoneySaved is { } money)
+                {
+                    <tr><td>Money saved</td><td class="num">@money.ToString("C0")</td></tr>
+                }
+                <tr><td>This week</td><td class="num">@s.CravingsThisWeek craving(s) · @s.SlipsThisWeek @(taper ? unitName + "(s)" : "slip(s)")</td></tr>
+                <tr><td>Last week</td><td class="num">@s.CravingsLastWeek craving(s) · @s.SlipsLastWeek @(taper ? unitName + "(s)" : "slip(s)")</td></tr>
+                @if (!taper && NextMilestone(g) is { } m)
+                {
+                    <tr><td>Next milestone</td><td class="num">@m.Days days · @m.Date.ToString("MMM d")</td></tr>
+                }
+            </tbody></table>
+
+            <div class="routine-actions" style="margin-top:0.7rem">
+                <button class="save-btn" @onclick="() => OpenSos(g)">😮‍💨 Craving</button>
+                @if (taper)
+                {
+                    <button class="save-btn" @onclick="() => LogUse(g)">Log 1 @unitName</button>
+                    <button class="link-btn" @onclick="() => OpenSlip(g)">more…</button>
+                }
+                else
+                {
+                    <button class="link-btn" @onclick="() => OpenSlip(g)">Log slip</button>
+                }
+            </div>
+
+            @if (_sosGoalId == g.Id)
+            {
+                <div class="add-exercise" style="margin-top:0.7rem">
+                    @if (_sosRunning)
+                    {
+                        <div style="text-align:center;margin:0.5rem 0">
+                            <span class="timing" style="font-size:2.2rem">@(_sosRemaining / 60):@((_sosRemaining % 60).ToString("00"))</span>
+                        </div>
+                        <p class="muted" style="text-align:center;margin:0">
+                            Ride it out — most cravings pass within 5 minutes.<br />
+                            Slow breath in 4s, hold 4s, out 6s. You've got this.
+                        </p>
+                        <button class="link-btn" style="width:100%;margin-top:0.5rem" @onclick="StopSos">Done early ✓</button>
+                    }
+                    else
+                    {
+                        <div class="field">
+                            <label>How strong? (1 = mild, 5 = intense)</label>
+                            <div class="chip-row">
+                                @for (var i = 1; i <= 5; i++)
+                                {
+                                    var v = i;
+                                    <button type="button" class="chip @(_evIntensity == v ? "selected" : "")"
+                                            @onclick="() => _evIntensity = v">@v</button>
+                                }
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label>Trigger</label>
+                            <div class="chip-row">
+                                @foreach (var t in Triggers)
+                                {
+                                    <button type="button" class="chip @(_evTrigger == t ? "selected" : "")"
+                                            @onclick="() => _evTrigger = _evTrigger == t ? null : t">@t</button>
+                                }
+                            </div>
+                        </div>
+                        <button class="save-btn" @onclick="() => StartSos(g)">▶ Log craving + ride it out (5 min)</button>
+                        <button class="link-btn" style="width:100%;margin-top:0.5rem" @onclick="() => LogCravingOnly(g)">Just log it</button>
+                    }
+                </div>
+            }
+
+            @if (_slipGoalId == g.Id)
+            {
+                <div class="add-exercise" style="margin-top:0.7rem">
+                    <div class="inline-fields">
+                        <div class="field">
+                            <label>How many @(g.UnitName ?? "unit")(s)?</label>
+                            <input type="number" inputmode="decimal" min="0" step="1" @bind="_slipAmount" />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>Trigger</label>
+                        <div class="chip-row">
+                            @foreach (var t in Triggers)
+                            {
+                                <button type="button" class="chip @(_evTrigger == t ? "selected" : "")"
+                                        @onclick="() => _evTrigger = _evTrigger == t ? null : t">@t</button>
+                            }
+                        </div>
+                    </div>
+                    <div class="field">
+                        <textarea rows="2" @bind="_evNotes" placeholder="Optional note — what happened?"></textarea>
+                    </div>
+                    <button class="save-btn" @onclick="() => SaveSlip(g)">@(InTaper(g) ? "Save" : "Save Slip")</button>
+                    <p class="muted" style="font-size:0.75rem;margin:0.5rem 0 0">
+                        @(InTaper(g)
+                            ? "Counts toward today's allowance — staying near the plan is the win."
+                            : "A slip doesn't reset your quit date — it's one data point on the way out.")
+                    </p>
+                </div>
+            }
+
+            <div style="margin-top:0.9rem;text-align:right">
+                <button class="link-btn danger" @onclick="() => Deactivate(g)">Stop tracking</button>
+            </div>
+        </section>
+    }
+
+    <section class="card">
+        <h2>@(_goals.Any(g => g.Active) ? "Add another goal" : "Start a cessation goal")</h2>
+        <div class="field">
+            <label>What are you quitting?</label>
+            <input @bind="_newGoal.Substance" placeholder="e.g. Tobacco, Alcohol" />
+        </div>
+        <div class="field">
+            <label>Approach</label>
+            <div class="chip-row">
+                <button type="button" class="chip @(!_newGoal.Taper ? "selected" : "")"
+                        @onclick="() => _newGoal.Taper = false">Cold turkey</button>
+                <button type="button" class="chip @(_newGoal.Taper ? "selected" : "")"
+                        @onclick="() => _newGoal.Taper = true">Tapering</button>
+            </div>
+        </div>
+        <div class="field">
+            <label>@(_newGoal.Taper ? "Target quit date (future)" : "Quit date")</label>
+            <input type="date" @bind="_newQuitDate" />
+            @if (_newGoal.Taper)
+            {
+                <p class="muted" style="font-size:0.75rem;margin:0.3rem 0 0">
+                    Your daily allowance starts at the per-day amount below and falls to 0
+                    on this date. Log each @(string.IsNullOrWhiteSpace(_newGoal.UnitName) ? "unit" : _newGoal.UnitName.Trim().ToLowerInvariant())
+                    as you go; the app shows how you're tracking against the plan.
+                </p>
+            }
+        </div>
+        <div class="field">
+            <label>What do you count, one at a time? <span class="muted">(logging &amp; taper unit)</span></label>
+            <input @bind="_newGoal.UnitName" @bind:event="oninput" placeholder="e.g. cigarette, drink" />
+        </div>
+        @{ var unit = string.IsNullOrWhiteSpace(_newGoal.UnitName) ? "unit" : _newGoal.UnitName.Trim().ToLowerInvariant(); }
+        <div class="field">
+            <label>@($"{unit}s per day, before quitting")</label>
+            <input type="number" inputmode="decimal" min="0" @bind="_newGoal.BaselineUnitsPerDay" placeholder="e.g. 15" />
+        </div>
+        <div class="field">
+            <label>Bought as <span class="muted">(optional — leave blank if priced per @unit)</span></label>
+            <input @bind="_newGoal.PackName" @bind:event="oninput" placeholder="e.g. pack" />
+        </div>
+        @if (!string.IsNullOrWhiteSpace(_newGoal.PackName))
+        {
+            var pack = _newGoal.PackName!.Trim().ToLowerInvariant();
+            <div class="inline-fields">
+                <div class="field"><label>@($"{unit}s per {pack}")</label><input type="number" inputmode="decimal" min="1" @bind="_newGoal.UnitsPerPack" placeholder="e.g. 20" /></div>
+                <div class="field"><label>@($"Cost per {pack} ($)")</label><input type="number" inputmode="decimal" min="0" step="0.01" @bind="_newGoal.CostPerUnit" placeholder="e.g. 9.00" /></div>
+            </div>
+        }
+        else
+        {
+            <div class="field">
+                <label>@($"Cost per {unit} ($)")</label>
+                <input type="number" inputmode="decimal" min="0" step="0.01" @bind="_newGoal.CostPerUnit" placeholder="e.g. 0.50" />
+            </div>
+        }
+        <p class="muted" style="font-size:0.75rem;margin:0 0 0.5rem">
+            Example: count cigarettes (15/day), bought as packs of 20 at $9 — savings
+            are computed per cigarette automatically.
+        </p>
+        <button class="save-btn" @onclick="AddGoal">Start Tracking</button>
+        @if (_addSaved)
+        {
+            <span class="saved-msg">Saved ✓</span>
+        }
+        @if (_addError is not null)
+        {
+            <span class="warn-msg">@_addError</span>
+        }
+    </section>
+
+    <section class="card">
+        <h2>AI privacy</h2>
+        <p class="muted" style="margin:0 0 0.5rem">
+            Cessation data stays on this device and is <strong>never</strong> sent to the AI
+            unless you turn this on. When on, the daily check-in sees quit days and
+            craving/slip counts so it can encourage you.
+        </p>
+        <button type="button" class="chip @(_aiOptIn ? "selected" : "")" @onclick="ToggleAiOptIn">
+            @(_aiOptIn ? "✓ Included in AI check-ins" : "Excluded from AI (default)")
+        </button>
+    </section>
+</div>
+
+@code {
+    private static readonly string[] Triggers =
+        { "Stress", "Social", "Boredom", "After meal", "Alcohol", "Morning routine", "Driving" };
+    private static readonly int[] MilestoneDays = { 1, 3, 7, 14, 30, 90, 180, 365 };
+    private const int SosSeconds = 300;
+
+    private List<CessationGoal> _goals = new();
+    private List<CessationEvent> _events = new();
+
+    private CessationGoal _newGoal = new();
+    private DateTime _newQuitDate = DateTime.Now.Date;
+
+    // Shared event-entry state (one panel open at a time).
+    private Guid? _sosGoalId, _slipGoalId;
+    private int? _evIntensity;
+    private string? _evTrigger, _evNotes;
+    private double? _slipAmount;
+
+    // Craving ride-out countdown.
+    private bool _sosRunning;
+    private int _sosRemaining;
+    private System.Threading.Timer? _sosTimer;
+    private bool _aiOptIn;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _aiOptIn = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.IncludeCessationPrefKey, false);
+        await Load();
+        // Keep the next notification current per goal: quit-day during a taper,
+        // the next milestone otherwise.
+        foreach (var g in _goals.Where(x => x.Active))
+        {
+            try
+            {
+                if (InTaper(g))
+                    await ReminderNotifier.ScheduleAsync(g.NotificationId,
+                        $"🎯 Quit day — {g.Substance}",
+                        "The taper ends today: allowance is 0 from here. You're ready.",
+                        g.QuitDate.ToDateTime(new TimeOnly(9, 0)), ReminderRepeat.Once, true);
+                else if (NextMilestone(g) is { } m)
+                    await ReminderNotifier.ScheduleAsync(g.NotificationId,
+                        $"🎉 {m.Days} days off {g.Substance}",
+                        "Milestone reached — keep going!",
+                        m.Date.ToDateTime(new TimeOnly(9, 0)), ReminderRepeat.Once, true);
+            }
+            catch { }
+        }
+    }
+
+    private async Task Load()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _goals = await db.CessationGoals.OrderBy(g => g.Substance).ToListAsync();
+        _events = await db.CessationEvents.OrderByDescending(e => e.Time).ToListAsync();
+    }
+
+    private record GoalStats(int DaysQuit, int? DaysSinceSlip, double? MoneySaved,
+        int CravingsThisWeek, int SlipsThisWeek, int CravingsLastWeek, int SlipsLastWeek);
+
+    /// <summary>Cost per counting unit: pack price divided by pack size when bought
+    /// in packs, otherwise the cost as entered.</summary>
+    private static double? UnitCost(CessationGoal g) =>
+        g.CostPerUnit is not { } c ? null
+        : g.UnitsPerPack is { } p && p > 0 ? c / p : c;
+
+    /// <summary>Still tapering toward the target quit date?</summary>
+    private static bool InTaper(CessationGoal g) =>
+        g.Taper && g.TaperStartDate is not null && DateOnly.FromDateTime(DateTime.Now) < g.QuitDate;
+
+    /// <summary>Linear taper: baseline at the start date, 0 on the quit date.</summary>
+    private static int? TodaysAllowance(CessationGoal g)
+    {
+        if (!InTaper(g) || g.BaselineUnitsPerDay is not { } baseline) return null;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var total = g.QuitDate.DayNumber - g.TaperStartDate!.Value.DayNumber;
+        if (total <= 0) return 0;
+        var remaining = g.QuitDate.DayNumber - today.DayNumber;
+        return (int)Math.Ceiling(baseline * remaining / (double)total);
+    }
+
+    private double UsedToday(CessationGoal g) =>
+        _events.Where(e => e.GoalId == g.Id && e.Type == CessationEventType.Slip && e.Time >= DateTime.Now.Date)
+            .Sum(e => e.Amount ?? 1);
+
+    /// <summary>One-tap taper logging: a single unit, no panel.</summary>
+    private async Task LogUse(CessationGoal g)
+    {
+        _evIntensity = null; _evTrigger = null; _evNotes = null; _slipAmount = 1;
+        await AddEvent(g, CessationEventType.Slip);
+    }
+
+    private GoalStats Stats(CessationGoal g)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var daysQuit = today.DayNumber - g.QuitDate.DayNumber;
+        var events = _events.Where(e => e.GoalId == g.Id).ToList();
+
+        var lastSlip = events.FirstOrDefault(e => e.Type == CessationEventType.Slip);
+        int? daysSinceSlip = lastSlip is null ? null
+            : today.DayNumber - DateOnly.FromDateTime(lastSlip.Time).DayNumber;
+
+        // Money saved counts from the taper start for taper goals (avoided use vs
+        // baseline), from the quit date otherwise.
+        double? money = null;
+        var anchor = g.Taper ? (g.TaperStartDate ?? g.QuitDate) : g.QuitDate;
+        var daysTracked = today.DayNumber - anchor.DayNumber;
+        if (g.BaselineUnitsPerDay is { } perDay && UnitCost(g) is { } cost && daysTracked > 0)
+        {
+            var slipped = events.Where(e => e.Type == CessationEventType.Slip).Sum(e => e.Amount ?? 1);
+            money = Math.Max(0, daysTracked * perDay * cost - slipped * cost);
+        }
+
+        var weekStart = DateTime.Now.Date.AddDays(-7);
+        var prevStart = DateTime.Now.Date.AddDays(-14);
+        int Count(CessationEventType t, DateTime from, DateTime to) =>
+            events.Count(e => e.Type == t && e.Time >= from && e.Time < to);
+        return new(daysQuit, daysSinceSlip, money,
+            Count(CessationEventType.Craving, weekStart, DateTime.Now.AddDays(1)),
+            Count(CessationEventType.Slip, weekStart, DateTime.Now.AddDays(1)),
+            Count(CessationEventType.Craving, prevStart, weekStart),
+            Count(CessationEventType.Slip, prevStart, weekStart));
+    }
+
+    private (int Days, DateOnly Date)? NextMilestone(CessationGoal g)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        foreach (var d in MilestoneDays)
+        {
+            var date = g.QuitDate.AddDays(d);
+            if (date > today) return (d, date);
+        }
+        return null;
+    }
+
+    private void OpenSos(CessationGoal g)
+    {
+        _slipGoalId = null;
+        _sosGoalId = _sosGoalId == g.Id ? null : g.Id;
+        _evIntensity = null; _evTrigger = null; _evNotes = null;
+    }
+
+    private void OpenSlip(CessationGoal g)
+    {
+        _sosGoalId = null;
+        _slipGoalId = _slipGoalId == g.Id ? null : g.Id;
+        _evIntensity = null; _evTrigger = null; _evNotes = null; _slipAmount = 1;
+    }
+
+    private async Task AddEvent(CessationGoal g, CessationEventType type)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.CessationEvents.Add(new CessationEvent
+        {
+            GoalId = g.Id, Time = DateTime.Now, Type = type,
+            Intensity = _evIntensity, Trigger = _evTrigger,
+            Amount = type == CessationEventType.Slip ? (_slipAmount ?? 1) : null,
+            Notes = string.IsNullOrWhiteSpace(_evNotes) ? null : _evNotes!.Trim()
+        });
+        await db.SaveChangesAsync();
+        await Load();
+    }
+
+    private async Task LogCravingOnly(CessationGoal g)
+    {
+        await AddEvent(g, CessationEventType.Craving);
+        _sosGoalId = null;
+    }
+
+    private async Task StartSos(CessationGoal g)
+    {
+        await AddEvent(g, CessationEventType.Craving);
+        _sosRunning = true;
+        _sosRemaining = SosSeconds;
+        try { Microsoft.Maui.Devices.DeviceDisplay.Current.KeepScreenOn = true; } catch { }
+        try { await JS.InvokeVoidAsync("holdTimer.arm"); } catch { }
+        try { await ReminderNotifier.ScheduleOneShotAsync(ReminderNotifier.CravingTimerNotificationId,
+            "Craving ridden out ✅", "5 minutes done — it passed. Nice work.", SosSeconds); } catch { }
+        _sosTimer = new System.Threading.Timer(_ => InvokeAsync(async () =>
+        {
+            _sosRemaining--;
+            if (_sosRemaining <= 0)
+            {
+                StopSosCore();
+                try { await JS.InvokeVoidAsync("holdTimer.beep"); } catch { }
+                try { Microsoft.Maui.Devices.HapticFeedback.Default.Perform(Microsoft.Maui.Devices.HapticFeedbackType.LongPress); } catch { }
+            }
+            StateHasChanged();
+        }), null, 1000, 1000);
+    }
+
+    private void StopSos()
+    {
+        StopSosCore();
+        ReminderNotifier.Cancel(ReminderNotifier.CravingTimerNotificationId);
+    }
+
+    private void StopSosCore()
+    {
+        _sosTimer?.Dispose();
+        _sosTimer = null;
+        _sosRunning = false;
+        _sosGoalId = null;
+        try { Microsoft.Maui.Devices.DeviceDisplay.Current.KeepScreenOn = false; } catch { }
+    }
+
+    private async Task SaveSlip(CessationGoal g)
+    {
+        await AddEvent(g, CessationEventType.Slip);
+        _slipGoalId = null;
+    }
+
+    private string? _addError;
+    private bool _addSaved;
+
+    private async Task AddGoal()
+    {
+        _addSaved = false;
+        if (string.IsNullOrWhiteSpace(_newGoal.Substance))
+        {
+            _addError = "Enter what you're quitting first.";
+            return;
+        }
+        if (_newGoal.Taper && DateOnly.FromDateTime(_newQuitDate) <= DateOnly.FromDateTime(DateTime.Now))
+        {
+            _addError = "A taper needs a future target quit date.";
+            return;
+        }
+        try
+        {
+            _newGoal.Substance = _newGoal.Substance.Trim();
+            if (string.IsNullOrWhiteSpace(_newGoal.PackName)) { _newGoal.PackName = null; _newGoal.UnitsPerPack = null; }
+            _newGoal.QuitDate = DateOnly.FromDateTime(_newQuitDate);
+            _newGoal.TaperStartDate = _newGoal.Taper ? DateOnly.FromDateTime(DateTime.Now) : null;
+            _newGoal.NotificationId = Random.Shared.Next(1, int.MaxValue);
+            await using var db = await DbFactory.CreateDbContextAsync();
+            db.CessationGoals.Add(_newGoal);
+            await db.SaveChangesAsync();
+            _newGoal = new CessationGoal();
+            _newQuitDate = DateTime.Now.Date;
+            _addError = null;
+            _addSaved = true;
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            _addError = $"Couldn't save: {ex.Message}";
+        }
+    }
+
+    private async Task Deactivate(CessationGoal g)
+    {
+        ReminderNotifier.Cancel(g.NotificationId);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.CessationGoals.FindAsync(g.Id);
+        if (e is not null) { e.Active = false; await db.SaveChangesAsync(); }
+        await Load();
+    }
+
+    private void ToggleAiOptIn()
+    {
+        _aiOptIn = !_aiOptIn;
+        Microsoft.Maui.Storage.Preferences.Default.Set(GeminiAnalyzer.IncludeCessationPrefKey, _aiOptIn);
+    }
+
+    public void Dispose()
+    {
+        _sosTimer?.Dispose();
+        try { Microsoft.Maui.Devices.DeviceDisplay.Current.KeepScreenOn = false; } catch { }
+    }
+}

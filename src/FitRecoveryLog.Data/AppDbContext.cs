@@ -25,10 +25,13 @@ public class AppDbContext : DbContext
     public DbSet<LabResult> LabResults => Set<LabResult>();
     public DbSet<WeeklyReview> WeeklyReviews => Set<WeeklyReview>();
     public DbSet<ReminderSetting> ReminderSettings => Set<ReminderSetting>();
+    public DbSet<CessationGoal> CessationGoals => Set<CessationGoal>();
+    public DbSet<CessationEvent> CessationEvents => Set<CessationEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<DailyLog>().HasIndex(x => x.Date).IsUnique();
+        modelBuilder.Entity<CessationEvent>().HasIndex(x => new { x.GoalId, x.Time });
         modelBuilder.Entity<BodyMeasurement>().HasIndex(x => x.Date);
 
         // Library exercises are unique by name, matched case-insensitively.

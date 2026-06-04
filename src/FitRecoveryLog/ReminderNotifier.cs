@@ -29,7 +29,8 @@ public static class ReminderNotifier
         if (!IsSupported) return;
         var pending = await LocalNotificationCenter.Current.GetPendingNotificationList();
         foreach (var n in pending)
-            if (n.NotificationId != HoldTimerNotificationId && !validIds.Contains(n.NotificationId))
+            if (n.NotificationId is not (HoldTimerNotificationId or CravingTimerNotificationId)
+                && !validIds.Contains(n.NotificationId))
                 LocalNotificationCenter.Current.Cancel(n.NotificationId);
     }
 
@@ -61,19 +62,26 @@ public static class ReminderNotifier
     /// end of a timed hold still reaches the user if the device locks or the app
     /// is backgrounded (the in-app beep/haptic only fire in the foreground).</summary>
     public const int HoldTimerNotificationId = 3001;
+    /// <summary>One-shot end-of-countdown alert for the craving ride-out timer.</summary>
+    public const int CravingTimerNotificationId = 3002;
 
-    public static async Task ScheduleHoldEndAsync(string exerciseName, int seconds)
+    /// <summary>Schedule a one-shot notification N seconds from now (replacing any
+    /// pending one with the same id).</summary>
+    public static async Task ScheduleOneShotAsync(int notificationId, string title, string description, int seconds)
     {
         if (!IsSupported) return;
-        LocalNotificationCenter.Current.Cancel(HoldTimerNotificationId);
+        LocalNotificationCenter.Current.Cancel(notificationId);
         await LocalNotificationCenter.Current.Show(new NotificationRequest
         {
-            NotificationId = HoldTimerNotificationId,
-            Title = "Hold complete ✅",
-            Description = $"{exerciseName} — {seconds}s done",
+            NotificationId = notificationId,
+            Title = title,
+            Description = description,
             Schedule = new NotificationRequestSchedule { NotifyTime = DateTime.Now.AddSeconds(seconds) }
         });
     }
+
+    public static Task ScheduleHoldEndAsync(string exerciseName, int seconds) =>
+        ScheduleOneShotAsync(HoldTimerNotificationId, "Hold complete ✅", $"{exerciseName} — {seconds}s done", seconds);
 
     public static void CancelHoldEnd() => Cancel(HoldTimerNotificationId);
 
