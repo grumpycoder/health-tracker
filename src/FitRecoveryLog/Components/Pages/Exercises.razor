@@ -83,7 +83,14 @@ else
             <label>Rename</label>
             <input @bind="_renameTo" />
         </div>
-        <button class="save-btn" @onclick="() => Rename(ex)">Save Name</button>
+        <div class="field">
+            <label>Demo video link <span class="muted">(how-to, e.g. YouTube)</span></label>
+            <input @bind="_videoTo" placeholder="https://…" inputmode="url" />
+        </div>
+        <button class="save-btn" @onclick="() => Rename(ex)">Save</button>
+        <button class="link-btn" style="margin-left:0.6rem" @onclick="() => OpenDemo(ex)">
+            🎬 @(string.IsNullOrWhiteSpace(ex.VideoUrl) ? "Search how-to" : "Watch demo")
+        </button>
 
         <div style="margin-top:1rem">
             <button class="link-btn" @onclick="() => Retire(ex)">@(ex.Retired ? "Restore to pickers" : "Retire (hide from pickers)")</button>
@@ -121,6 +128,7 @@ else
 
     private ExerciseDefinition? _selected;
     private string _renameTo = "";
+    private string _videoTo = "";
     private Guid? _mergeTargetId;
     private string? _status;
 
@@ -145,8 +153,18 @@ else
     {
         _selected = ex;
         _renameTo = ex.Name;
+        _videoTo = ex.VideoUrl ?? "";
         _mergeTargetId = null;
         _status = null;
+    }
+
+    /// <summary>Open the saved demo link, or a YouTube how-to search when none is set.</summary>
+    public static async Task OpenDemo(ExerciseDefinition ex)
+    {
+        var url = string.IsNullOrWhiteSpace(ex.VideoUrl)
+            ? $"https://www.youtube.com/results?search_query={Uri.EscapeDataString(ex.Name + " exercise form")}"
+            : ex.VideoUrl;
+        try { await Microsoft.Maui.ApplicationModel.Browser.Default.OpenAsync(url); } catch { }
     }
 
     private int RoutineUse(Guid id) => _routineUse.Count(r => r.ExerciseDefinitionId == id);
@@ -190,8 +208,13 @@ else
             return;
         }
         var e = await db.ExerciseDefinitions.FindAsync(ex.Id);
-        if (e is not null) { e.Name = name; await db.SaveChangesAsync(); }
-        _status = "Renamed.";
+        if (e is not null)
+        {
+            e.Name = name;
+            e.VideoUrl = string.IsNullOrWhiteSpace(_videoTo) ? null : _videoTo.Trim();
+            await db.SaveChangesAsync();
+        }
+        _status = "Saved.";
         await Load();
         _selected = _exercises.FirstOrDefault(x => x.Id == ex.Id);
     }

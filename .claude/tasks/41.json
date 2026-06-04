@@ -1,8 +1,8 @@
 {
   "id": "41",
-  "subject": "Discuss AI-generated workout routines (bored / ready to progress)",
-  "description": "Design discussion before building: use AI to draft a new workout routine when bored with the current one, or when ready to progress but unsure which exercises to move to. Topics to cover: inputs (exercise library + per-exercise history/progression, recent feedback difficulty/pain/form flags, available equipment, recovery data); output should be a draft WorkoutRoutine (library exercises + per-routine targets) the user reviews/edits before saving — never auto-saved; reuse GeminiAnalyzer (already sends workout/meal/sleep payloads) with a new prompt/method; AI may suggest exercises not yet in the library — create via the existing pick-or-create flow (normalized name dedup); trigger options: manual 'Suggest a routine' button vs. proactive nudge from the daily AI check-in when progression stalls or feedback shows boredom.",
-  "status": "pending",
+  "subject": "AI-generated workout routines (built, device-tested)",
+  "description": "DONE 2026-06-04. Built: ✨ Suggest a Routine on the Routines page — Gemini drafts a routine from the exercise library, existing routines, and 8-week per-exercise stats (sessions, best set, latest difficulty, pain flags), targeting under-trained muscle groups inferred from exercise names. Optional free-text hint; Bodyweight only (default) / Equipment OK toggle; ~15-17 min time budget (hint can override). Draft reviewed before save (remove rows, 🎬 how-to per exercise); save uses pick-or-create so new exercises join the library. Exercises last rated Easy are forbidden in the prompt AND stripped by a code backstop (with a note). Shipped alongside: ExerciseDefinition.VideoUrl + migration (editable in /exercises, 🎬 in workout runner/draft, YouTube-search fallback) and routine rename (name is display-only; sessions key off the Guid). Not built (deliberate): proactive nudge from the daily check-in — manual button only.",
+  "status": "completed",
   "blocks": [],
   "blockedBy": []
 }

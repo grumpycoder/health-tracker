@@ -77,6 +77,8 @@ else if (_state == State.Active)
             </p>
             <h2 style="text-transform:none;letter-spacing:0;color:var(--text);font-size:1.5rem;margin:0 0 0.7rem">
                 @cur.Ex.Def.Name
+                <button class="link-btn" style="padding:0 0.3rem;font-size:1rem" title="How-to video"
+                        aria-label="How-to video" @onclick="() => Exercises.OpenDemo(cur.Ex.Def)">🎬</button>
             </h2>
             @if (_advice.TryGetValue(cur.Ex.Def.Name, out var adv))
             {

@@ -21,6 +21,82 @@
         <button class="save-btn" @onclick="AddRoutine">Create Routine</button>
     </section>
 
+    @if (_hasAiKey)
+    {
+        <section class="card">
+            <h2>✨ Suggest a Routine</h2>
+            <p class="muted" style="margin:0 0 0.5rem">
+                Drafts a routine from your training history — covering muscle groups
+                your current workouts under-train, mixing library exercises with a few new ones.
+            </p>
+            <div class="field">
+                <input @bind="_aiHint" placeholder="Optional: e.g. upper body, 20 min, something new" />
+            </div>
+            <div class="chip-row" style="margin:0 0 0.6rem">
+                <button type="button" class="chip @(_aiBodyweightOnly ? "selected" : "")"
+                        @onclick="() => _aiBodyweightOnly = true">🏠 Bodyweight only</button>
+                <button type="button" class="chip @(!_aiBodyweightOnly ? "selected" : "")"
+                        @onclick="() => _aiBodyweightOnly = false">🏋️ Equipment OK</button>
+            </div>
+            <button class="save-btn" disabled="@_aiBusy" @onclick="SuggestRoutine">
+                @(_aiBusy ? "Designing…" : "Generate Draft")
+            </button>
+            @if (_aiError is not null)
+            {
+                <span class="warn-msg">@_aiError</span>
+            }
+        </section>
+    }
+
+    @if (_aiDraft is { } draft)
+    {
+        <section class="card">
+            <h2>🤖 @draft.Name <span class="muted" style="font-size:0.8rem">draft — not saved yet</span></h2>
+            <p class="muted" style="margin:0.3rem 0 0.6rem">@draft.Rationale</p>
+            @if (_aiNote is not null)
+            {
+                <p class="muted" style="margin:0 0 0.6rem">⚠️ @_aiNote</p>
+            }
+            <ul class="exercise-list">
+                @foreach (var ex in _aiExercises)
+                {
+                    <li @key="ex">
+                        <div class="ex-row">
+                            <div>
+                                <span class="ex-name">@ex.Name</span>
+                                @if (ex.IsNew)
+                                {
+                                    <span class="badge good">NEW</span>
+                                }
+                                <span class="ex-target">
+                                    @(ex.Measure == "duration" ? $"{ex.DurationSeconds ?? 30}s" : $"{ex.Reps ?? 10} reps") × @ex.Sets
+                                    · @(ex.RestSeconds ?? 60)s rest
+                                </span>
+                                @if (!string.IsNullOrWhiteSpace(ex.Muscles))
+                                {
+                                    <span class="muted" style="font-size:0.75rem"> @ex.Muscles</span>
+                                }
+                            </div>
+                            <div class="routine-actions">
+                                <button class="icon-action" title="How-to video" aria-label="How-to video"
+                                        @onclick="() => Exercises.OpenDemo(new ExerciseDefinition { Name = ex.Name })">🎬</button>
+                                <button class="icon-action danger" title="Remove from draft" aria-label="Remove"
+                                        @onclick="() => _aiExercises.Remove(ex)">🗑</button>
+                            </div>
+                        </div>
+                    </li>
+                }
+            </ul>
+            <div class="routine-actions" style="margin-top:0.7rem">
+                <button class="save-btn" disabled="@(_aiExercises.Count == 0)" @onclick="SaveAiDraft">Save Routine</button>
+                <button class="link-btn" @onclick="DiscardAiDraft">Discard</button>
+            </div>
+            <p class="muted" style="font-size:0.75rem;margin:0.5rem 0 0">
+                Targets are editable after saving (✏️ on the routine). New exercises join the library on save.
+            </p>
+        </section>
+    }
+
     @foreach (var r in _routines)
     {
         var expanded = _expandedId == r.Id;
@@ -180,8 +256,15 @@
                 <button class="save-btn" @onclick="@(() => AddExercise(r))">Add Exercise</button>
             </div>
 
-            <div style="margin-top:0.9rem;text-align:right">
-                <button class="link-btn danger" @onclick="@(() => DeleteRoutine(r))">Delete Routine</button>
+            <div style="margin-top:0.9rem">
+                <div class="field">
+                    <label>Routine name</label>
+                    <input @bind="_renameDraft" />
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <button class="link-btn" @onclick="@(() => RenameRoutine(r))">Save Name</button>
+                    <button class="link-btn danger" @onclick="@(() => DeleteRoutine(r))">Delete Routine</button>
+                </div>
             </div>
             </div>
             }
@@ -199,10 +282,25 @@
     private Guid? _expandedId;
     private DotNetObjectReference<Routines>? _selfRef;
 
+    private string _renameDraft = "";
+
     private void Toggle(Guid id)
     {
         _expandedId = _expandedId == id ? null : id;
         _editId = null;
+        _renameDraft = _expandedId is null ? "" : _routines.FirstOrDefault(r => r.Id == id)?.Name ?? "";
+    }
+
+    /// <summary>Renames the routine — safe because sessions/exercises reference the
+    /// routine's Guid key, never its name; history is unaffected.</summary>
+    private async Task RenameRoutine(WorkoutRoutine r)
+    {
+        var name = _renameDraft.Trim();
+        if (string.IsNullOrWhiteSpace(name) || name == r.Name) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.WorkoutRoutines.FindAsync(r.Id);
+        if (e is not null) { e.Name = name; await db.SaveChangesAsync(); }
+        await Load();
     }
 
     // (Re)attach drag-and-drop to the expanded routine's list after each render —
@@ -265,10 +363,112 @@
     // Latest AI per-exercise suggestions (empty until an analysis is run).
     private Dictionary<string, GeminiAnalyzer.ExerciseAdvice> _advice = new(StringComparer.OrdinalIgnoreCase);
 
+    // AI routine generation state.
+    private bool _hasAiKey, _aiBusy;
+    private bool _aiBodyweightOnly = true;
+    private string _aiHint = "";
+    private string? _aiError, _aiNote;
+    private GeminiAnalyzer.RoutineSuggestion? _aiDraft;
+    private List<GeminiAnalyzer.SuggestedExercise> _aiExercises = new();
+
     protected override async Task OnInitializedAsync()
     {
         _advice = AiAdviceStore.LoadExercises();
+        _hasAiKey = !string.IsNullOrEmpty(await GeminiAnalyzer.KeyStore.GetAsync());
         await Load();
+    }
+
+    private async Task SuggestRoutine()
+    {
+        _aiBusy = true;
+        _aiError = null;
+        StateHasChanged();
+        try
+        {
+            var key = await GeminiAnalyzer.KeyStore.GetAsync()
+                ?? throw new InvalidOperationException("No API key set (Settings).");
+            string prompt;
+            HashSet<string> easy;
+            await using (var db = await DbFactory.CreateDbContextAsync())
+            {
+                prompt = await GeminiAnalyzer.BuildRoutinePromptAsync(db, _aiHint, _aiBodyweightOnly);
+                easy = await GeminiAnalyzer.RecentlyEasyExercisesAsync(db);
+            }
+            _aiDraft = await GeminiAnalyzer.SuggestRoutineAsync(key, prompt)
+                ?? throw new InvalidOperationException("Gemini returned nothing usable — try again.");
+            // Backstop the Easy rule in code: drop reused exercises rated Easy last time.
+            _aiExercises = _aiDraft.Exercises.Where(e => e.IsNew || !easy.Contains(e.Name)).ToList();
+            var dropped = _aiDraft.Exercises.Count - _aiExercises.Count;
+            _aiNote = dropped > 0 ? $"Removed {dropped} exercise(s) you rated Easy last time." : null;
+        }
+        catch (Exception ex)
+        {
+            _aiError = ex.Message;
+            _aiDraft = null;
+        }
+        finally
+        {
+            _aiBusy = false;
+        }
+    }
+
+    private void DiscardAiDraft()
+    {
+        _aiDraft = null;
+        _aiExercises.Clear();
+    }
+
+    /// <summary>Persist the reviewed draft: pick-or-create each exercise in the
+    /// library (case-insensitive), then save the routine with per-exercise targets.</summary>
+    private async Task SaveAiDraft()
+    {
+        if (_aiDraft is null || _aiExercises.Count == 0) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        // Unique routine name (append a number if taken).
+        var baseName = _aiDraft.Name.Trim();
+        var name = baseName;
+        for (var i = 2; await db.WorkoutRoutines.AnyAsync(r => r.Name == name); i++)
+            name = $"{baseName} {i}";
+        var routine = new WorkoutRoutine { Name = name };
+        db.WorkoutRoutines.Add(routine);
+
+        var order = 0;
+        var created = new Dictionary<string, ExerciseDefinition>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ex in _aiExercises)
+        {
+            // Pick-or-create, also catching duplicates within this draft.
+            var def = created.GetValueOrDefault(ex.Name)
+                      ?? await db.ExerciseDefinitions.FirstOrDefaultAsync(e => e.Name == ex.Name);
+            if (def is null)
+            {
+                def = new ExerciseDefinition
+                {
+                    Name = ex.Name,
+                    Measure = ex.Measure == "duration" ? ExerciseMeasure.Duration : ExerciseMeasure.Reps
+                };
+                db.ExerciseDefinitions.Add(def);
+            }
+            created[ex.Name] = def;
+
+            var measure = def.Measure; // an existing library exercise keeps its own
+            db.RoutineExercises.Add(new RoutineExercise
+            {
+                RoutineId = routine.Id,
+                ExerciseDefinitionId = def.Id,
+                Order = order++,
+                TargetSets = ex.Sets,
+                TargetReps = measure == ExerciseMeasure.Reps ? (ex.Reps ?? 10) : null,
+                TargetDurationSeconds = measure == ExerciseMeasure.Duration ? (ex.DurationSeconds ?? 30) : null,
+                RestSeconds = ex.RestSeconds ?? 60
+            });
+        }
+        await db.SaveChangesAsync();
+
+        DiscardAiDraft();
+        _aiHint = "";
+        await Load();
+        _expandedId = routine.Id; // open it for review/edits
     }
 
     private async Task Load()

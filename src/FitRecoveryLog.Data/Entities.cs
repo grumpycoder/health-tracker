@@ -46,6 +46,8 @@ public class ExerciseDefinition : EntityBase
     public ExerciseMeasure Measure { get; set; } = ExerciseMeasure.Reps;
     public string? EquipmentNotes { get; set; }
     public string? ProgressionNotes { get; set; }
+    /// <summary>Optional demo/how-to link (e.g. a YouTube video).</summary>
+    public string? VideoUrl { get; set; }
     /// <summary>Hidden from routine pickers but kept for history.</summary>
     public bool Retired { get; set; }
 }

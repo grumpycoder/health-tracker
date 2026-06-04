@@ -228,6 +228,144 @@ public static class GeminiAnalyzer
         }
     }
 
+    public sealed record SuggestedExercise(string Name, bool IsNew, string? Muscles, string Measure,
+        int Sets, int? Reps, int? DurationSeconds, int? RestSeconds);
+    public sealed record RoutineSuggestion(string Name, string Rationale, List<SuggestedExercise> Exercises);
+
+    /// <summary>Builds the routine-design prompt: exercise library, existing routines,
+    /// and per-exercise 8-week stats, asking for a draft routine that covers
+    /// under-trained muscle groups (inferred from exercise names).</summary>
+    public static async Task<string> BuildRoutinePromptAsync(AppDbContext db, string? hint, bool bodyweightOnly = true)
+    {
+        var since = DateOnly.FromDateTime(DateTime.Now).AddDays(-WindowDays);
+        var sb = new StringBuilder();
+
+        sb.AppendLine("You are a strength coach designing ONE new workout routine for one person from their training history.");
+        sb.AppendLine("Goals: cover muscle groups the current training under-serves, keep continuity with exercises they already do, add a little novelty.");
+        sb.AppendLine("Respond with ONLY a JSON object:");
+        sb.AppendLine("""
+{
+  "name": "<short routine name>",
+  "rationale": "<2-4 sentences: which muscle groups the history under-trains and how this routine addresses them>",
+  "exercises": [{
+    "name": "<EXACT library name when reusing; clear conventional name when new>",
+    "isNew": true | false,
+    "muscles": "<primary muscles, e.g. chest/triceps>",
+    "measure": "reps" | "duration",
+    "sets": <int>, "reps": <int or null>, "durationSeconds": <int or null>, "restSeconds": <int>
+  }]
+}
+""");
+        sb.AppendLine("Rules: prefer library exercises (isNew=false, exact name and measure). " +
+                      "Add NEW exercises (isNew=true) where the library lacks coverage for an under-trained muscle group.");
+        sb.AppendLine("TIME BUDGET — the whole routine must finish in about 15-17 minutes (unless USER REQUEST says otherwise). " +
+                      "Estimate sets × (work + rest), a reps set ≈ 40s of work. That usually means 4-6 exercises; fewer, harder exercises beat a long list.");
+        sb.AppendLine("USE THE RATINGS — recent feedback, act on it:");
+        sb.AppendLine("- rated Easy: FORBIDDEN — do not include this exercise at any targets. Replace it with a clearly harder variation under a DIFFERENT name (isNew=true), e.g. squats -> Bulgarian split squats, plank -> plank shoulder taps.");
+        sb.AppendLine("- rated Moderate/Hard: include with targets slightly above the best shown (~5-10%).");
+        sb.AppendLine("- rated VeryHard: keep targets at or slightly below the best shown.");
+        sb.AppendLine("- PAIN flagged: exclude entirely.");
+        sb.AppendLine(bodyweightOnly
+            ? "EQUIPMENT — STRICT: every exercise must be doable with bodyweight alone (a mat/floor/wall is fine). No dumbbells, bands, bars, benches, or machines."
+            : "EQUIPMENT: common home equipment is OK (dumbbells, bands, pull-up bar); prefer what the library's equipment notes already show.");
+        if (!string.IsNullOrWhiteSpace(hint)) sb.AppendLine($"USER REQUEST (honor this): {hint.Trim()}");
+
+        sb.AppendLine();
+        sb.AppendLine("EXERCISE LIBRARY (name | measure | equipment):");
+        var defs = await db.ExerciseDefinitions.Where(e => !e.Retired).OrderBy(e => e.Name).ToListAsync();
+        if (defs.Count == 0) sb.AppendLine("(empty)");
+        foreach (var d in defs)
+            sb.AppendLine($"- {d.Name} | {(d.Measure == ExerciseMeasure.Duration ? "duration" : "reps")}" +
+                          (string.IsNullOrWhiteSpace(d.EquipmentNotes) ? "" : $" | {d.EquipmentNotes}"));
+
+        sb.AppendLine();
+        sb.AppendLine("EXISTING ROUTINES (do not duplicate these):");
+        var routines = await db.WorkoutRoutines
+            .Include(r => r.Exercises).ThenInclude(e => e.ExerciseDefinition).ToListAsync();
+        if (routines.Count == 0) sb.AppendLine("(none)");
+        foreach (var r in routines)
+            sb.AppendLine($"- {r.Name}: {string.Join(", ", r.Exercises.OrderBy(e => e.Order).Select(e => e.ExerciseDefinition?.Name ?? "?"))}");
+
+        sb.AppendLine();
+        sb.AppendLine("TRAINING HISTORY (last 8 weeks; per exercise: sessions, best set, latest rating):");
+        var sessions = await db.WorkoutSessions.Where(s => s.Date >= since)
+            .Include(s => s.Sets).ThenInclude(x => x.ExerciseDefinition)
+            .Include(s => s.Feedback).ThenInclude(f => f.ExerciseDefinition)
+            .OrderByDescending(s => s.Date).ToListAsync();
+        var byExercise = sessions.SelectMany(s => s.Sets)
+            .Where(x => x.ExerciseDefinition is not null)
+            .GroupBy(x => x.ExerciseDefinition!.Name)
+            .ToList();
+        if (byExercise.Count == 0) sb.AppendLine("(none)");
+        foreach (var g in byExercise)
+        {
+            var sessCount = sessions.Count(s => s.Sets.Any(x => x.ExerciseDefinition?.Name == g.Key));
+            var bestSecs = g.Max(x => x.DurationSeconds ?? 0);
+            var bestReps = g.Max(x => x.Reps ?? 0);
+            var lastFb = sessions.SelectMany(s => s.Feedback)
+                .FirstOrDefault(f => f.ExerciseDefinition?.Name == g.Key && f.Difficulty != Difficulty.Unset);
+            sb.AppendLine($"- {g.Key}: {sessCount} session(s), best {(bestSecs > 0 ? $"{bestSecs}s" : $"{bestReps} reps")}" +
+                          (lastFb is null ? "" : $", rated {lastFb.Difficulty}") +
+                          (lastFb?.PainOrDiscomfort == true ? ", PAIN flagged" : ""));
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>Exercises whose most recent difficulty rating in the window is Easy —
+    /// used as a code-level backstop so the model can't sneak them back into drafts.</summary>
+    public static async Task<HashSet<string>> RecentlyEasyExercisesAsync(AppDbContext db)
+    {
+        var since = DateOnly.FromDateTime(DateTime.Now).AddDays(-WindowDays);
+        var sessions = await db.WorkoutSessions.Where(s => s.Date >= since)
+            .Include(s => s.Feedback).ThenInclude(f => f.ExerciseDefinition)
+            .OrderByDescending(s => s.Date).ToListAsync();
+        var latest = new Dictionary<string, Difficulty>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in sessions.SelectMany(s => s.Feedback))
+            if (f.Difficulty != Difficulty.Unset && f.ExerciseDefinition?.Name is { } n && !latest.ContainsKey(n))
+                latest[n] = f.Difficulty;
+        return latest.Where(kv => kv.Value == Difficulty.Easy).Select(kv => kv.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Runs routine generation and parses the draft; null if unusable.</summary>
+    public static async Task<RoutineSuggestion?> SuggestRoutineAsync(string apiKey, string prompt)
+    {
+        var text = await GenerateAsync(apiKey, prompt);
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            var name = root.TryGetProperty("name", out var n) ? n.GetString()?.Trim() : null;
+            var rationale = root.TryGetProperty("rationale", out var ra) ? ra.GetString() ?? "" : "";
+            var list = new List<SuggestedExercise>();
+            if (root.TryGetProperty("exercises", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                foreach (var e in arr.EnumerateArray())
+                {
+                    var exName = e.TryGetProperty("name", out var en) ? en.GetString()?.Trim() : null;
+                    if (string.IsNullOrWhiteSpace(exName)) continue;
+                    list.Add(new(
+                        exName,
+                        e.TryGetProperty("isNew", out var inw) && inw.ValueKind == JsonValueKind.True,
+                        e.TryGetProperty("muscles", out var mu) ? mu.GetString() : null,
+                        e.TryGetProperty("measure", out var me) && me.GetString()?.ToLowerInvariant() == "duration" ? "duration" : "reps",
+                        Math.Clamp(IntOrNull(e, "sets") ?? 3, 1, 10),
+                        IntOrNull(e, "reps"),
+                        IntOrNull(e, "durationSeconds"),
+                        IntOrNull(e, "restSeconds")));
+                }
+            return list.Count == 0 ? null : new(string.IsNullOrEmpty(name) ? "AI Routine" : name, rationale.Trim(), list);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        static int? IntOrNull(JsonElement e, string prop) =>
+            e.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : null;
+    }
+
     public sealed record TagSuggestion(List<string> Known, string? Proposed);
 
     /// <summary>Suggests tags for one meal from its free-text description (meal text is
