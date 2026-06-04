@@ -64,14 +64,39 @@
                 <button class="save-btn" @onclick="() => OpenSos(g)">😮‍💨 Craving</button>
                 @if (taper)
                 {
-                    <button class="save-btn" @onclick="() => LogUse(g)">Log 1 @unitName</button>
+                    <button class="save-btn" @onclick="() => LogUse(g)">Log @unitName</button>
+                    @if (_usedLoggedGoalId == g.Id)
+                    {
+                        <span class="saved-msg">Logged ✓</span>
+                    }
                     <button class="link-btn" @onclick="() => OpenSlip(g)">more…</button>
+                    <button class="link-btn" @onclick="() => OpenAdjust(g)">Adjust plan</button>
                 }
                 else
                 {
                     <button class="link-btn" @onclick="() => OpenSlip(g)">Log slip</button>
                 }
             </div>
+
+            @if (_adjustGoalId == g.Id)
+            {
+                <div class="add-exercise" style="margin-top:0.7rem">
+                    <div class="field">
+                        <label>New target quit date</label>
+                        <input type="date" @bind="_adjustDate" />
+                    </div>
+                    <button class="save-btn" @onclick="() => SaveAdjust(g)">Update Plan</button>
+                    @if (_adjustError is not null)
+                    {
+                        <span class="warn-msg">@_adjustError</span>
+                    }
+                    <p class="muted" style="font-size:0.75rem;margin:0.5rem 0 0">
+                        The allowance re-slopes from your baseline to 0 on the new date —
+                        push it out for a gentler taper, pull it in to go faster, or pick
+                        today to end the taper and quit now.
+                    </p>
+                </div>
+            }
 
             @if (_sosGoalId == g.Id)
             {
@@ -267,22 +292,7 @@
         // Keep the next notification current per goal: quit-day during a taper,
         // the next milestone otherwise.
         foreach (var g in _goals.Where(x => x.Active))
-        {
-            try
-            {
-                if (InTaper(g))
-                    await ReminderNotifier.ScheduleAsync(g.NotificationId,
-                        $"🎯 Quit day — {g.Substance}",
-                        "The taper ends today: allowance is 0 from here. You're ready.",
-                        g.QuitDate.ToDateTime(new TimeOnly(9, 0)), ReminderRepeat.Once, true);
-                else if (NextMilestone(g) is { } m)
-                    await ReminderNotifier.ScheduleAsync(g.NotificationId,
-                        $"🎉 {m.Days} days off {g.Substance}",
-                        "Milestone reached — keep going!",
-                        m.Date.ToDateTime(new TimeOnly(9, 0)), ReminderRepeat.Once, true);
-            }
-            catch { }
-        }
+            await ScheduleGoalNotificationAsync(g);
     }
 
     private async Task Load()
@@ -320,11 +330,18 @@
         _events.Where(e => e.GoalId == g.Id && e.Type == CessationEventType.Slip && e.Time >= DateTime.Now.Date)
             .Sum(e => e.Amount ?? 1);
 
+    private Guid? _usedLoggedGoalId; // brief "Logged ✓" feedback after a one-tap log
+
     /// <summary>One-tap taper logging: a single unit, no panel.</summary>
     private async Task LogUse(CessationGoal g)
     {
         _evIntensity = null; _evTrigger = null; _evNotes = null; _slipAmount = 1;
         await AddEvent(g, CessationEventType.Slip);
+        try { Microsoft.Maui.Devices.HapticFeedback.Default.Perform(Microsoft.Maui.Devices.HapticFeedbackType.Click); } catch { }
+        _usedLoggedGoalId = g.Id;
+        StateHasChanged();
+        await Task.Delay(1500);
+        if (_usedLoggedGoalId == g.Id) { _usedLoggedGoalId = null; StateHasChanged(); }
     }
 
     private GoalStats Stats(CessationGoal g)
@@ -370,18 +387,69 @@
         return null;
     }
 
+    private async Task ScheduleGoalNotificationAsync(CessationGoal g)
+    {
+        try
+        {
+            if (InTaper(g))
+                await ReminderNotifier.ScheduleAsync(g.NotificationId,
+                    $"🎯 Quit day — {g.Substance}",
+                    "The taper ends today: allowance is 0 from here. You're ready.",
+                    g.QuitDate.ToDateTime(new TimeOnly(9, 0)), ReminderRepeat.Once, true);
+            else if (NextMilestone(g) is { } m)
+                await ReminderNotifier.ScheduleAsync(g.NotificationId,
+                    $"🎉 {m.Days} days off {g.Substance}",
+                    "Milestone reached — keep going!",
+                    m.Date.ToDateTime(new TimeOnly(9, 0)), ReminderRepeat.Once, true);
+        }
+        catch { }
+    }
+
     private void OpenSos(CessationGoal g)
     {
-        _slipGoalId = null;
+        _slipGoalId = null; _adjustGoalId = null;
         _sosGoalId = _sosGoalId == g.Id ? null : g.Id;
         _evIntensity = null; _evTrigger = null; _evNotes = null;
     }
 
     private void OpenSlip(CessationGoal g)
     {
-        _sosGoalId = null;
+        _sosGoalId = null; _adjustGoalId = null;
         _slipGoalId = _slipGoalId == g.Id ? null : g.Id;
         _evIntensity = null; _evTrigger = null; _evNotes = null; _slipAmount = 1;
+    }
+
+    // Adjust-plan state: change a taper's target quit date in place.
+    private Guid? _adjustGoalId;
+    private DateTime _adjustDate = DateTime.Now.Date;
+    private string? _adjustError;
+
+    private void OpenAdjust(CessationGoal g)
+    {
+        _sosGoalId = null; _slipGoalId = null;
+        _adjustGoalId = _adjustGoalId == g.Id ? null : g.Id;
+        _adjustDate = g.QuitDate.ToDateTime(TimeOnly.MinValue);
+        _adjustError = null;
+    }
+
+    private async Task SaveAdjust(CessationGoal g)
+    {
+        var newDate = DateOnly.FromDateTime(_adjustDate);
+        if (newDate < DateOnly.FromDateTime(DateTime.Now))
+        {
+            _adjustError = "Pick today or a future date.";
+            return;
+        }
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            var e = await db.CessationGoals.FindAsync(g.Id);
+            if (e is not null) { e.QuitDate = newDate; await db.SaveChangesAsync(); }
+        }
+        _adjustGoalId = null;
+        _adjustError = null;
+        await Load();
+        if (_goals.FirstOrDefault(x => x.Id == g.Id) is { } updated)
+            await ScheduleGoalNotificationAsync(updated); // re-point the quit-day alert
     }
 
     private async Task AddEvent(CessationGoal g, CessationEventType type)
