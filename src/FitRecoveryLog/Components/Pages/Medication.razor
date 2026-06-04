@@ -47,8 +47,11 @@
                                     <div class="field"><label>Time</label><input type="time" @bind="_schedEdit.ReminderTime" /></div>
                                 </div>
                                 <div class="chip-row">
-                                    <button type="button" class="chip @(_schedEdit.IsInjection ? "selected" : "")"
-                                            @onclick="() => _schedEdit.IsInjection = !_schedEdit.IsInjection">Injection</button>
+                                    @foreach (var f in Enum.GetValues<MedicationForm>())
+                                    {
+                                        <button type="button" class="chip @(_schedEdit.Form == f ? "selected" : "")"
+                                                @onclick="() => _schedEdit.Form = f">@FormLabel(f)</button>
+                                    }
                                 </div>
                                 <div class="routine-actions">
                                     <button class="save-btn" @onclick="SaveSchedEdit">Save</button>
@@ -60,7 +63,7 @@
                         {
                             <div class="ex-row" style="width:100%">
                                 <div>
-                                    <span class="entry"><strong>@sc.Name</strong>
+                                    <span class="entry">@FormGlyph(sc.Form) <strong>@sc.Name</strong>
                                         <span class="muted"> @sc.Dose · @sc.Repeat @sc.ReminderTime.ToString("h:mm tt")</span>
                                     </span>
                                 </div>
@@ -107,8 +110,11 @@
                 <div class="field"><label>Time</label><input type="time" @bind="_newSched.ReminderTime" /></div>
             </div>
             <div class="chip-row">
-                <button type="button" class="chip @(_newSched.IsInjection ? "selected" : "")"
-                        @onclick="() => _newSched.IsInjection = !_newSched.IsInjection">Injection</button>
+                @foreach (var f in Enum.GetValues<MedicationForm>())
+                {
+                    <button type="button" class="chip @(_newSched.Form == f ? "selected" : "")"
+                            @onclick="() => _newSched.Form = f">@FormLabel(f)</button>
+                }
             </div>
             <button class="save-btn" @onclick="AddSched">Add Medication</button>
         </div>
@@ -324,6 +330,12 @@
         { "Testosterone Cypionate", "Vitamin D", "Fish oil" };
     private static readonly string[] InjectionSites =
         { "Left delt", "Right delt", "Left glute", "Right glute", "Left quad", "Right quad", "Left ventroglute", "Right ventroglute" };
+
+    private static string FormGlyph(MedicationForm f) => f switch
+    {
+        MedicationForm.Injection => "💉", MedicationForm.Topical => "🧴", _ => "💊"
+    };
+    private static string FormLabel(MedicationForm f) => $"{FormGlyph(f)} {f}";
     private static readonly string[] CommonLabs =
         { "Total Testosterone", "Free Testosterone", "Hematocrit", "Hemoglobin", "PSA", "A1C", "Lipids - Total", "Lipids - LDL", "Lipids - HDL" };
 
@@ -490,7 +502,7 @@
         _editSchedId = sc.Id;
         _schedEdit = new MedicationSchedule
         {
-            Name = sc.Name, Dose = sc.Dose, IsInjection = sc.IsInjection,
+            Name = sc.Name, Dose = sc.Dose, Form = sc.Form,
             Repeat = sc.Repeat, StartDate = sc.StartDate, EndDate = sc.EndDate, ReminderTime = sc.ReminderTime
         };
     }
@@ -504,7 +516,7 @@
             var e = await db.MedicationSchedules.FindAsync(id);
             if (e is not null)
             {
-                e.Name = _schedEdit.Name; e.Dose = _schedEdit.Dose; e.IsInjection = _schedEdit.IsInjection;
+                e.Name = _schedEdit.Name; e.Dose = _schedEdit.Dose; e.Form = _schedEdit.Form;
                 e.Repeat = _schedEdit.Repeat; e.StartDate = _schedEdit.StartDate;
                 e.EndDate = _schedEdit.EndDate; e.ReminderTime = _schedEdit.ReminderTime;
                 await db.SaveChangesAsync();
@@ -529,7 +541,7 @@
     private void LogClicked(MedicationSchedule sc)
     {
         _loggedSchedId = null;
-        if (sc.IsInjection)
+        if (sc.Form == MedicationForm.Injection)
         {
             // Suggest the mirror of the last site used for this medication.
             var last = _recentMeds.FirstOrDefault(m =>

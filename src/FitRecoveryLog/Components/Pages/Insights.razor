@@ -291,7 +291,7 @@
         var meals = await db.MealEntries.ToListAsync();
         var notes = await db.NoteEntries.ToListAsync();
         var workload = await db.PhysicalWorkloadEntries.ToListAsync();
-        var injectionNames = await db.MedicationSchedules.Where(s => s.IsInjection).Select(s => s.Name).ToListAsync();
+        var injectionNames = await db.MedicationSchedules.Where(s => s.Form == MedicationForm.Injection).Select(s => s.Name).ToListAsync();
         var meds = await db.MedicationEntries.ToListAsync();
 
         // Per-session performance: avg rated difficulty (1-4) + completed-set ratio.
