@@ -1,0 +1,8 @@
+{
+  "id": "44",
+  "subject": "Exercise library: real dedupe/repoint data migration",
+  "description": "Deferred from docs/shared-exercise-library.md: the SharedExerciseLibrary migration shipped by wiping dev DBs instead of migrating data. Before the schema ever changes against data worth preserving on a device (e.g. once TestFlight builds are out), write the real data migration: dedupe same-named ExerciseDefinitions into one survivor and repoint RoutineExercise/ExerciseSet/ExerciseFeedback FKs. Revisit only when there's real data at stake; related to TestFlight prep (task 39).",
+  "status": "pending",
+  "blocks": [],
+  "blockedBy": []
+}

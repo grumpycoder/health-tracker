@@ -1,0 +1,8 @@
+{
+  "id": "43",
+  "subject": "HealthKit Phase 2 (optional): waist, workouts, live sync, stored steps",
+  "description": "Deferred scope from docs/healthkit-weight.md: (1) waist circumference sync (WaistInches <-> waistCircumference, HKUnit.Inch); (2) write completed workouts to Health; (3) background observer (HKObserverQuery/anchored) for true live two-way sync; (4) persist DailyLog.Steps (backfilled on app open) only if steps are wanted in export or the Mac build. Only pick up if Phase 1 (task 42) proves solid and the features feel worth it.",
+  "status": "pending",
+  "blocks": [],
+  "blockedBy": ["42"]
+}
