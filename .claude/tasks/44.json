@@ -1,8 +1,8 @@
 {
   "id": "44",
   "subject": "Exercise library: real dedupe/repoint data migration",
-  "description": "Deferred from docs/shared-exercise-library.md: the SharedExerciseLibrary migration shipped by wiping dev DBs instead of migrating data. Before the schema ever changes against data worth preserving on a device (e.g. once TestFlight builds are out), write the real data migration: dedupe same-named ExerciseDefinitions into one survivor and repoint RoutineExercise/ExerciseSet/ExerciseFeedback FKs. Revisit only when there's real data at stake; related to TestFlight prep (task 39).",
-  "status": "pending",
+  "description": "CLOSED 2026-06-04 as obsolete, not built: the SharedExerciseLibrary migration added a case-insensitive unique index on ExerciseDefinition.Name, and every DB in existence was wiped/created at or after that migration — same-named duplicates cannot exist in any current DB, so the dedupe/repoint data migration has no data it could ever run against. Future schema changes are handled by normal EF migrations (proven on-device by MedicationForm); human-level near-dupes are handled by the /exercises merge tool. Original scope: dedupe same-named ExerciseDefinitions and repoint RoutineExercise/ExerciseSet/ExerciseFeedback FKs.",
+  "status": "completed",
   "blocks": [],
   "blockedBy": []
 }
