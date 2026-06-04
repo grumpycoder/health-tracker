@@ -69,14 +69,18 @@
                     {
                         <span class="saved-msg">Logged ✓</span>
                     }
-                    <button class="link-btn" @onclick="() => OpenSlip(g)">more…</button>
-                    <button class="link-btn" @onclick="() => OpenAdjust(g)">Adjust plan</button>
                 }
                 else
                 {
                     <button class="link-btn" @onclick="() => OpenSlip(g)">Log slip</button>
                 }
             </div>
+            @if (taper)
+            {
+                <div class="routine-actions" style="margin-top:0.5rem">
+                    <button class="link-btn" @onclick="() => OpenAdjust(g)">Adjust plan</button>
+                </div>
+            }
 
             @if (_adjustGoalId == g.Id)
             {
