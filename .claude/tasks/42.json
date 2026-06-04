@@ -2,7 +2,7 @@
   "id": "42",
   "subject": "Verify HealthKit runtime behavior on simulator/real device",
   "description": "Phase 1 tail from docs/healthkit-weight.md: the HealthKit weight sync (write-on-save, Pull from Health, dashboard steps + 14-day trend) is built but runtime behavior hasn't been verified. Check on simulator and a real device (device needs signing + the HealthKit App ID capability): authorization prompt appears, weight writes land in Health, pull dedups correctly (skips own-app samples and existing dates), steps display. Note iOS hides read-denial for privacy — reads may just return empty.",
-  "status": "pending",
+  "status": "completed",
   "blocks": [],
   "blockedBy": []
 }
