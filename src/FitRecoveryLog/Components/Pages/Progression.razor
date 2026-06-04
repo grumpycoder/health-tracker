@@ -1,10 +1,12 @@
 @page "/progression"
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
 
 <PageTitle>Progression</PageTitle>
 
 <div class="dashboard">
     <header class="dash-header">
+        <button class="link-btn" @onclick="@(() => Nav.NavigateTo("workout"))">‹ Workout</button>
         <div class="dash-date">Progression</div>
         <div class="dash-date-sub">When to push, hold, or back off · last @RecentDays days</div>
     </header>

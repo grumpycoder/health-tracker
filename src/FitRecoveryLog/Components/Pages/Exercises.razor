@@ -1,5 +1,6 @@
 @page "/exercises"
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
 
 <PageTitle>Exercise Library</PageTitle>
 
@@ -8,6 +9,7 @@
 @if (_selected is null)
 {
     <header class="dash-header">
+        <button class="link-btn" @onclick="@(() => Nav.NavigateTo("workout"))">‹ Workout</button>
         <div class="dash-date">Exercise Library</div>
         <div class="dash-date-sub">@_exercises.Count exercise(s) · shared across routines</div>
     </header>

@@ -1,5 +1,6 @@
 @page "/workout-history"
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
 
 <PageTitle>Workout History</PageTitle>
 
@@ -8,6 +9,7 @@
 @if (_selected is null)
 {
     <header class="dash-header">
+        <button class="link-btn" @onclick="@(() => Nav.NavigateTo("workout"))">‹ Workout</button>
         <div class="dash-date">Workout History</div>
         <div class="dash-date-sub">@_sessions.Count completed workout(s)</div>
     </header>

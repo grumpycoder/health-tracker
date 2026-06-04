@@ -1,10 +1,12 @@
 @page "/nutrition"
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
 
 <PageTitle>Nutrition Patterns</PageTitle>
 
 <div class="dashboard">
     <header class="dash-header">
+        <button class="link-btn" @onclick="@(() => Nav.NavigateTo("meals"))">‹ Meals</button>
         <div class="dash-date">Nutrition Patterns</div>
         <div class="dash-date-sub">Counts and links from your meal log</div>
     </header>
