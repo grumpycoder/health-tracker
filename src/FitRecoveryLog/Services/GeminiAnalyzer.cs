@@ -61,11 +61,14 @@ public static class GeminiAnalyzer
   "analysis": "plain-text analysis with sections: WORKOUT PROGRESSION, BODY TREND, MEAL PATTERNS, SLEEP, TOP 3 ACTIONS. Short uppercase headings and dash bullets, no markdown symbols.",
   "exercises": [{ "name": "<exercise name exactly as it appears in the data>", "action": "progress" | "hold" | "backoff", "target": "<next-week target, e.g. 3x22 reps or 3x35s>" }],
   "topActions": ["<highest-impact action>", "<second>", "<third>"],
-  "mealFlags": ["<0-3 short flags about eating/drinking habits worth attention, e.g. 'Watch sweet tea: 3x/week'>"],
+  "mealFlags": ["<0-3 short flags about eating/drinking habits worth attention, e.g. 'Sweet tea down from ~32oz to ~16oz/day — keep tapering'>"],
   "bodyTrend": { "status": "on-track" | "off-track" | "unclear", "note": "<one short sentence, e.g. 'Weight down ~1 lb/week'>" }
 }
 """);
         sb.AppendLine("Be specific and reference the data. Say plainly where data is too sparse to conclude anything.");
+        sb.AppendLine("For drinks and treats, judge QUANTITY and TREND — not just how often they appear. Use the weekly " +
+                      "volume data: something consumed daily but at half the previous volume is meaningful progress; " +
+                      "acknowledge the reduction and suggest the next moderation step rather than blanket elimination.");
         sb.AppendLine();
 
         sb.AppendLine("WORKOUTS:");
@@ -110,6 +113,21 @@ public static class GeminiAnalyzer
             sb.AppendLine($"{d.Time:yyyy-MM-dd HH:mm} \"{d.Description}\"" +
                           (d.Ounces is { } oz ? $" {oz:0.#}oz" : "") +
                           (d.SugarCount is { } su ? $" sugar:{su}" : ""));
+
+        // Pre-aggregated so volume trends (e.g. tapering sweet tea) are unmissable.
+        var withOz = drinks.Where(d => d.Ounces is not null && !string.IsNullOrWhiteSpace(d.Description)).ToList();
+        if (withOz.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("DRINK VOLUME BY WEEK (total oz, week 1 = oldest):");
+            foreach (var g in withOz.GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase))
+            {
+                var weeks = g.GroupBy(d => (DateOnly.FromDateTime(d.Time).DayNumber - since.DayNumber) / 7)
+                    .OrderBy(w => w.Key)
+                    .Select(w => $"wk{w.Key + 1}:{w.Sum(x => x.Ounces ?? 0):0}oz");
+                sb.AppendLine($"- {g.Key}: {string.Join(" ", weeks)}");
+            }
+        }
 
         sb.AppendLine();
         sb.AppendLine("BODY MEASUREMENTS (numbers only):");
@@ -402,6 +420,47 @@ public static class GeminiAnalyzer
 
         static int? IntOrNull(JsonElement e, string prop) =>
             e.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : null;
+    }
+
+    public sealed record WorkloadSuggestion(string? Intensity, List<string> Areas, bool WorthLogging, string? Note);
+
+    /// <summary>Advises on one physical-workload entry: intensity, affected body areas,
+    /// and whether it's even worth logging (trivial chores are recovery noise).</summary>
+    public static async Task<WorkloadSuggestion> SuggestWorkloadAsync(string apiKey, string activity,
+        int? minutes, string? notes, IReadOnlyList<string> areaVocabulary)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("You advise on logging one non-workout physical activity in a fitness-recovery tracker.");
+        sb.AppendLine("The log's purpose: capture activity that meaningfully taxes the body and affects recovery. Trivial chores are noise.");
+        sb.AppendLine("Respond with ONLY a JSON object:");
+        sb.AppendLine("""{ "intensity": "Light" | "Moderate" | "Heavy", "areas": ["<from the list, only clearly affected>"], "worthLogging": true | false, "note": "<one short practical sentence: why, or how to log it better — e.g. 'Log the basket-carrying up stairs, skip the folding.'>" }""");
+        sb.AppendLine($"Body areas (use these exact strings): {string.Join(" | ", areaVocabulary)}");
+        sb.AppendLine();
+        sb.AppendLine($"ACTIVITY: \"{activity}\"" + (minutes is { } m ? $" {m}min" : "") +
+                      (string.IsNullOrWhiteSpace(notes) ? "" : $" notes:\"{notes}\""));
+
+        var text = await GenerateAsync(apiKey, sb.ToString());
+        if (string.IsNullOrWhiteSpace(text)) return new(null, new(), true, null);
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            var canon = areaVocabulary.ToDictionary(v => v, v => v, StringComparer.OrdinalIgnoreCase);
+            var areas = new List<string>();
+            if (root.TryGetProperty("areas", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                foreach (var a in arr.EnumerateArray())
+                    if (a.GetString() is { } s && canon.TryGetValue(s.Trim(), out var c) && !areas.Contains(c))
+                        areas.Add(c);
+            return new(
+                root.TryGetProperty("intensity", out var i) ? i.GetString() : null,
+                areas,
+                !root.TryGetProperty("worthLogging", out var w) || w.ValueKind != JsonValueKind.False,
+                root.TryGetProperty("note", out var n) ? n.GetString() : null);
+        }
+        catch (JsonException)
+        {
+            return new(null, new(), true, null);
+        }
     }
 
     public sealed record TagSuggestion(List<string> Known, string? Proposed);

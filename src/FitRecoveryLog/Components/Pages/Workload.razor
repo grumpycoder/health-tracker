@@ -1,4 +1,5 @@
 @page "/workload"
+@using FitRecoveryLog.Services
 @inject IDbContextFactory<AppDbContext> DbFactory
 
 <PageTitle>Physical Workload</PageTitle>
@@ -55,6 +56,16 @@
             <label>Notes</label>
             <textarea rows="2" @bind="_entry.Notes" placeholder="e.g. lifting bags of mulch"></textarea>
         </div>
+        @if (_hasAiKey)
+        {
+            <button class="link-btn" style="display:block;padding:0;margin:0 0 0.6rem" disabled="@_aiBusy" @onclick="SuggestWorkload">
+                @(_aiBusy ? "Suggesting…" : "✨ Suggest intensity & areas")
+            </button>
+            @if (_aiNote is not null)
+            {
+                <p class="muted" style="margin:0 0 0.6rem">🤖 @_aiNote</p>
+            }
+        }
         <button class="save-btn" @onclick="Save">Save Activity</button>
         @if (_saved)
         {
@@ -143,7 +154,48 @@
     private PhysicalWorkloadEntry _edit = new();
     private DateTime _editDate = DateTime.Now.Date;
 
-    protected override async Task OnInitializedAsync() => await LoadRecent();
+    // AI assist: suggests intensity + body areas, and flags entries not worth logging.
+    private bool _hasAiKey, _aiBusy;
+    private string? _aiNote;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _hasAiKey = !string.IsNullOrEmpty(await GeminiAnalyzer.KeyStore.GetAsync());
+        await LoadRecent();
+    }
+
+    private async Task SuggestWorkload()
+    {
+        var activity = _entry.Activity?.Trim();
+        if (string.IsNullOrWhiteSpace(activity)) { _aiNote = "Enter an activity first."; return; }
+        _aiBusy = true;
+        _aiNote = null;
+        StateHasChanged();
+        try
+        {
+            var key = await GeminiAnalyzer.KeyStore.GetAsync()
+                ?? throw new InvalidOperationException("No API key set.");
+            var s = await GeminiAnalyzer.SuggestWorkloadAsync(key, activity, _entry.DurationMinutes, _entry.Notes, BodyAreas);
+            if (Enum.TryParse<Intensity>(s.Intensity, true, out var intensity))
+                _entry.Intensity = intensity;
+            if (s.Areas.Count > 0)
+            {
+                _areas.Clear();
+                foreach (var a in s.Areas) _areas.Add(a);
+            }
+            _aiNote = (s.WorthLogging ? "" : "Probably not worth logging — this barely taxes recovery. ")
+                      + (s.Note ?? "");
+            if (string.IsNullOrWhiteSpace(_aiNote)) _aiNote = "Applied.";
+        }
+        catch (Exception ex)
+        {
+            _aiNote = $"AI unavailable ({ex.Message}) — set intensity and areas manually.";
+        }
+        finally
+        {
+            _aiBusy = false;
+        }
+    }
 
     private void StartEdit(PhysicalWorkloadEntry w)
     {
