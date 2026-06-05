@@ -1,4 +1,5 @@
 ﻿using Foundation;
+using UIKit;
 
 namespace FitRecoveryLog;
 
@@ -6,4 +7,13 @@ namespace FitRecoveryLog;
 public class AppDelegate : MauiUIApplicationDelegate
 {
 	protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
+
+	public override bool FinishedLaunching(UIApplication application, NSDictionary launchOptions)
+	{
+		// Setting the phone down hard reads as a shake, and any focused input
+		// (reps, hold seconds) makes iOS offer "Undo Typing" mid-workout.
+		// Shake-to-undo has no value in this app's short inputs — disable it.
+		application.ApplicationSupportsShakeToEdit = false;
+		return base.FinishedLaunching(application, launchOptions);
+	}
 }
