@@ -296,10 +296,14 @@
     private string? _evTrigger, _evNotes;
     private double? _slipAmount;
 
-    // Craving ride-out countdown.
+    // Craving ride-out countdown — anchored to wall-clock (and persisted) so it
+    // survives the app backgrounding mid-ride-out or navigating away.
     private bool _sosRunning;
-    private int _sosRemaining;
+    private DateTime _sosEndsAt;
+    private int _sosRemaining => Math.Max(0, (int)(_sosEndsAt - DateTime.Now).TotalSeconds);
     private System.Threading.Timer? _sosTimer;
+    private const string SosEndsAtPref = "sos_ends_at";
+    private const string SosGoalPref = "sos_goal_id";
     private bool _aiOptIn;
 
     // Keeps "last cigarette … ago" fresh while the page is open.
@@ -310,6 +314,25 @@
         _aiOptIn = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.IncludeCessationPrefKey, false);
         _clockTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, 60_000, 60_000);
         await Load();
+
+        // Resume a ride-out that was running when the app/page went away; if it
+        // finished while suspended, the OS notification already handled the ending.
+        var endsAt = Microsoft.Maui.Storage.Preferences.Default.Get<string?>(SosEndsAtPref, null);
+        if (endsAt is not null && DateTime.TryParse(endsAt, null, System.Globalization.DateTimeStyles.RoundtripKind, out var when))
+        {
+            if (when > DateTime.Now
+                && Guid.TryParse(Microsoft.Maui.Storage.Preferences.Default.Get(SosGoalPref, ""), out var goalId)
+                && _goals.Any(x => x.Id == goalId && x.Active))
+            {
+                _sosEndsAt = when;
+                BeginSosCountdown(goalId);
+            }
+            else
+            {
+                Microsoft.Maui.Storage.Preferences.Default.Remove(SosEndsAtPref);
+                Microsoft.Maui.Storage.Preferences.Default.Remove(SosGoalPref);
+            }
+        }
         // Keep the next notification current per goal: quit-day during a taper,
         // the next milestone otherwise.
         foreach (var g in _goals.Where(x => x.Active))
@@ -539,15 +562,23 @@
     private async Task StartSos(CessationGoal g)
     {
         await AddEvent(g, CessationEventType.Craving);
-        _sosRunning = true;
-        _sosRemaining = SosSeconds;
-        try { Microsoft.Maui.Devices.DeviceDisplay.Current.KeepScreenOn = true; } catch { }
+        _sosEndsAt = DateTime.Now.AddSeconds(SosSeconds);
+        Microsoft.Maui.Storage.Preferences.Default.Set(SosEndsAtPref, _sosEndsAt.ToString("O"));
+        Microsoft.Maui.Storage.Preferences.Default.Set(SosGoalPref, g.Id.ToString());
         try { await JS.InvokeVoidAsync("holdTimer.arm"); } catch { }
         try { await ReminderNotifier.ScheduleOneShotAsync(ReminderNotifier.CravingTimerNotificationId,
             "Craving ridden out ✅", "5 minutes done — it passed. Nice work.", SosSeconds); } catch { }
+        BeginSosCountdown(g.Id);
+    }
+
+    /// <summary>Start (or resume) the countdown UI toward <see cref="_sosEndsAt"/>.</summary>
+    private void BeginSosCountdown(Guid goalId)
+    {
+        _sosGoalId = goalId;
+        _sosRunning = true;
+        try { Microsoft.Maui.Devices.DeviceDisplay.Current.KeepScreenOn = true; } catch { }
         _sosTimer = new System.Threading.Timer(_ => InvokeAsync(async () =>
         {
-            _sosRemaining--;
             if (_sosRemaining <= 0)
             {
                 StopSosCore();
@@ -570,6 +601,8 @@
         _sosTimer = null;
         _sosRunning = false;
         _sosGoalId = null;
+        Microsoft.Maui.Storage.Preferences.Default.Remove(SosEndsAtPref);
+        Microsoft.Maui.Storage.Preferences.Default.Remove(SosGoalPref);
         try { Microsoft.Maui.Devices.DeviceDisplay.Current.KeepScreenOn = false; } catch { }
     }
 

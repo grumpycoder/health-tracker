@@ -31,7 +31,7 @@
     <div class="segmented">
         <button class="seg @(_tab == "meal" ? "active" : "")" @onclick='() => _tab = "meal"'>🍽️ Meal</button>
         <button class="seg @(_tab == "drink" ? "active" : "")" @onclick='() => _tab = "drink"'>🥤 Drink</button>
-        <button class="seg @(_tab == "today" ? "active" : "")" @onclick='() => _tab = "today"'>📋 Today</button>
+        <button class="seg @(_tab == "today" ? "active" : "")" @onclick='() => _tab = "today"'>📋 Log</button>
     </div>
 
 @if (_tab == "meal")
@@ -142,10 +142,14 @@
 @if (_tab == "today")
 {
     <section class="card">
-        <h2>Today</h2>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.6rem">
+            <h2>@(_viewDate == DateTime.Now.Date ? "Today" : _viewDate.ToString("ddd, MMM d"))</h2>
+            <input type="date" style="width:auto" value="@_viewDate.ToString("yyyy-MM-dd")"
+                   @onchange="OnViewDateChanged" />
+        </div>
         @if (_todayMeals.Count == 0 && _todayDrinks.Count == 0)
         {
-            <p class="muted">Nothing logged yet today.</p>
+            <p class="muted">Nothing logged on this day.</p>
         }
         else
         {
@@ -515,9 +519,23 @@
         await LoadToday();
     }
 
+    // The "Log" tab can browse any day; edit/delete work the same everywhere.
+    private DateTime _viewDate = DateTime.Now.Date;
+
+    private async Task OnViewDateChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var d))
+        {
+            _viewDate = d.Date;
+            _editMealId = null;
+            _editDrinkId = null;
+            await LoadToday();
+        }
+    }
+
     private async Task LoadToday()
     {
-        var start = DateTime.Now.Date;
+        var start = _viewDate;
         var end = start.AddDays(1);
         await using var db = await DbFactory.CreateDbContextAsync();
         _todayMeals = await db.MealEntries
