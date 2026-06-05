@@ -470,6 +470,15 @@ else // Feedback
 
         await using var db = await DbFactory.CreateDbContextAsync();
         db.WorkoutSessions.Add(session);
+
+        // Forgot to plan the day? A completed workout makes it a workout day.
+        // (Deliberately chosen day types are left alone.)
+        var day = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == session.Date);
+        if (day is null)
+            db.DailyLogs.Add(new DailyLog { Date = session.Date, DayType = DayType.Workout });
+        else if (day.DayType == DayType.Unset)
+            day.DayType = DayType.Workout;
+
         await db.SaveChangesAsync();
 
         // Mirror the session to Apple Health/Fitness (iOS only; no-op otherwise).

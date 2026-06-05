@@ -42,6 +42,7 @@
                             <td class="num">@($"{used:0.#} of {allow} {unitName}(s)")@(used > allow ? " ⚠ over plan" : "")</td></tr>
                     }
                     <tr><td>Plan</td><td class="num">@(g.BaselineUnitsPerDay?.ToString("0.#") ?? "?")/day → 0 by @g.QuitDate.ToString("MMM d")</td></tr>
+                    <tr><td>Last @unitName</td><td class="num">@TimeSinceLastUse(g)</td></tr>
                 }
                 else
                 {
@@ -65,10 +66,6 @@
                 @if (taper)
                 {
                     <button class="save-btn" @onclick="() => LogUse(g)">Log @unitName</button>
-                    @if (_usedLoggedGoalId == g.Id)
-                    {
-                        <span class="saved-msg">Logged ✓</span>
-                    }
                 }
                 else
                 {
@@ -79,6 +76,22 @@
             {
                 <div class="routine-actions" style="margin-top:0.5rem">
                     <button class="link-btn" @onclick="() => OpenAdjust(g)">Adjust plan</button>
+                </div>
+            }
+            @if (_usedLoggedGoalId == g.Id)
+            {
+                <div style="margin-top:0.6rem;text-align:center">
+                    <p class="saved-msg" style="display:block;margin:0 0 0.4rem">
+                        Logged ✓ — @UsedToday(g).ToString("0.#") of @(TodaysAllowance(g)?.ToString() ?? "–") today
+                    </p>
+                    <div class="chip-row" style="justify-content:center">
+                        @foreach (var t in Triggers)
+                        {
+                            <button type="button" class="chip @(_lastUseTrigger == t ? "selected" : "")"
+                                    @onclick="() => TagLastUse(t)">@t</button>
+                        }
+                    </div>
+                    <p class="muted" style="font-size:0.75rem;margin:0.3rem 0 0">tap a trigger to tag it — optional</p>
                 </div>
             }
 
@@ -289,9 +302,13 @@
     private System.Threading.Timer? _sosTimer;
     private bool _aiOptIn;
 
+    // Keeps "last cigarette … ago" fresh while the page is open.
+    private System.Threading.Timer? _clockTimer;
+
     protected override async Task OnInitializedAsync()
     {
         _aiOptIn = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.IncludeCessationPrefKey, false);
+        _clockTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, 60_000, 60_000);
         await Load();
         // Keep the next notification current per goal: quit-day during a taper,
         // the next milestone otherwise.
@@ -334,18 +351,59 @@
         _events.Where(e => e.GoalId == g.Id && e.Type == CessationEventType.Slip && e.Time >= DateTime.Now.Date)
             .Sum(e => e.Amount ?? 1);
 
-    private Guid? _usedLoggedGoalId; // brief "Logged ✓" feedback after a one-tap log
+    // Post-log feedback: "Logged ✓" plus optional trigger chips that tag the
+    // event just written. Fades on its own; tagging fades it sooner.
+    private Guid? _usedLoggedGoalId;
+    private Guid? _lastUseEventId;
+    private string? _lastUseTrigger;
+    private int _useFeedbackToken;
 
     /// <summary>One-tap taper logging: a single unit, no panel.</summary>
     private async Task LogUse(CessationGoal g)
     {
         _evIntensity = null; _evTrigger = null; _evNotes = null; _slipAmount = 1;
-        await AddEvent(g, CessationEventType.Slip);
+        _lastUseEventId = await AddEvent(g, CessationEventType.Slip);
         try { Microsoft.Maui.Devices.HapticFeedback.Default.Perform(Microsoft.Maui.Devices.HapticFeedbackType.Click); } catch { }
         _usedLoggedGoalId = g.Id;
+        _lastUseTrigger = null;
+        _ = HideUseFeedbackAfter(8000);
+    }
+
+    /// <summary>Tag the just-logged unit with a trigger (optional, post-hoc).</summary>
+    private async Task TagLastUse(string trigger)
+    {
+        if (_lastUseEventId is not { } id) return;
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            var e = await db.CessationEvents.FindAsync(id);
+            if (e is not null) { e.Trigger = trigger; await db.SaveChangesAsync(); }
+        }
+        _lastUseTrigger = trigger;
+        await Load();
+        _ = HideUseFeedbackAfter(1200);
+    }
+
+    private async Task HideUseFeedbackAfter(int ms)
+    {
+        var token = ++_useFeedbackToken;
+        await Task.Delay(ms);
+        if (token != _useFeedbackToken) return; // superseded by a newer log/tag
+        _usedLoggedGoalId = null;
+        _lastUseEventId = null;
+        _lastUseTrigger = null;
         StateHasChanged();
-        await Task.Delay(1500);
-        if (_usedLoggedGoalId == g.Id) { _usedLoggedGoalId = null; StateHasChanged(); }
+    }
+
+    /// <summary>"2h 14m ago" for the most recent logged unit — the skip-this-one signal.</summary>
+    private string TimeSinceLastUse(CessationGoal g)
+    {
+        var last = _events.FirstOrDefault(e => e.GoalId == g.Id && e.Type == CessationEventType.Slip);
+        if (last is null) return "none yet";
+        var span = DateTime.Now - last.Time;
+        return span.TotalMinutes < 1 ? "just now"
+            : span.TotalHours < 1 ? $"{(int)span.TotalMinutes}m ago"
+            : span.TotalDays < 1 ? $"{(int)span.TotalHours}h {span.Minutes}m ago"
+            : $"{(int)span.TotalDays}d ago";
     }
 
     private GoalStats Stats(CessationGoal g)
@@ -456,18 +514,20 @@
             await ScheduleGoalNotificationAsync(updated); // re-point the quit-day alert
     }
 
-    private async Task AddEvent(CessationGoal g, CessationEventType type)
+    private async Task<Guid> AddEvent(CessationGoal g, CessationEventType type)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        db.CessationEvents.Add(new CessationEvent
+        var ev = new CessationEvent
         {
             GoalId = g.Id, Time = DateTime.Now, Type = type,
             Intensity = _evIntensity, Trigger = _evTrigger,
             Amount = type == CessationEventType.Slip ? (_slipAmount ?? 1) : null,
             Notes = string.IsNullOrWhiteSpace(_evNotes) ? null : _evNotes!.Trim()
-        });
+        };
+        await using var db = await DbFactory.CreateDbContextAsync();
+        db.CessationEvents.Add(ev);
         await db.SaveChangesAsync();
         await Load();
+        return ev.Id;
     }
 
     private async Task LogCravingOnly(CessationGoal g)
@@ -575,6 +635,7 @@
     public void Dispose()
     {
         _sosTimer?.Dispose();
+        _clockTimer?.Dispose();
         try { Microsoft.Maui.Devices.DeviceDisplay.Current.KeepScreenOn = false; } catch { }
     }
 }
