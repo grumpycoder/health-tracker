@@ -136,6 +136,12 @@
         <h2>Notes</h2>
         <textarea class="note" rows="2" placeholder="How are you feeling right now?"
                   @bind="_noteText" @bind:event="oninput"></textarea>
+        @if (_hasAiKey)
+        {
+            <p class="muted" style="font-size:0.75rem;margin:0.3rem 0 0.5rem">
+                Today's notes are shared with the AI check-in for context — keep anything private out of them.
+            </p>
+        }
         <button class="save-btn" @onclick="AddNote">Add Note</button>
         @if (_todayNotes.Count > 0)
         {

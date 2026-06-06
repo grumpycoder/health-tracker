@@ -8,9 +8,11 @@ namespace FitRecoveryLog.Services;
 /// <summary>
 /// AI analysis of workouts, meals/drinks, sleep, and body-measurement numbers
 /// via the Gemini API (free AI Studio tier; the user supplies their own key in
-/// Settings). Medications, labs, notes, photos, and freeform measurement text
-/// are deliberately NEVER sent. Cessation (substance) data is sent ONLY when the
-/// user explicitly opts in via <see cref="IncludeCessationPrefKey"/>.
+/// Settings). Medications, labs, photos, and freeform measurement text are
+/// deliberately NEVER sent. TODAY's notes go to the daily check-in only
+/// (user-requested, so it can judge circumstances); the 8-week analysis never
+/// sees notes. Cessation (substance) data is sent ONLY when the user explicitly
+/// opts in via <see cref="IncludeCessationPrefKey"/>.
 /// </summary>
 public static class GeminiAnalyzer
 {
@@ -176,12 +178,24 @@ public static class GeminiAnalyzer
   "tips": ["<up to 3 short, actionable suggestions for the REST of today>"]
 }
 """);
-        sb.AppendLine("Consider meal quality/timing/junk food, sugary drinks, sleep duration and score, whether a workout happened on a workout day, and physical workload. If little is logged yet, say so and suggest what to log.");
+        sb.AppendLine("Consider meal quality/timing, sugary drinks, sleep duration and score, whether a workout happened on a workout day, and physical workload — but JUDGE IN CONTEXT:");
+        sb.AppendLine("- Use TODAY'S NOTES for circumstances (travel, events, busy days). A fast-food dinner on a day spent out running errands is life, not failure.");
+        sb.AppendLine("- Use LAST 7 DAYS to tell one-off indulgences from patterns. A single off-plan meal in an otherwise solid stretch gets a light touch ('enjoy it, back to normal tomorrow'); direct warnings are for things repeating across several days.");
+        sb.AppendLine("If little is logged yet, say so and suggest what to log.");
         sb.AppendLine();
         sb.AppendLine($"NOW: {now:yyyy-MM-dd HH:mm} ({now.DayOfWeek})");
 
         var day = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == today);
         sb.AppendLine($"PLANNED DAY TYPE: {(day is null || day.DayType == DayType.Unset ? "(not set)" : day.DayType.ToString())}");
+
+        // Today's notes carry the circumstances (travel, events, errands) — the
+        // single biggest tone corrector for the check-in.
+        sb.AppendLine("TODAY'S NOTES:");
+        var notes = await db.NoteEntries.Where(n => n.Time >= dayStart && n.Time < dayEnd)
+            .OrderBy(n => n.Time).ToListAsync();
+        if (notes.Count == 0) sb.AppendLine("(none)");
+        foreach (var n in notes)
+            sb.AppendLine($"  {n.Time:HH:mm} \"{n.Text}\"");
 
         var sleep = await db.SleepEntries.FirstOrDefaultAsync(s => s.Date == today);
         sb.AppendLine("SLEEP (last night): " + (sleep is null
@@ -221,6 +235,23 @@ public static class GeminiAnalyzer
         if (work.Count == 0) sb.AppendLine("(none)");
         foreach (var w in work)
             sb.AppendLine($"  {w.Activity} {(w.DurationMinutes is { } mins ? $"{mins}min " : "")}{w.Intensity}");
+
+        // Compact 7-day rear-view so the model can tell one-offs from patterns.
+        sb.AppendLine("LAST 7 DAYS (pattern context):");
+        var weekStart = dayStart.AddDays(-7);
+        var weekMeals = await db.MealEntries.Where(m => m.Time >= weekStart && m.Time < dayStart).ToListAsync();
+        var weekDrinks = await db.DrinkEntries.Where(d => d.Time >= weekStart && d.Time < dayStart).ToListAsync();
+        for (var d = today.AddDays(-7); d < today; d = d.AddDays(1))
+        {
+            var ds = d.ToDateTime(TimeOnly.MinValue);
+            var de = ds.AddDays(1);
+            var dayMeals = weekMeals.Where(m => m.Time >= ds && m.Time < de).ToList();
+            var flagged = dayMeals.Count(m => m.TagList.Any(t =>
+                t.Contains("sodium", StringComparison.OrdinalIgnoreCase) ||
+                t.Contains("restaurant", StringComparison.OrdinalIgnoreCase)));
+            var oz = weekDrinks.Where(x => x.Time >= ds && x.Time < de).Sum(x => x.Ounces ?? 0);
+            sb.AppendLine($"  {d:MM-dd}: {dayMeals.Count} meal(s), {flagged} restaurant/high-sodium, {oz:0}oz drinks");
+        }
 
         // Substance-cessation data is sensitive: included ONLY with explicit opt-in.
         if (Microsoft.Maui.Storage.Preferences.Default.Get(IncludeCessationPrefKey, false))

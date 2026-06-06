@@ -332,7 +332,8 @@
                         @onclick="() => suggest()">@(box.Busy ? "Suggesting…" : "✨ Suggest")</button>
             </div>
             <div class="chip-row">
-                @foreach (var tag in _tagOptions)
+                @* Union so a just-accepted AI tag (not yet in the saved vocabulary) shows as a selected chip. *@
+                @foreach (var tag in _tagOptions.Union(box.Selected, StringComparer.OrdinalIgnoreCase).ToList())
                 {
                     <button type="button" class="chip @(box.Selected.Contains(tag) ? "selected" : "")"
                             @onclick="() => box.Toggle(tag)">@tag</button>
