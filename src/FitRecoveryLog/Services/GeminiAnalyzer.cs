@@ -71,6 +71,8 @@ public static class GeminiAnalyzer
         sb.AppendLine("For drinks and treats, judge QUANTITY and TREND — not just how often they appear. Use the weekly " +
                       "volume data: something consumed daily but at half the previous volume is meaningful progress; " +
                       "acknowledge the reduction and suggest the next moderation step rather than blanket elimination.");
+        sb.AppendLine("Judge the FOOD, not the venue: a grilled chicken sandwich from a drive-thru is a reasonable " +
+                      "protein choice — don't penalize restaurant/fast-food meals as a category; assess what was actually eaten.");
         sb.AppendLine();
 
         sb.AppendLine("WORKOUTS:");
@@ -181,6 +183,7 @@ public static class GeminiAnalyzer
         sb.AppendLine("Consider meal quality/timing, sugary drinks, sleep duration and score, whether a workout happened on a workout day, and physical workload — but JUDGE IN CONTEXT:");
         sb.AppendLine("- Use TODAY'S NOTES for circumstances (travel, events, busy days). A fast-food dinner on a day spent out running errands is life, not failure.");
         sb.AppendLine("- Use LAST 7 DAYS to tell one-off indulgences from patterns. A single off-plan meal in an otherwise solid stretch gets a light touch ('enjoy it, back to normal tomorrow'); direct warnings are for things repeating across several days.");
+        sb.AppendLine("- Judge the FOOD, not the venue. A grilled chicken sandwich from a drive-thru is a reasonable protein choice, not a lapse; a burger-and-fries combo is different. Don't penalize 'restaurant/fast food' as a category — eating-out sodium is worth one mention only when frequent.");
         sb.AppendLine("If little is logged yet, say so and suggest what to log.");
         sb.AppendLine();
         sb.AppendLine($"NOW: {now:yyyy-MM-dd HH:mm} ({now.DayOfWeek})");
@@ -237,7 +240,9 @@ public static class GeminiAnalyzer
             sb.AppendLine($"  {w.Activity} {(w.DurationMinutes is { } mins ? $"{mins}min " : "")}{w.Intensity}");
 
         // Compact 7-day rear-view so the model can tell one-offs from patterns.
-        sb.AppendLine("LAST 7 DAYS (pattern context):");
+        // Actual descriptions, not pre-judged counts — any claimed trend must be
+        // grounded in entries it can name.
+        sb.AppendLine("LAST 7 DAYS (pattern context — cite specific entries when claiming a trend; never extrapolate a pattern the data doesn't show):");
         var weekStart = dayStart.AddDays(-7);
         var weekMeals = await db.MealEntries.Where(m => m.Time >= weekStart && m.Time < dayStart).ToListAsync();
         var weekDrinks = await db.DrinkEntries.Where(d => d.Time >= weekStart && d.Time < dayStart).ToListAsync();
@@ -245,13 +250,14 @@ public static class GeminiAnalyzer
         {
             var ds = d.ToDateTime(TimeOnly.MinValue);
             var de = ds.AddDays(1);
-            var dayMeals = weekMeals.Where(m => m.Time >= ds && m.Time < de).ToList();
-            var flagged = dayMeals.Count(m => m.TagList.Any(t =>
-                t.Contains("sodium", StringComparison.OrdinalIgnoreCase) ||
-                t.Contains("restaurant", StringComparison.OrdinalIgnoreCase)));
+            var dayMeals = weekMeals.Where(m => m.Time >= ds && m.Time < de).OrderBy(m => m.Time)
+                .Select(m => Trunc(m.Description, 45)).ToList();
             var oz = weekDrinks.Where(x => x.Time >= ds && x.Time < de).Sum(x => x.Ounces ?? 0);
-            sb.AppendLine($"  {d:MM-dd}: {dayMeals.Count} meal(s), {flagged} restaurant/high-sodium, {oz:0}oz drinks");
+            sb.AppendLine($"  {d:MM-dd}: {(dayMeals.Count == 0 ? "(no meals logged)" : string.Join("; ", dayMeals))}" +
+                          (oz > 0 ? $" | {oz:0}oz drinks" : ""));
         }
+
+        static string Trunc(string s, int len) => s.Length <= len ? s : s[..(len - 1)] + "…";
 
         // Substance-cessation data is sensitive: included ONLY with explicit opt-in.
         if (Microsoft.Maui.Storage.Preferences.Default.Get(IncludeCessationPrefKey, false))
