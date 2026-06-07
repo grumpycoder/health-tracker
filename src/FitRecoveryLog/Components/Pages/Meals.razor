@@ -36,6 +36,43 @@
 
 @if (_tab == "meal")
 {
+    @if (_hasAiKey)
+    {
+        <section class="card">
+            <h2>🤔 Thinking about…</h2>
+            <div class="field">
+                <input @bind="_considering" placeholder="e.g. Chipotle bowl, frozen pizza" />
+            </div>
+            <button class="save-btn" disabled="@_adviceBusy" @onclick="AskMealAdvice">
+                @(_adviceBusy ? "Thinking…" : "Good idea?")
+            </button>
+            @if (_adviceError is not null)
+            {
+                <span class="warn-msg">@_adviceError</span>
+            }
+            @if (_mealAdvice is { } adv)
+            {
+                <p style="margin:0.6rem 0 0.3rem">
+                    <span class="badge @(adv.Verdict == "good" ? "good" : adv.Verdict == "reconsider" ? "warn" : "")">
+                        @(adv.Verdict == "good" ? "👍 Good choice" : adv.Verdict == "reconsider" ? "🤔 Maybe reconsider" : "🤷 It's fine")
+                    </span>
+                </p>
+                <p style="margin:0 0 0.4rem">@adv.Reason</p>
+                @if (!string.IsNullOrWhiteSpace(adv.RestaurantAlt))
+                {
+                    <p class="muted" style="margin:0">🍔 Out: @adv.RestaurantAlt</p>
+                }
+                @if (!string.IsNullOrWhiteSpace(adv.HomemadeAlt))
+                {
+                    <p class="muted" style="margin:0">🏠 Home: @adv.HomemadeAlt</p>
+                }
+                <button class="link-btn" style="padding:0;margin-top:0.5rem" @onclick="UseConsidered">
+                    Going with it → prefill the log below
+                </button>
+            }
+        </section>
+    }
+
     <section class="card">
         <h2>Log meal / snack</h2>
         <div class="field">
@@ -409,10 +446,51 @@
     // Flags from the latest AI analysis (empty until one is run).
     private List<string> _mealFlags = new();
 
+    // Pre-meal advisor ("I'm thinking about…").
+    private bool _hasAiKey, _adviceBusy;
+    private string _considering = "";
+    private string? _adviceError;
+    private GeminiAnalyzer.MealAdvice? _mealAdvice;
+
     protected override async Task OnInitializedAsync()
     {
         _mealFlags = AiAdviceStore.LoadMealFlags();
+        _hasAiKey = !string.IsNullOrEmpty(await GeminiAnalyzer.KeyStore.GetAsync());
         await LoadToday();
+    }
+
+    private async Task AskMealAdvice()
+    {
+        var considering = _considering.Trim();
+        if (considering.Length == 0) { _adviceError = "Type what you're considering first."; return; }
+        _adviceBusy = true;
+        _adviceError = null;
+        _mealAdvice = null;
+        StateHasChanged();
+        try
+        {
+            var key = await GeminiAnalyzer.KeyStore.GetAsync()
+                ?? throw new InvalidOperationException("No API key set.");
+            string prompt;
+            await using (var db = await DbFactory.CreateDbContextAsync())
+                prompt = await GeminiAnalyzer.BuildMealAdvicePromptAsync(db, considering);
+            _mealAdvice = await GeminiAnalyzer.AdviseMealAsync(key, prompt)
+                ?? throw new InvalidOperationException("Gemini returned nothing usable — try again.");
+        }
+        catch (Exception ex)
+        {
+            _adviceError = ex.Message;
+        }
+        finally
+        {
+            _adviceBusy = false;
+        }
+    }
+
+    private void UseConsidered()
+    {
+        _meal.Description = _considering.Trim();
+        _mealAdvice = null;
     }
 
     private void StartEditMeal(MealEntry m)

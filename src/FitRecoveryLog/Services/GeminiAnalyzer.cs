@@ -187,10 +187,6 @@ public static class GeminiAnalyzer
     /// (meals/drinks, last night's sleep, workout, workload, plan — never meds/labs/notes).</summary>
     public static async Task<string> BuildDailyPromptAsync(AppDbContext db)
     {
-        var now = DateTime.Now;
-        var today = DateOnly.FromDateTime(now);
-        var dayStart = today.ToDateTime(TimeOnly.MinValue);
-        var dayEnd = dayStart.AddDays(1);
         var sb = new StringBuilder();
 
         sb.AppendLine("You are a supportive but honest health coach doing a quick mid-day check-in on one person's self-tracked day.");
@@ -210,6 +206,20 @@ public static class GeminiAnalyzer
         AppendUserGoals(sb);
         sb.AppendLine("If little is logged yet, say so and suggest what to log.");
         sb.AppendLine();
+        await AppendTodayContextAsync(sb, db);
+        return sb.ToString();
+    }
+
+    /// <summary>Today's full context (plan, notes, sleep, workout, meals, drinks,
+    /// workload, last 7 days, opt-in cessation) — shared by the daily check-in
+    /// and the pre-meal advisor.</summary>
+    private static async Task AppendTodayContextAsync(StringBuilder sb, AppDbContext db)
+    {
+        var now = DateTime.Now;
+        var today = DateOnly.FromDateTime(now);
+        var dayStart = today.ToDateTime(TimeOnly.MinValue);
+        var dayEnd = dayStart.AddDays(1);
+
         sb.AppendLine($"NOW: {now:yyyy-MM-dd HH:mm} ({now.DayOfWeek})");
 
         var day = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == today);
@@ -317,8 +327,55 @@ public static class GeminiAnalyzer
                 }
             }
         }
+    }
 
+    public sealed record MealAdvice(string Verdict, string Reason, string? RestaurantAlt, string? HomemadeAlt);
+
+    /// <summary>Builds the pre-meal "I'm thinking about…" prompt: the considered
+    /// item judged against today's full context and the user's goals.</summary>
+    public static async Task<string> BuildMealAdvicePromptAsync(AppDbContext db, string considering)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("You are a pragmatic nutrition coach. The user is deciding what to eat NEXT and is considering something specific.");
+        sb.AppendLine("Respond with ONLY a JSON object:");
+        sb.AppendLine("""
+{
+  "verdict": "good" | "fine" | "reconsider",
+  "reason": "<1-2 sentences grounded in TODAY's data and the user's goals, e.g. 'light on protein so far' or 'second restaurant meal today'>",
+  "restaurantAlternative": "<a similar-effort restaurant/fast-food option that fits better, or null if the considered choice is already solid>",
+  "homemadeAlternative": "<a quick homemade option, or null if homemade isn't realistic for the situation>"
+}
+""");
+        sb.AppendLine("Rules: judge the FOOD, not the venue. Zero-sugar drinks are not a concern. Respect the user's " +
+                      "stated goals — never push toward ideals they haven't chosen. Alternatives must be realistic for " +
+                      "the same situation (on the road means no homemade — return null). Be brief and practical, not preachy.");
+        AppendUserGoals(sb);
+        sb.AppendLine();
+        sb.AppendLine($"CONSIDERING: \"{considering.Trim()}\"");
+        sb.AppendLine();
+        await AppendTodayContextAsync(sb, db);
         return sb.ToString();
+    }
+
+    /// <summary>Runs the pre-meal advisor; null if the response is unusable.</summary>
+    public static async Task<MealAdvice?> AdviseMealAsync(string apiKey, string prompt)
+    {
+        var text = await GenerateAsync(apiKey, prompt);
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            return new(
+                root.TryGetProperty("verdict", out var v) ? v.GetString()?.ToLowerInvariant() ?? "fine" : "fine",
+                root.TryGetProperty("reason", out var r) ? r.GetString() ?? "" : "",
+                root.TryGetProperty("restaurantAlternative", out var ra) ? ra.GetString() : null,
+                root.TryGetProperty("homemadeAlternative", out var ha) ? ha.GetString() : null);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Runs the daily check-in and parses the tone/synopsis/tips.</summary>
