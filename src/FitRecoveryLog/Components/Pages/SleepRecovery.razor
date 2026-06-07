@@ -188,16 +188,38 @@
         await using var db = await DbFactory.CreateDbContextAsync();
         var existing = (await db.SleepEntries.Select(s => s.Date).ToListAsync()).ToHashSet();
         var added = 0;
-        foreach (var (date, hours) in nights)
+        foreach (var n in nights)
         {
-            if (existing.Contains(date)) continue; // don't overwrite manual entries
-            db.SleepEntries.Add(new SleepEntry { Date = date, DurationHours = Math.Round(hours, 1) });
-            existing.Add(date);
+            if (existing.Contains(n.Date)) continue; // don't overwrite manual entries
+            db.SleepEntries.Add(new SleepEntry
+            {
+                Date = n.Date,
+                DurationHours = Math.Round(n.Hours, 1),
+                // Score/interruptions only when Health has real stage detail —
+                // a bare "asleep" block isn't enough to estimate from.
+                Interruptions = n.HasDetail ? n.Interruptions : null,
+                SleepScore = n.HasDetail ? EstimateScore(n.Hours, n.Interruptions, n.DeepRemHours) : null,
+                Notes = n.HasDetail ? "Score estimated from Health sleep data" : null
+            });
+            existing.Add(n.Date);
             added++;
         }
         if (added > 0) await db.SaveChangesAsync();
         _pullMsg = added > 0 ? $"Imported {added} night(s) from Health." : "Already up to date with Health.";
+        // Diagnostic: make it visible when Health had no stage detail to score from.
+        if (nights.All(n => !n.HasDetail))
+            _pullMsg += " No sleep-stage data found in Health — score/interruptions need Watch-style stage tracking.";
         await LoadRecent();
+    }
+
+    /// <summary>Transparent heuristic when Health has stage data: duration vs 8h
+    /// (60 pts), continuity (25, −5 per awake period), deep+REM share vs ~40% (15).</summary>
+    private static int EstimateScore(double hours, int interruptions, double deepRem)
+    {
+        var duration = Math.Min(1.0, hours / 8.0) * 60;
+        var continuity = Math.Max(0, 25 - interruptions * 5);
+        var stages = hours > 0 ? Math.Min(1.0, deepRem / hours / 0.4) * 15 : 0;
+        return (int)Math.Round(duration + continuity + stages);
     }
 
     private void StartEdit(SleepEntry s)

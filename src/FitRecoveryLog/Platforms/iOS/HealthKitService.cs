@@ -116,41 +116,84 @@ public sealed class HealthKitService : IHealthService
         return tcs.Task;
     }
 
-    public Task<IReadOnlyList<(DateOnly, double)>> ReadSleepAsync(DateTime since)
+    private sealed class NightAgg
     {
-        var empty = (IReadOnlyList<(DateOnly, double)>)Array.Empty<(DateOnly, double)>();
+        public double Asleep, InBed, DeepRem;
+        public int Awake;
+        public bool Stages;
+        public readonly List<(DateTime Start, DateTime End)> AsleepSpans = new();
+    }
+
+    /// <summary>Interruptions for sources without explicit awake samples: gaps of
+    /// 5min–2h between merged asleep spans within the night.</summary>
+    private static int GapInterruptions(List<(DateTime Start, DateTime End)> spans)
+    {
+        if (spans.Count < 2) return 0;
+        spans.Sort((a, b) => a.Start.CompareTo(b.Start));
+        var gaps = 0;
+        var end = spans[0].End;
+        foreach (var s in spans.Skip(1))
+        {
+            var gap = (s.Start - end).TotalMinutes;
+            if (gap is >= 5 and <= 120) gaps++;
+            if (s.End > end) end = s.End;
+        }
+        return gaps;
+    }
+
+    public Task<IReadOnlyList<SleepNight>> ReadSleepAsync(DateTime since)
+    {
+        var empty = (IReadOnlyList<SleepNight>)Array.Empty<SleepNight>();
         if (_store is null) return Task.FromResult(empty);
 
         var predicate = HKQuery.GetPredicateForSamples((NSDate)since.ToUniversalTime(), null, HKQueryOptions.None);
-        var tcs = new TaskCompletionSource<IReadOnlyList<(DateOnly, double)>>();
+        var tcs = new TaskCompletionSource<IReadOnlyList<SleepNight>>();
         var query = new HKSampleQuery(_sleep, predicate, 0, null, (_, results, _) =>
         {
             // Aggregate per night, keyed by the local date the sample ended (wake day).
-            // Asleep stages: AsleepUnspecified(1), AsleepCore(3), AsleepDeep(4), AsleepREM(5).
-            // InBed(0)/Awake(2) excluded; fall back to InBed only if no asleep stages.
-            var asleep = new Dictionary<DateOnly, double>();
-            var inBed = new Dictionary<DateOnly, double>();
+            // Values: InBed(0), AsleepUnspecified(1), Awake(2), AsleepCore(3),
+            // AsleepDeep(4), AsleepREM(5). Stage detail (3-5 or awake gaps) is what
+            // lets us estimate interruptions and a score; a bare InBed/Unspecified
+            // block doesn't.
+            var agg = new Dictionary<DateOnly, NightAgg>();
             if (results is not null)
             {
                 foreach (var s in results.OfType<HKCategorySample>())
                 {
                     var start = ((DateTime)s.StartDate).ToLocalTime();
                     var end = ((DateTime)s.EndDate).ToLocalTime();
-                    var night = DateOnly.FromDateTime(end);
+                    // Key by wake day. Stage samples are individual segments, so the
+                    // pre-midnight ones must roll FORWARD to the same night as the
+                    // morning ones (ending in the evening = belongs to tomorrow's wake).
+                    var night = DateOnly.FromDateTime(end.Hour >= 18 ? end.AddDays(1) : end);
                     var hours = (end - start).TotalHours;
                     if (hours <= 0) continue;
-                    var v = s.Value;
-                    if (v == 1 || v == 3 || v == 4 || v == 5)
-                        asleep[night] = (asleep.TryGetValue(night, out var a) ? a : 0) + hours;
-                    else if (v == 0)
-                        inBed[night] = (inBed.TryGetValue(night, out var b) ? b : 0) + hours;
+                    if (!agg.TryGetValue(night, out var n)) agg[night] = n = new NightAgg();
+                    switch (s.Value)
+                    {
+                        case 0: n.InBed += hours; break;
+                        case 1: n.Asleep += hours; n.AsleepSpans.Add((start, end)); break;
+                        case 2: n.Awake++; n.Stages = true; break;
+                        case 3: n.Asleep += hours; n.Stages = true; n.AsleepSpans.Add((start, end)); break;
+                        case 4 or 5: n.Asleep += hours; n.DeepRem += hours; n.Stages = true; n.AsleepSpans.Add((start, end)); break;
+                    }
                 }
             }
-            var nights = asleep.Keys.Union(inBed.Keys);
-            var list = nights
-                .Select(n => (n, Hours: asleep.TryGetValue(n, out var a) && a > 0 ? a : inBed.GetValueOrDefault(n)))
+            var list = agg
+                .Select(kv =>
+                {
+                    var n = kv.Value;
+                    // Explicit awake samples when present; otherwise count the gaps
+                    // between asleep segments (sources without stage tracking).
+                    var gapCount = GapInterruptions(n.AsleepSpans);
+                    var interruptions = Math.Max(n.Awake, gapCount);
+                    var hasDetail = n.Stages || n.AsleepSpans.Count > 1;
+                    return new SleepNight(kv.Key,
+                        n.Asleep > 0 ? n.Asleep : n.InBed,
+                        interruptions, n.DeepRem, hasDetail);
+                })
                 .Where(x => x.Hours > 0)
-                .OrderByDescending(x => x.n)
+                .OrderByDescending(x => x.Date)
                 .ToList();
             tcs.TrySetResult(list);
         });

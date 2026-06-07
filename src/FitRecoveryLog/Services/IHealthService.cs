@@ -29,9 +29,14 @@ public interface IHealthService
     /// <summary>Total step count for a single day, or null if unavailable.</summary>
     Task<int?> ReadStepsAsync(DateOnly date);
 
-    /// <summary>Asleep hours per night (keyed by the date you woke up) since the given time.</summary>
-    Task<IReadOnlyList<(DateOnly Date, double Hours)>> ReadSleepAsync(DateTime since);
+    /// <summary>Sleep per night (keyed by the date you woke up) since the given time.</summary>
+    Task<IReadOnlyList<SleepNight>> ReadSleepAsync(DateTime since);
 }
+
+/// <summary>One night from Health. <see cref="HasDetail"/> is false when the source
+/// recorded only a single undifferentiated block (no stages, no gaps) — too thin to
+/// estimate interruptions or a score from.</summary>
+public sealed record SleepNight(DateOnly Date, double Hours, int Interruptions, double DeepRemHours, bool HasDetail);
 
 /// <summary>Used on non-iOS targets (and when HealthKit is unavailable).</summary>
 public sealed class NoopHealthService : IHealthService
@@ -46,6 +51,6 @@ public sealed class NoopHealthService : IHealthService
         Task.FromResult<IReadOnlyList<(DateOnly, double)>>(Array.Empty<(DateOnly, double)>());
     public Task WriteWorkoutAsync(DateTime start, DateTime end, string name) => Task.CompletedTask;
     public Task<int?> ReadStepsAsync(DateOnly date) => Task.FromResult<int?>(null);
-    public Task<IReadOnlyList<(DateOnly, double)>> ReadSleepAsync(DateTime since) =>
-        Task.FromResult<IReadOnlyList<(DateOnly, double)>>(Array.Empty<(DateOnly, double)>());
+    public Task<IReadOnlyList<SleepNight>> ReadSleepAsync(DateTime since) =>
+        Task.FromResult<IReadOnlyList<SleepNight>>(Array.Empty<SleepNight>());
 }
