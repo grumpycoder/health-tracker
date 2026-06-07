@@ -1,8 +1,8 @@
 {
   "id": "46",
-  "subject": "AI pre-meal advisor: \"I'm thinking about…\"",
+  "subject": "AI pre-meal advisor: \"I'm thinking about…\" (built, device-tested)",
   "description": "Before eating, tell the AI what you're considering (e.g. 'Chipotle bowl', 'frozen pizza', 'Wendy's on the road') and get a contextual verdict. Build on the daily check-in plumbing (BuildDailyPromptAsync context: today's meals/drinks so far, sleep, workout, day type, 7-day meal names, coaching goals, today's notes) plus the considered item. Output: verdict (good / fine / reconsider) with one-line reasoning grounded in today ('light on protein so far', 'sodium already high'), and TWO alternatives — one restaurant/fast-food-style and one homemade — under the existing rules (judge the food not the venue, respect user goals, no zero-pushing, zero-sugar drinks fine). UI: '🤔 Thinking about…' input + Ask button on the Meals page near the log form; a 'Going with it' button pre-fills the meal form with the chosen option so advice flows into the log. One Gemini call per ask, on demand.",
-  "status": "pending",
+  "status": "completed",
   "blocks": [],
   "blockedBy": []
 }
