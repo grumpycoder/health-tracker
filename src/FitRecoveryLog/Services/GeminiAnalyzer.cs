@@ -18,6 +18,25 @@ public static class GeminiAnalyzer
 {
     /// <summary>Preferences key for the explicit cessation-data opt-in (default off).</summary>
     public const string IncludeCessationPrefKey = "ai_include_cessation";
+
+    /// <summary>Preferences key for the user's own coaching goals/intentions —
+    /// included in every prompt as the success criteria, so the AI coaches toward
+    /// the user's chosen targets instead of implicit ideals (e.g. "sweet tea to
+    /// zero" when the user is deliberately maintaining 16oz/day).</summary>
+    public const string UserGoalsPrefKey = "ai_user_goals";
+
+    private static void AppendUserGoals(StringBuilder sb)
+    {
+        var goals = Microsoft.Maui.Storage.Preferences.Default.Get<string?>(UserGoalsPrefKey, null);
+        if (string.IsNullOrWhiteSpace(goals)) return;
+        sb.AppendLine("USER'S STATED GOALS & PREFERENCES — these are the success criteria. Coach adherence " +
+                      "to THEM; never push toward an implicit ideal (like zero) the user hasn't chosen. " +
+                      "EXCEPTION: if a goal is clearly unhealthy or unsafe (crash dieting, dangerous targets, " +
+                      "overtraining through pain), do NOT coach toward it — say plainly why, and suggest " +
+                      "discussing it with a doctor where appropriate:");
+        foreach (var line in goals.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            sb.AppendLine($"  - {line}");
+    }
     private const string Model = "gemini-2.5-flash";
     private const int WindowDays = 56; // 8 weeks
 
@@ -73,6 +92,9 @@ public static class GeminiAnalyzer
                       "acknowledge the reduction and suggest the next moderation step rather than blanket elimination.");
         sb.AppendLine("Judge the FOOD, not the venue: a grilled chicken sandwich from a drive-thru is a reasonable " +
                       "protein choice — don't penalize restaurant/fast-food meals as a category; assess what was actually eaten.");
+        sb.AppendLine("Zero-sugar drinks (Coke Zero, diet soda, sugar-free) are NOT sugary drinks — treat them as " +
+                      "taste variety, not a concern.");
+        AppendUserGoals(sb);
         sb.AppendLine();
 
         sb.AppendLine("WORKOUTS:");
@@ -184,6 +206,8 @@ public static class GeminiAnalyzer
         sb.AppendLine("- Use TODAY'S NOTES for circumstances (travel, events, busy days). A fast-food dinner on a day spent out running errands is life, not failure.");
         sb.AppendLine("- Use LAST 7 DAYS to tell one-off indulgences from patterns. A single off-plan meal in an otherwise solid stretch gets a light touch ('enjoy it, back to normal tomorrow'); direct warnings are for things repeating across several days.");
         sb.AppendLine("- Judge the FOOD, not the venue. A grilled chicken sandwich from a drive-thru is a reasonable protein choice, not a lapse; a burger-and-fries combo is different. Don't penalize 'restaurant/fast food' as a category — eating-out sodium is worth one mention only when frequent.");
+        sb.AppendLine("- Zero-sugar drinks (Coke Zero, diet soda, sugar-free) are NOT sugary drinks — taste variety, not a concern.");
+        AppendUserGoals(sb);
         sb.AppendLine("If little is logged yet, say so and suggest what to log.");
         sb.AppendLine();
         sb.AppendLine($"NOW: {now:yyyy-MM-dd HH:mm} ({now.DayOfWeek})");

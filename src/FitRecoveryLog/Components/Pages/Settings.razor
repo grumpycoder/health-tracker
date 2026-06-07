@@ -32,12 +32,34 @@
     </section>
 
     <section class="card">
+        <h2>Coaching Goals</h2>
+        <p class="muted" style="margin:0 0 0.6rem">
+            Tell the AI what <em>you're</em> aiming for, one per line. It coaches toward your
+            targets instead of assuming everything should go to zero — e.g.
+            "Sweet tea: holding at ~16oz/day over 2 meals, not quitting" or
+            "Coke Zero is my water alternative, leave it alone."
+        </p>
+        <div class="field">
+            <textarea rows="4" @bind="_goals" placeholder="One goal or preference per line"></textarea>
+        </div>
+        <button class="save-btn" @onclick="SaveGoals">Save Goals</button>
+        @if (_goalsSaved)
+        {
+            <span class="saved-msg">Saved ✓</span>
+        }
+    </section>
+
+    <section class="card">
         <h2>What Gets Sent to the AI</h2>
         <p style="margin:0 0 0.4rem"><strong>Sent</strong> (full analysis, last 8 weeks): workouts (exercises, sets,
-        ratings, comments), meals & drinks, sleep entries, and body-measurement numbers (weight, waist, etc.).</p>
+        ratings, comments), meals & drinks, sleep entries, body-measurement numbers (weight, waist, etc.),
+        and your coaching goals above.</p>
         <p style="margin:0 0 0.4rem"><strong>Sent</strong> (daily check-in): today's meals & drinks, last night's
-        sleep, today's workout, physical workload activities, and the planned day type.</p>
-        <p style="margin:0 0 0.4rem"><strong>Never sent:</strong> medications, labs, photos, daily notes,
+        sleep, today's workout, physical workload, the planned day type, the last 7 days of meal names,
+        your coaching goals, and <strong>today's notes</strong> (for context — keep private details out of notes).</p>
+        <p style="margin:0 0 0.4rem"><strong>Opt-in only:</strong> cessation (substance) progress — toggle on the
+        Cessation page, off by default.</p>
+        <p style="margin:0 0 0.4rem"><strong>Never sent:</strong> medications, labs, photos, past-day notes,
         clothing-fit notes, or anything identifying.</p>
         <p class="muted" style="margin:0">Heads-up: Google's free tier may use submitted text to improve
         its models. That's why medication and lab data are excluded by design.</p>
@@ -47,12 +69,21 @@
 @code {
     private string _key = "";
     private bool _saved, _hasKey;
+    private string _goals = "";
+    private bool _goalsSaved;
 
     protected override async Task OnInitializedAsync()
     {
         var existing = await GeminiAnalyzer.KeyStore.GetAsync();
         _hasKey = !string.IsNullOrEmpty(existing);
         if (_hasKey) _key = existing!;
+        _goals = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.UserGoalsPrefKey, "");
+    }
+
+    private void SaveGoals()
+    {
+        Microsoft.Maui.Storage.Preferences.Default.Set(GeminiAnalyzer.UserGoalsPrefKey, _goals.Trim());
+        _goalsSaved = true;
     }
 
     private async Task SaveKey()
