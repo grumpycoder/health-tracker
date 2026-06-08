@@ -102,8 +102,7 @@
         </section>
     }
 
-    <section class="card">
-        <h2>Recent sleep</h2>
+    <Collapsible Title="Recent sleep" Subtitle="@($"{_recentSleep.Count} night(s)")" PersistKey="sleep-recent">
         @if (_recentSleep.Count == 0)
         {
             <p class="muted">No sleep entries yet.</p>
@@ -153,7 +152,7 @@
                 }
             </ul>
         }
-    </section>
+    </Collapsible>
 </div>
 
 @code {

@@ -38,8 +38,7 @@
 {
     @if (_hasAiKey)
     {
-        <section class="card">
-            <h2>🤔 Thinking about…</h2>
+        <Collapsible Title="🤔 Thinking about…" Subtitle="get a quick verdict" PersistKey="meals-advisor">
             <div class="field">
                 <input @bind="_considering" placeholder="e.g. Chipotle bowl, frozen pizza" />
             </div>
@@ -70,7 +69,7 @@
                     Going with it → prefill the log below
                 </button>
             }
-        </section>
+        </Collapsible>
     }
 
     <section class="card">

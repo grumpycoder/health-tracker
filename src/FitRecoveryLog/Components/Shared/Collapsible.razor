@@ -1,0 +1,44 @@
+@* A card whose body collapses behind a tap-to-expand header. Keeps chip-heavy
+   pages short; optional Subtitle shows a one-line summary while collapsed.
+   PersistKey remembers the open/closed choice across navigations. *@
+
+<section class="card">
+    <h2 style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:0.6rem;margin:0"
+        @onclick="Toggle">
+        <span>@Title</span>
+        <span style="display:flex;align-items:center;gap:0.5rem">
+            @if (!_open && !string.IsNullOrWhiteSpace(Subtitle))
+            {
+                <span class="muted" style="font-weight:400;font-size:0.8rem">@Subtitle</span>
+            }
+            <span class="muted">@(_open ? "▾" : "▸")</span>
+        </span>
+    </h2>
+    @if (_open)
+    {
+        <div style="margin-top:0.7rem">@ChildContent</div>
+    }
+</section>
+
+@code {
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public bool StartOpen { get; set; }
+    [Parameter] public string? PersistKey { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private bool _open;
+
+    protected override void OnInitialized()
+    {
+        _open = PersistKey is { } k
+            ? Microsoft.Maui.Storage.Preferences.Default.Get($"collapse_{k}", StartOpen)
+            : StartOpen;
+    }
+
+    private void Toggle()
+    {
+        _open = !_open;
+        if (PersistKey is { } k) Microsoft.Maui.Storage.Preferences.Default.Set($"collapse_{k}", _open);
+    }
+}

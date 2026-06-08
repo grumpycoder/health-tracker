@@ -183,11 +183,15 @@
                 </div>
             }
 
-            @{ var recent = _events.Where(e => e.GoalId == g.Id).Take(12).ToList(); }
-            @if (recent.Count > 0)
-            {
-                <div style="margin-top:0.9rem">
-                    <h2 style="font-size:1rem">Recent log <span class="muted" style="font-weight:400">· tap to tag the cue</span></h2>
+            <div style="margin-top:0.9rem;text-align:right">
+                <button class="link-btn danger" @onclick="() => Deactivate(g)">Stop tracking</button>
+            </div>
+        </section>
+
+        @if (_events.Any(e => e.GoalId == g.Id))
+        {
+            var recent = _events.Where(e => e.GoalId == g.Id).Take(12).ToList();
+            <Collapsible Title="Recent log" Subtitle="tap to tag cues" PersistKey="@($"cess-recent-{g.Id}")">
                     <ul class="timeline">
                         @foreach (var ev in recent)
                         {
@@ -234,14 +238,12 @@
                             </li>
                         }
                     </ul>
-                </div>
-            }
+            </Collapsible>
+        }
 
-            @{ var breakdown = TriggerBreakdown(g); }
-            @if (breakdown.Count > 0)
-            {
-                <div style="margin-top:0.9rem">
-                    <h2 style="font-size:1rem">Triggers to break <span class="muted" style="font-weight:400">· last 14 days</span></h2>
+        @if (TriggerBreakdown(g) is { Count: > 0 } breakdown)
+        {
+            <Collapsible Title="Triggers to break" Subtitle="@($"{breakdown.Count} cue(s) · 14d")" PersistKey="@($"cess-trig-{g.Id}")">
                     <p class="muted" style="font-size:0.75rem;margin:0 0 0.4rem">
                         Your most frequent cues. Tap 🎯 to focus on breaking one — work it down before the next.
                     </p>
@@ -277,17 +279,12 @@
                               : f.Recent == 0 ? "none lately — looks broken. Pick the next one." : "holding steady — pick a specific swap for this cue.")
                         </p>
                     }
-                </div>
-            }
-
-            <div style="margin-top:0.9rem;text-align:right">
-                <button class="link-btn danger" @onclick="() => Deactivate(g)">Stop tracking</button>
-            </div>
-        </section>
+            </Collapsible>
+        }
     }
 
-    <section class="card">
-        <h2>@(_goals.Any(g => g.Active) ? "Add another goal" : "Start a cessation goal")</h2>
+    <Collapsible Title="@(_goals.Any(g => g.Active) ? "Add another goal" : "Start a cessation goal")"
+                 StartOpen="@(!_goals.Any(g => g.Active))">
         <div class="field">
             <label>What are you quitting?</label>
             <input @bind="_newGoal.Substance" placeholder="e.g. Tobacco, Alcohol" />
@@ -354,10 +351,9 @@
         {
             <span class="warn-msg">@_addError</span>
         }
-    </section>
+    </Collapsible>
 
-    <section class="card">
-        <h2>AI privacy</h2>
+    <Collapsible Title="AI privacy" Subtitle="@(_aiOptIn ? "included" : "excluded (default)")" PersistKey="cess-aiprivacy">
         <p class="muted" style="margin:0 0 0.5rem">
             Cessation data stays on this device and is <strong>never</strong> sent to the AI
             unless you turn this on. When on, the daily check-in sees quit days and
@@ -366,7 +362,7 @@
         <button type="button" class="chip @(_aiOptIn ? "selected" : "")" @onclick="ToggleAiOptIn">
             @(_aiOptIn ? "✓ Included in AI check-ins" : "Excluded from AI (default)")
         </button>
-    </section>
+    </Collapsible>
 </div>
 
 @code {

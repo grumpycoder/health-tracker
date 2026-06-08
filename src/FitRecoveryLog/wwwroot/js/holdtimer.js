@@ -51,6 +51,16 @@
         }
     };
 
+    // Reset scroll on navigation — Blazor otherwise keeps the previous page's
+    // scroll position when you switch screens.
+    window.scrollContentTop = function () {
+        try {
+            (document.querySelector(".content") || document.scrollingElement || document.documentElement)
+                .scrollTo({ top: 0, behavior: "auto" });
+            window.scrollTo(0, 0);
+        } catch (e) { }
+    };
+
     window.holdTimer = {
         arm() {
             try { ensure(); } catch (e) { }

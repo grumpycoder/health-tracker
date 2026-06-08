@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 @inject IDbContextFactory<AppDbContext> DbFactory
 
 <div class="app-shell">
@@ -36,10 +37,15 @@
     protected override void OnInitialized()
     {
         NotificationNav.RouteRequested += OnRouteRequested;
+        Nav.LocationChanged += OnLocationChanged;
         // Cold start from a notification tap: the route was stashed before Blazor loaded.
         if (NotificationNav.Consume() is { } route)
             Nav.NavigateTo(route);
     }
+
+    // Switching screens otherwise keeps the previous page's scroll position.
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) =>
+        _ = InvokeAsync(async () => { try { await JS.InvokeVoidAsync("scrollContentTop"); } catch { } });
 
     // Warm tap: hop onto the renderer thread before navigating.
     private void OnRouteRequested(string route) =>
@@ -61,5 +67,9 @@
         catch { /* never block app startup on notification cleanup */ }
     }
 
-    public void Dispose() => NotificationNav.RouteRequested -= OnRouteRequested;
+    public void Dispose()
+    {
+        NotificationNav.RouteRequested -= OnRouteRequested;
+        Nav.LocationChanged -= OnLocationChanged;
+    }
 }
