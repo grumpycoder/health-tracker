@@ -85,13 +85,25 @@
                         Logged ✓ — @UsedToday(g).ToString("0.#") of @(TodaysAllowance(g)?.ToString() ?? "–") today
                     </p>
                     <div class="chip-row" style="justify-content:center">
-                        @foreach (var t in Triggers)
+                        @foreach (var t in _triggerOptions)
                         {
                             <button type="button" class="chip @(_lastUseTrigger == t ? "selected" : "")"
                                     @onclick="() => TagLastUse(t)">@t</button>
                         }
+                        @if (_customTriggerFor == "log")
+                        {
+                            <input style="flex:1;min-width:8rem;max-width:12rem;border-radius:999px;padding:0.3rem 0.8rem"
+                                   placeholder="New cue" @bind="_customTriggerDraft" @bind:event="oninput"
+                                   @onkeydown="@(async e => { if (e.Key == "Enter") await TagLastUseCustom(); })" />
+                            <button type="button" class="chip" @onclick="TagLastUseCustom">Add</button>
+                        }
+                        else
+                        {
+                            <button type="button" class="chip" title="Add a custom cue"
+                                    @onclick="() => OpenCustomTrigger(LogPanelKey)">＋</button>
+                        }
                     </div>
-                    <p class="muted" style="font-size:0.75rem;margin:0.3rem 0 0">tap a trigger to tag it — optional</p>
+                    <p class="muted" style="font-size:0.75rem;margin:0.3rem 0 0">tap what you were doing — optional</p>
                 </div>
             }
 
@@ -142,16 +154,7 @@
                                 }
                             </div>
                         </div>
-                        <div class="field">
-                            <label>Trigger</label>
-                            <div class="chip-row">
-                                @foreach (var t in Triggers)
-                                {
-                                    <button type="button" class="chip @(_evTrigger == t ? "selected" : "")"
-                                            @onclick="() => _evTrigger = _evTrigger == t ? null : t">@t</button>
-                                }
-                            </div>
-                        </div>
+                        @TriggerChips("sos")
                         <button class="save-btn" @onclick="() => StartSos(g)">▶ Log craving + ride it out (5 min)</button>
                         <button class="link-btn" style="width:100%;margin-top:0.5rem" @onclick="() => LogCravingOnly(g)">Just log it</button>
                     }
@@ -167,16 +170,7 @@
                             <input type="number" inputmode="decimal" min="0" step="1" @bind="_slipAmount" />
                         </div>
                     </div>
-                    <div class="field">
-                        <label>Trigger</label>
-                        <div class="chip-row">
-                            @foreach (var t in Triggers)
-                            {
-                                <button type="button" class="chip @(_evTrigger == t ? "selected" : "")"
-                                        @onclick="() => _evTrigger = _evTrigger == t ? null : t">@t</button>
-                            }
-                        </div>
-                    </div>
+                    @TriggerChips("slip")
                     <div class="field">
                         <textarea rows="2" @bind="_evNotes" placeholder="Optional note — what happened?"></textarea>
                     </div>
@@ -186,6 +180,103 @@
                             ? "Counts toward today's allowance — staying near the plan is the win."
                             : "A slip doesn't reset your quit date — it's one data point on the way out.")
                     </p>
+                </div>
+            }
+
+            @{ var recent = _events.Where(e => e.GoalId == g.Id).Take(12).ToList(); }
+            @if (recent.Count > 0)
+            {
+                <div style="margin-top:0.9rem">
+                    <h2 style="font-size:1rem">Recent log <span class="muted" style="font-weight:400">· tap to tag the cue</span></h2>
+                    <ul class="timeline">
+                        @foreach (var ev in recent)
+                        {
+                            <li>
+                                <div class="ex-row" style="width:100%">
+                                    <div>
+                                        <span class="time">@ev.Time.ToString("MMM d, h:mm tt")</span>
+                                        <span class="entry">
+                                            @(ev.Type == CessationEventType.Craving ? "😮‍💨 craving" : $"🚬 {ev.Amount ?? 1:0.#} {(g.UnitName ?? "unit")}")
+                                            @if (!string.IsNullOrWhiteSpace(ev.Trigger))
+                                            {
+                                                <span class="badge">@ev.Trigger</span>
+                                            }
+                                        </span>
+                                    </div>
+                                    <button class="icon-action" title="Tag cue" aria-label="Tag cue"
+                                            @onclick="() => _tagEventId = _tagEventId == ev.Id ? null : ev.Id">🏷️</button>
+                                </div>
+                                @if (_tagEventId == ev.Id)
+                                {
+                                    <div class="chip-row" style="margin-top:0.4rem">
+                                        @foreach (var t in _triggerOptions)
+                                        {
+                                            <button type="button" class="chip @(string.Equals(ev.Trigger, t, StringComparison.OrdinalIgnoreCase) ? "selected" : "")"
+                                                    @onclick="() => TagEvent(ev.Id, t)">@t</button>
+                                        }
+                                        @if (_customTriggerFor == ev.Id.ToString())
+                                        {
+                                            <input style="flex:1;min-width:8rem;max-width:12rem;border-radius:999px;padding:0.3rem 0.8rem"
+                                                   placeholder="New cue" @bind="_customTriggerDraft" @bind:event="oninput" />
+                                            <button type="button" class="chip" @onclick="() => TagEventCustom(ev.Id)">Add</button>
+                                        }
+                                        else
+                                        {
+                                            <button type="button" class="chip" title="Add a custom cue"
+                                                    @onclick="() => OpenCustomTrigger(ev.Id.ToString())">＋</button>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(ev.Trigger))
+                                        {
+                                            <button type="button" class="chip" @onclick="() => TagEvent(ev.Id, null)">clear</button>
+                                        }
+                                    </div>
+                                }
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @{ var breakdown = TriggerBreakdown(g); }
+            @if (breakdown.Count > 0)
+            {
+                <div style="margin-top:0.9rem">
+                    <h2 style="font-size:1rem">Triggers to break <span class="muted" style="font-weight:400">· last 14 days</span></h2>
+                    <p class="muted" style="font-size:0.75rem;margin:0 0 0.4rem">
+                        Your most frequent cues. Tap 🎯 to focus on breaking one — work it down before the next.
+                    </p>
+                    <table class="history"><tbody>
+                        @foreach (var b in breakdown)
+                        {
+                            var isFocus = string.Equals(g.FocusTrigger, b.Trigger, StringComparison.OrdinalIgnoreCase);
+                            var delta = b.Recent - b.Prior;
+                            <tr style="@(isFocus ? "font-weight:600" : "")">
+                                <td>
+                                    <button type="button" class="link-btn" style="padding:0;font-size:1rem"
+                                            title="@(isFocus ? "Stop focusing" : "Focus on breaking this")"
+                                            @onclick="() => SetFocusTrigger(g, isFocus ? null : b.Trigger)">@(isFocus ? "🎯" : "○")</button>
+                                    @b.Trigger
+                                </td>
+                                <td class="num">
+                                    @b.Recent
+                                    @if (b.Prior > 0)
+                                    {
+                                        <span class="muted" style="font-weight:400"> @(delta < 0 ? $"▼{-delta}" : delta > 0 ? $"▲{delta}" : "—") vs prior</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody></table>
+                    @if (g.FocusTrigger is { } focus)
+                    {
+                        var f = breakdown.FirstOrDefault(x => string.Equals(x.Trigger, focus, StringComparison.OrdinalIgnoreCase));
+                        <p class="muted" style="font-size:0.8rem;margin:0.4rem 0 0">
+                            🎯 Breaking <strong>@focus</strong>:
+                            @(f.Recent < f.Prior ? $"down {f.Prior - f.Recent} from the prior 14 days — working. Keep going."
+                              : f.Recent > f.Prior ? $"up {f.Recent - f.Prior} — try a replacement action when this cue hits."
+                              : f.Recent == 0 ? "none lately — looks broken. Pick the next one." : "holding steady — pick a specific swap for this cue.")
+                        </p>
+                    }
                 </div>
             }
 
@@ -279,8 +370,52 @@
 </div>
 
 @code {
-    private static readonly string[] Triggers =
-        { "Stress", "Social", "Boredom", "After meal", "Alcohol", "Ritual", "Pre-meeting", "Post-meeting", "Morning routine", "Driving" };
+    // Starter cues — concrete events first (the breakable kind), emotional states
+    // after. Users add their own via ＋; anything they've logged joins the list.
+    private static readonly string[] StarterTriggers =
+        { "After coffee", "After meal", "Phone call", "After shower", "Got in car", "Waking up",
+          "Work break", "Pre-meeting", "Post-meeting", "Alcohol", "Stress", "Boredom", "Social" };
+
+    // Starters + any custom triggers already used in events (rebuilt on load).
+    private List<string> _triggerOptions = new();
+
+    // Open inline "＋ custom trigger" input, scoped to which panel requested it.
+    private const string LogPanelKey = "log";
+    private string? _customTriggerFor;
+    private string _customTriggerDraft = "";
+
+    private void OpenCustomTrigger(string key)
+    {
+        _customTriggerFor = key;
+        _customTriggerDraft = "";
+    }
+
+    // Which recent-log event has its tag picker open.
+    private Guid? _tagEventId;
+
+    /// <summary>Set or clear the cue on any past event — no time pressure.</summary>
+    private async Task TagEvent(Guid id, string? trigger)
+    {
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            var e = await db.CessationEvents.FindAsync(id);
+            if (e is not null) { e.Trigger = trigger; await db.SaveChangesAsync(); }
+        }
+        _tagEventId = null;
+        _customTriggerFor = null;
+        await Load();
+    }
+
+    private async Task TagEventCustom(Guid id)
+    {
+        var t = _customTriggerDraft.Trim();
+        _customTriggerFor = null;
+        _customTriggerDraft = "";
+        if (string.IsNullOrWhiteSpace(t)) return;
+        var existing = _triggerOptions.FirstOrDefault(x => x.Equals(t, StringComparison.OrdinalIgnoreCase));
+        if (existing is null) _triggerOptions.Add(t); else t = existing;
+        await TagEvent(id, t);
+    }
     private static readonly int[] MilestoneDays = { 1, 3, 7, 14, 30, 90, 180, 365 };
     private const int SosSeconds = 300;
 
@@ -344,7 +479,86 @@
         await using var db = await DbFactory.CreateDbContextAsync();
         _goals = await db.CessationGoals.OrderBy(g => g.Substance).ToListAsync();
         _events = await db.CessationEvents.OrderByDescending(e => e.Time).ToListAsync();
+
+        // Trigger chips = starters + every custom trigger already logged.
+        _triggerOptions = StarterTriggers
+            .Concat(_events.Select(e => e.Trigger).Where(t => !string.IsNullOrWhiteSpace(t))!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList()!;
     }
+
+    /// <summary>Per-trigger counts for a goal's events in a recent window, plus the
+    /// prior window for trend — the "what to break first" breakdown.</summary>
+    private List<(string Trigger, int Recent, int Prior)> TriggerBreakdown(CessationGoal g, int days = 14)
+    {
+        var now = DateTime.Now;
+        var recentFrom = now.AddDays(-days);
+        var priorFrom = now.AddDays(-2 * days);
+        return _events
+            .Where(e => e.GoalId == g.Id && !string.IsNullOrWhiteSpace(e.Trigger) && e.Time >= priorFrom)
+            .GroupBy(e => e.Trigger!, StringComparer.OrdinalIgnoreCase)
+            .Select(grp => (
+                Trigger: grp.Key,
+                Recent: grp.Count(e => e.Time >= recentFrom),
+                Prior: grp.Count(e => e.Time < recentFrom)))
+            .Where(x => x.Recent > 0 || x.Prior > 0)
+            .OrderByDescending(x => x.Recent).ThenByDescending(x => x.Prior)
+            .ToList();
+    }
+
+    private async Task SetFocusTrigger(CessationGoal g, string? trigger)
+    {
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            var e = await db.CessationGoals.FindAsync(g.Id);
+            if (e is not null) { e.FocusTrigger = trigger; await db.SaveChangesAsync(); }
+        }
+        await Load();
+    }
+
+    /// <summary>Apply a chosen trigger (chip or custom) to the open entry panel.</summary>
+    private void PickTrigger(string trigger)
+    {
+        _evTrigger = string.Equals(_evTrigger, trigger, StringComparison.OrdinalIgnoreCase) ? null : trigger;
+        _customTriggerFor = null;
+        _customTriggerDraft = "";
+    }
+
+    private void AddCustomTrigger(string panelKey)
+    {
+        var t = _customTriggerDraft.Trim();
+        _customTriggerFor = null;
+        _customTriggerDraft = "";
+        if (string.IsNullOrWhiteSpace(t)) return;
+        var existing = _triggerOptions.FirstOrDefault(x => x.Equals(t, StringComparison.OrdinalIgnoreCase));
+        if (existing is null) _triggerOptions.Add(t); else t = existing;
+        _evTrigger = t;
+    }
+
+    // Trigger chips + ＋custom for an entry panel (binds the shared _evTrigger).
+    private RenderFragment TriggerChips(string key) =>
+        @<div class="field">
+            <label>Trigger <span class="muted">— what were you doing?</span></label>
+            <div class="chip-row">
+                @foreach (var t in _triggerOptions)
+                {
+                    <button type="button" class="chip @(_evTrigger == t ? "selected" : "")"
+                            @onclick="() => PickTrigger(t)">@t</button>
+                }
+                @if (_customTriggerFor == key)
+                {
+                    <input style="flex:1;min-width:8rem;max-width:12rem;border-radius:999px;padding:0.3rem 0.8rem"
+                           placeholder="New cue" @bind="_customTriggerDraft" @bind:event="oninput"
+                           @onkeydown="@(e => { if (e.Key == "Enter") AddCustomTrigger(key); })" />
+                    <button type="button" class="chip" @onclick="() => AddCustomTrigger(key)">Add</button>
+                }
+                else
+                {
+                    <button type="button" class="chip" title="Add a custom cue"
+                            @onclick="() => OpenCustomTrigger(key)">＋</button>
+                }
+            </div>
+        </div>;
 
     private record GoalStats(int DaysQuit, int? DaysSinceSlip, double? MoneySaved,
         int CravingsThisWeek, int SlipsThisWeek, int CravingsLastWeek, int SlipsLastWeek);
@@ -404,6 +618,18 @@
         _lastUseTrigger = trigger;
         await Load();
         _ = HideUseFeedbackAfter(1200);
+    }
+
+    /// <summary>Tag the just-logged unit with a new custom cue, remembering it.</summary>
+    private async Task TagLastUseCustom()
+    {
+        var t = _customTriggerDraft.Trim();
+        _customTriggerFor = null;
+        _customTriggerDraft = "";
+        if (string.IsNullOrWhiteSpace(t)) return;
+        var existing = _triggerOptions.FirstOrDefault(x => x.Equals(t, StringComparison.OrdinalIgnoreCase));
+        if (existing is null) _triggerOptions.Add(t); else t = existing;
+        await TagLastUse(t);
     }
 
     private async Task HideUseFeedbackAfter(int ms)

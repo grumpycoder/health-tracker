@@ -304,6 +304,8 @@ public class CessationGoal : EntityBase
     public bool Active { get; set; } = true;
     /// <summary>Stable id for milestone notifications.</summary>
     public int NotificationId { get; set; }
+    /// <summary>The one trigger the user is actively trying to break, if any.</summary>
+    public string? FocusTrigger { get; set; }
 }
 
 public enum CessationEventType { Craving = 0, Slip = 1 }

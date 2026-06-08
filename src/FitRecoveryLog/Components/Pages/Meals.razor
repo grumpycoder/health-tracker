@@ -101,7 +101,7 @@
                     @foreach (var f in foodMatches)
                     {
                         <button type="button" class="chip @(string.Equals(f, _meal.Description?.Trim(), StringComparison.OrdinalIgnoreCase) ? "selected" : "")"
-                                @onclick="() => _meal.Description = f">@f</button>
+                                @onclick="() => SelectFood(f)">@f</button>
                     }
                 </div>
             }
@@ -306,9 +306,21 @@
 
     // Saved food/drink names (typeahead libraries) — seed list + everything logged.
     private List<string> _foodLib = new();
+    // Food name -> most recent (portion, tags), to prefill on selection.
+    private Dictionary<string, (string? Portion, string? Tags)> _foodDefaults = new(StringComparer.OrdinalIgnoreCase);
+
+    private void SelectFood(string name)
+    {
+        _meal.Description = name;
+        if (_foodDefaults.TryGetValue(name, out var d))
+        {
+            if (string.IsNullOrWhiteSpace(_meal.PortionNote)) _meal.PortionNote = d.Portion;
+            _mealTagBox.Load(CsvField.Split(d.Tags)); // reuse last time's tags
+        }
+    }
     private List<string> _drinkLib = new();
-    // Drink name -> most recent (ounces, sugar), to prefill on selection.
-    private Dictionary<string, (double? Oz, int? Sugar)> _drinkDefaults = new(StringComparer.OrdinalIgnoreCase);
+    // Drink name -> most recent (ounces, sugar, tags), to prefill on selection.
+    private Dictionary<string, (double? Oz, int? Sugar, string? Tags)> _drinkDefaults = new(StringComparer.OrdinalIgnoreCase);
 
     private void SelectDrink(string name)
     {
@@ -317,6 +329,7 @@
         {
             _drink.Ounces = d.Oz;
             _drink.SugarCount = d.Sugar;
+            _drinkTagBox.Load(CsvField.Split(d.Tags)); // reuse last time's tags
         }
     }
 
@@ -625,21 +638,28 @@
             .OrderBy(d => d.Time).ToListAsync();
 
         // Build typeahead libraries: seed list + every distinct food/drink logged.
-        var loggedFoods = await db.MealEntries.Select(m => m.Description).Distinct().ToListAsync();
+        var mealRows = await db.MealEntries.OrderByDescending(m => m.Time)
+            .Select(m => new { m.Description, m.PortionNote, m.Tags }).ToListAsync();
+        var loggedFoods = mealRows.Select(m => m.Description).Distinct().ToList();
+        // Most recent portion/tags per food name (rows are newest-first).
+        _foodDefaults = mealRows
+            .Where(m => !string.IsNullOrWhiteSpace(m.Description))
+            .GroupBy(m => m.Description.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => (g.First().PortionNote, g.First().Tags), StringComparer.OrdinalIgnoreCase);
         _foodLib = CommonFoods.Concat(loggedFoods)
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
         var drinkRows = await db.DrinkEntries
             .OrderByDescending(d => d.Time)
-            .Select(d => new { d.Description, d.Ounces, d.SugarCount }).ToListAsync();
+            .Select(d => new { d.Description, d.Ounces, d.SugarCount, d.Tags }).ToListAsync();
         _drinkLib = CommonDrinks.Concat(drinkRows.Select(d => d.Description))
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
-        // Most recent ounces/sugar per drink name (rows are newest-first).
+        // Most recent ounces/sugar/tags per drink name (rows are newest-first).
         _drinkDefaults = drinkRows
             .Where(d => !string.IsNullOrWhiteSpace(d.Description))
             .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => (g.First().Ounces, g.First().SugarCount), StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(g => g.Key, g => (g.First().Ounces, g.First().SugarCount, g.First().Tags), StringComparer.OrdinalIgnoreCase);
 
         // Tag vocabulary: fixed tags + custom (accepted AI-proposed) tags already in use.
         var usedTags = (await db.MealEntries.Select(m => m.Tags).ToListAsync())
