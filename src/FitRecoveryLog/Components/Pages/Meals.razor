@@ -11,23 +11,6 @@
         <div class="dash-date-sub">@DateTime.Now.ToString("dddd, MMM d")</div>
     </header>
 
-    @if (_mealFlags.Count > 0)
-    {
-        <section class="card">
-            @foreach (var f in _mealFlags)
-            {
-                <p style="margin:0 0 0.25rem">🤖 @f</p>
-            }
-            <p class="muted" style="margin:0.2rem 0 0;font-size:0.75rem">From your AI analysis</p>
-        </section>
-    }
-
-    <section class="card">
-        <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("nutrition"))">
-            <span class="quick-emoji">📊</span> Nutrition Patterns
-        </button>
-    </section>
-
     <div class="segmented">
         <button class="seg @(_tab == "meal" ? "active" : "")" @onclick='() => _tab = "meal"'>🍽️ Meal</button>
         <button class="seg @(_tab == "drink" ? "active" : "")" @onclick='() => _tab = "drink"'>🥤 Drink</button>
@@ -90,19 +73,20 @@
             <label>Food</label>
             <input value="@_meal.Description"
                    @oninput="e => _meal.Description = e.Value?.ToString() ?? string.Empty"
-                   placeholder="Type a food, or tap a saved one below" />
-            @{
-                var foodMatches = Suggest(_foodLib, _meal.Description);
-            }
-            @if (foodMatches.Count > 0)
+                   placeholder="Type a food — saved matches appear as you type" />
+            @if (!string.IsNullOrWhiteSpace(_meal.Description))
             {
-                <div class="chip-row" style="margin-top:0.4rem">
-                    @foreach (var f in foodMatches)
-                    {
-                        <button type="button" class="chip @(string.Equals(f, _meal.Description?.Trim(), StringComparison.OrdinalIgnoreCase) ? "selected" : "")"
-                                @onclick="() => SelectFood(f)">@f</button>
-                    }
-                </div>
+                var foodMatches = Suggest(_foodLib, _meal.Description);
+                @if (foodMatches.Count > 0)
+                {
+                    <div class="chip-row" style="margin-top:0.4rem">
+                        @foreach (var f in foodMatches)
+                        {
+                            <button type="button" class="chip @(string.Equals(f, _meal.Description?.Trim(), StringComparison.OrdinalIgnoreCase) ? "selected" : "")"
+                                    @onclick="() => SelectFood(f)">@f</button>
+                        }
+                    </div>
+                }
             }
         </div>
         <div class="field">
@@ -139,19 +123,20 @@
             <label>Drink</label>
             <input value="@_drink.Description"
                    @oninput="e => _drink.Description = e.Value?.ToString() ?? string.Empty"
-                   placeholder="Type a drink, or tap a saved one below" />
-            @{
-                var drinkMatches = Suggest(_drinkLib, _drink.Description);
-            }
-            @if (drinkMatches.Count > 0)
+                   placeholder="Type a drink — saved matches appear as you type" />
+            @if (!string.IsNullOrWhiteSpace(_drink.Description))
             {
-                <div class="chip-row" style="margin-top:0.4rem">
-                    @foreach (var d in drinkMatches)
-                    {
-                        <button type="button" class="chip @(string.Equals(d, _drink.Description?.Trim(), StringComparison.OrdinalIgnoreCase) ? "selected" : "")"
-                                @onclick="() => SelectDrink(d)">@d</button>
-                    }
-                </div>
+                var drinkMatches = Suggest(_drinkLib, _drink.Description);
+                @if (drinkMatches.Count > 0)
+                {
+                    <div class="chip-row" style="margin-top:0.4rem">
+                        @foreach (var d in drinkMatches)
+                        {
+                            <button type="button" class="chip @(string.Equals(d, _drink.Description?.Trim(), StringComparison.OrdinalIgnoreCase) ? "selected" : "")"
+                                    @onclick="() => SelectDrink(d)">@d</button>
+                        }
+                    </div>
+                }
             }
         </div>
         <div class="field">
@@ -282,6 +267,23 @@
         }
     </section>
 }
+
+    @if (_mealFlags.Count > 0)
+    {
+        <Collapsible Title="🤖 AI meal flags" Subtitle="@($"{_mealFlags.Count} note(s)")" PersistKey="meals-flags">
+            @foreach (var f in _mealFlags)
+            {
+                <p style="margin:0 0 0.25rem">@f</p>
+            }
+            <p class="muted" style="margin:0.2rem 0 0;font-size:0.75rem">From your AI analysis</p>
+        </Collapsible>
+    }
+
+    <section class="card">
+        <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("nutrition"))">
+            <span class="quick-emoji">📊</span> Nutrition Patterns
+        </button>
+    </section>
 </div>
 
 @code {

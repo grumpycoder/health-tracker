@@ -94,6 +94,9 @@ public static class GeminiAnalyzer
                       "protein choice — don't penalize restaurant/fast-food meals as a category; assess what was actually eaten.");
         sb.AppendLine("Zero-sugar drinks (Coke Zero, diet soda, sugar-free) are NOT sugary drinks — treat them as " +
                       "taste variety, not a concern.");
+        sb.AppendLine("Keep sugar in PROPORTION: a small treat (~15g sugar or less, e.g. one cookie/dessert) is " +
+                      "normal — a banana has ~14g. Only flag sugar when daily totals are genuinely high or it's a " +
+                      "frequent pattern, not for an occasional modest serving.");
         AppendUserGoals(sb);
         sb.AppendLine();
 
@@ -203,6 +206,7 @@ public static class GeminiAnalyzer
         sb.AppendLine("- Use LAST 7 DAYS to tell one-off indulgences from patterns. A single off-plan meal in an otherwise solid stretch gets a light touch ('enjoy it, back to normal tomorrow'); direct warnings are for things repeating across several days.");
         sb.AppendLine("- Judge the FOOD, not the venue. A grilled chicken sandwich from a drive-thru is a reasonable protein choice, not a lapse; a burger-and-fries combo is different. Don't penalize 'restaurant/fast food' as a category — eating-out sodium is worth one mention only when frequent.");
         sb.AppendLine("- Zero-sugar drinks (Coke Zero, diet soda, sugar-free) are NOT sugary drinks — taste variety, not a concern.");
+        sb.AppendLine("- Keep sugar in PROPORTION: a single small treat/dessert (roughly ≤15g sugar) in an otherwise fine day is normal — don't flag it or suggest 'less sugar'. A banana has ~14g. Only raise sugar when a day's total is genuinely high or it's a daily pattern.");
         AppendUserGoals(sb);
         sb.AppendLine("If little is logged yet, say so and suggest what to log.");
         sb.AppendLine();
@@ -346,6 +350,8 @@ public static class GeminiAnalyzer
   "homemadeAlternative": "<a quick homemade option, or null if homemade isn't realistic for the situation>"
 }
 """);
+        sb.AppendLine("Keep sugar in proportion — a small treat (~15g sugar or less) is normal (a banana has ~14g); " +
+                      "don't steer away from it unless the day's sugar is already high.");
         sb.AppendLine("Rules: judge the FOOD, not the venue. Zero-sugar drinks are not a concern. Respect the user's " +
                       "stated goals — never push toward ideals they haven't chosen. Alternatives must be realistic for " +
                       "the same situation (on the road means no homemade — return null). Be brief and practical, not preachy.");
