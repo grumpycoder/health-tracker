@@ -12,17 +12,22 @@ public sealed class HealthKitService : IHealthService
     private readonly HKQuantityType _waist = HKQuantityType.Create(HKQuantityTypeIdentifier.WaistCircumference)!;
     private readonly HKQuantityType _steps = HKQuantityType.Create(HKQuantityTypeIdentifier.StepCount)!;
     private readonly HKCategoryType _sleep = HKCategoryType.Create(HKCategoryTypeIdentifier.SleepAnalysis)!;
+    private readonly HKQuantityType _activeEnergy = HKQuantityType.Create(HKQuantityTypeIdentifier.ActiveEnergyBurned)!;
     private static readonly HKUnit Pound = HKUnit.FromString("lb");
     private static readonly HKUnit Inch = HKUnit.FromString("in");
     private static readonly HKUnit Count = HKUnit.FromString("count");
+    private static readonly HKUnit Kcal = HKUnit.FromString("kcal");
+    // Rough active-energy estimate so strength sessions credit the Activity rings
+    // when no Apple Watch workout measured them. Mid-range for traditional strength.
+    private const double KcalPerMinute = 6.0;
 
     public bool IsAvailable => _store is not null;
 
     public Task<bool> RequestAuthorizationAsync()
     {
         if (_store is null) return Task.FromResult(false);
-        var share = new NSSet<HKSampleType>(_bodyMass, _waist, HKObjectType.WorkoutType);
-        var read = new NSSet<HKObjectType>(_bodyMass, _waist, _steps, _sleep);
+        var share = new NSSet<HKSampleType>(_bodyMass, _waist, _activeEnergy, HKObjectType.WorkoutType);
+        var read = new NSSet<HKObjectType>(_bodyMass, _waist, _steps, _sleep, _activeEnergy, HKObjectType.WorkoutType);
         var tcs = new TaskCompletionSource<bool>();
         _store.RequestAuthorizationToShare(share, read, (ok, _) => tcs.TrySetResult(ok));
         return tcs.Task;
@@ -82,6 +87,12 @@ public sealed class HealthKitService : IHealthService
     public async Task WriteWorkoutAsync(DateTime start, DateTime end, string name)
     {
         if (_store is null) return;
+
+        // If a workout from another source (the Apple Watch) already covers this
+        // window, it has real HR/energy — don't write a duplicate or a guessed
+        // estimate on top of it.
+        if (await HasExternalWorkoutAsync(start, end)) return;
+
         var config = new HKWorkoutConfiguration { ActivityType = HKWorkoutActivityType.TraditionalStrengthTraining };
         var builder = new HKWorkoutBuilder(_store, config, HKDevice.LocalDevice);
         await builder.BeginCollectionAsync((NSDate)start.ToUniversalTime());
@@ -94,10 +105,47 @@ public sealed class HealthKitService : IHealthService
             await mtcs.Task;
         }
         catch { /* metadata is cosmetic */ }
+
+        // Estimated active energy so the rings get credit (no Watch measured this).
+        try
+        {
+            var minutes = Math.Max(0, (end - start).TotalMinutes);
+            if (minutes > 0)
+            {
+                var kcal = HKQuantity.FromQuantity(Kcal, minutes * KcalPerMinute);
+                var energy = HKQuantitySample.FromType(_activeEnergy, kcal,
+                    (NSDate)start.ToUniversalTime(), (NSDate)end.ToUniversalTime());
+                var etcs = new TaskCompletionSource<bool>();
+                builder.Add(new HKSample[] { energy }, (ok, _) => etcs.TrySetResult(ok));
+                await etcs.Task;
+            }
+        }
+        catch { /* estimate is best-effort */ }
+
         await builder.EndCollectionAsync((NSDate)end.ToUniversalTime());
         var tcs = new TaskCompletionSource<bool>();
         builder.FinishWorkout((_, error) => tcs.TrySetResult(error is null));
         await tcs.Task;
+    }
+
+    /// <summary>True if a workout NOT authored by this app overlaps [start, end] —
+    /// i.e. the user started one on their Apple Watch.</summary>
+    private Task<bool> HasExternalWorkoutAsync(DateTime start, DateTime end)
+    {
+        if (_store is null) return Task.FromResult(false);
+        var ownBundleId = NSBundle.MainBundle.BundleIdentifier;
+        // Overlap: workout starts before our end AND ends after our start.
+        var predicate = HKQuery.GetPredicateForSamples(
+            (NSDate)start.ToUniversalTime(), (NSDate)end.ToUniversalTime(), HKQueryOptions.None);
+        var tcs = new TaskCompletionSource<bool>();
+        var query = new HKSampleQuery(HKObjectType.WorkoutType, predicate, 1, null, (_, results, _) =>
+        {
+            var external = results?.OfType<HKWorkout>()
+                .Any(w => w.SourceRevision?.Source?.BundleIdentifier != ownBundleId) ?? false;
+            tcs.TrySetResult(external);
+        });
+        _store.ExecuteQuery(query);
+        return tcs.Task;
     }
 
     public Task<int?> ReadStepsAsync(DateOnly date)
