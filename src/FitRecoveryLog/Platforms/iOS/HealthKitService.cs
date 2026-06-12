@@ -17,9 +17,16 @@ public sealed class HealthKitService : IHealthService
     private static readonly HKUnit Inch = HKUnit.FromString("in");
     private static readonly HKUnit Count = HKUnit.FromString("count");
     private static readonly HKUnit Kcal = HKUnit.FromString("kcal");
-    // Rough active-energy estimate so strength sessions credit the Activity rings
-    // when no Apple Watch workout measured them. Mid-range for traditional strength.
-    private const double KcalPerMinute = 6.0;
+    // Active-energy estimate so strength sessions credit the Activity rings when no
+    // Apple Watch workout measured them. Scaled by body weight via the MET formula
+    // (kcal/min = MET × 3.5 × kg / 200); MET ~5 for traditional strength training.
+    private const double StrengthMet = 5.0;
+    private const double FallbackKcalPerMinute = 6.0; // when body weight is unknown
+
+    private static double KcalPerMinute(double? bodyWeightLbs) =>
+        bodyWeightLbs is { } lbs && lbs > 0
+            ? StrengthMet * 3.5 * (lbs * 0.453592) / 200.0
+            : FallbackKcalPerMinute;
 
     public bool IsAvailable => _store is not null;
 
@@ -84,7 +91,7 @@ public sealed class HealthKitService : IHealthService
         return tcs.Task;
     }
 
-    public async Task WriteWorkoutAsync(DateTime start, DateTime end, string name)
+    public async Task WriteWorkoutAsync(DateTime start, DateTime end, string name, double? bodyWeightLbs)
     {
         if (_store is null) return;
 
@@ -112,7 +119,7 @@ public sealed class HealthKitService : IHealthService
             var minutes = Math.Max(0, (end - start).TotalMinutes);
             if (minutes > 0)
             {
-                var kcal = HKQuantity.FromQuantity(Kcal, minutes * KcalPerMinute);
+                var kcal = HKQuantity.FromQuantity(Kcal, minutes * KcalPerMinute(bodyWeightLbs));
                 var energy = HKQuantitySample.FromType(_activeEnergy, kcal,
                     (NSDate)start.ToUniversalTime(), (NSDate)end.ToUniversalTime());
                 var etcs = new TaskCompletionSource<bool>();

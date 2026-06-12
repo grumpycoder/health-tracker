@@ -23,8 +23,10 @@ public interface IHealthService
     /// <summary>Waist samples since the given time (inches), newest first; excludes samples this app wrote.</summary>
     Task<IReadOnlyList<(DateOnly Date, double Inches)>> ReadWaistsAsync(DateTime since);
 
-    /// <summary>Write a completed strength workout to Health (shows up in Fitness).</summary>
-    Task WriteWorkoutAsync(DateTime start, DateTime end, string name);
+    /// <summary>Write a completed strength workout to Health (shows up in Fitness).
+    /// <paramref name="bodyWeightLbs"/> scales the estimated active-energy burn;
+    /// null falls back to a flat per-minute rate.</summary>
+    Task WriteWorkoutAsync(DateTime start, DateTime end, string name, double? bodyWeightLbs);
 
     /// <summary>Total step count for a single day, or null if unavailable.</summary>
     Task<int?> ReadStepsAsync(DateOnly date);
@@ -49,7 +51,7 @@ public sealed class NoopHealthService : IHealthService
     public Task WriteWaistAsync(DateOnly date, double inches, Guid sourceId) => Task.CompletedTask;
     public Task<IReadOnlyList<(DateOnly, double)>> ReadWaistsAsync(DateTime since) =>
         Task.FromResult<IReadOnlyList<(DateOnly, double)>>(Array.Empty<(DateOnly, double)>());
-    public Task WriteWorkoutAsync(DateTime start, DateTime end, string name) => Task.CompletedTask;
+    public Task WriteWorkoutAsync(DateTime start, DateTime end, string name, double? bodyWeightLbs) => Task.CompletedTask;
     public Task<int?> ReadStepsAsync(DateOnly date) => Task.FromResult<int?>(null);
     public Task<IReadOnlyList<SleepNight>> ReadSleepAsync(DateTime since) =>
         Task.FromResult<IReadOnlyList<SleepNight>>(Array.Empty<SleepNight>());
