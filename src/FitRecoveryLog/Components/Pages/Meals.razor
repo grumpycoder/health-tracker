@@ -355,7 +355,8 @@
     /// an explicit accept tap, a short status note, and a busy flag.</summary>
     private sealed class TagBox
     {
-        public readonly HashSet<string> Selected = new();
+        // Case-insensitive so "High Potassium" and "High potassium" can't both stick.
+        public readonly HashSet<string> Selected = new(StringComparer.OrdinalIgnoreCase);
         public string? Proposed;
         public string? Note;
         public bool Busy;
@@ -392,7 +393,7 @@
                 @if (box.Proposed is { } p)
                 {
                     <button type="button" class="chip proposed" title="AI-proposed new tag — tap to accept"
-                            @onclick="() => box.Accept()">＋ @p</button>
+                            @onclick="() => AcceptProposed(box)">＋ @p</button>
                 }
                 @if (box.Adding)
                 {
@@ -427,9 +428,14 @@
             var key = await GeminiAnalyzer.KeyStore.GetAsync()
                       ?? throw new InvalidOperationException("No API key");
             var s = await GeminiAnalyzer.SuggestMealTagsAsync(key, mealType, desc, portion, _tagOptions);
-            foreach (var t in s.Known) box.Selected.Add(t);
-            box.Proposed = s.Proposed;
-            if (s.Known.Count == 0 && s.Proposed is null) box.Note = "No tags suggested.";
+            foreach (var t in s.Known) box.Selected.Add(Canonical(t));
+            // Drop a proposed tag that only differs in case from an existing option
+            // or an already-selected one (would otherwise create a casing duplicate).
+            box.Proposed = s.Proposed is { } p
+                && !_tagOptions.Contains(p, StringComparer.OrdinalIgnoreCase)
+                && !box.Selected.Contains(p)
+                ? p : null;
+            if (s.Known.Count == 0 && box.Proposed is null) box.Note = "No tags suggested.";
         }
         catch
         {
@@ -451,6 +457,21 @@
         var existing = _tagOptions.FirstOrDefault(x => x.Equals(t, StringComparison.OrdinalIgnoreCase));
         if (existing is null) _tagOptions.Add(t); else t = existing;
         box.Selected.Add(t);
+    }
+
+    /// <summary>Map a tag to the existing vocabulary's casing so the same tag never
+    /// gets stored under two casings (e.g. "High potassium" → "High Potassium").</summary>
+    private string Canonical(string tag) =>
+        _tagOptions.FirstOrDefault(x => x.Equals(tag, StringComparison.OrdinalIgnoreCase)) ?? tag;
+
+    /// <summary>Accept the AI-proposed tag: register it in the vocabulary (so later
+    /// entries reuse this casing) and select it.</summary>
+    private void AcceptProposed(TagBox box)
+    {
+        if (box.Proposed is not { } p) return;
+        if (!_tagOptions.Contains(p, StringComparer.OrdinalIgnoreCase)) _tagOptions.Add(p);
+        box.Selected.Add(Canonical(p));
+        box.Proposed = null;
     }
 
     private static string DrinkPortion(DrinkEntry d) =>
