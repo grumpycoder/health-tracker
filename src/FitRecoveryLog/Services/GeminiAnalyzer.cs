@@ -600,8 +600,13 @@ public static class GeminiAnalyzer
         sb.AppendLine("Respond with ONLY a JSON object:");
         sb.AppendLine("""{ "tags": ["<existing tags that clearly apply>"], "newTag": "<one new tag ONLY if something important has no existing tag, else null>" }""");
         sb.AppendLine($"Existing tags (use these exact strings, strongly prefer them): {string.Join(" | ", vocabulary)}");
-        sb.AppendLine("Only include tags well supported by the text; when unsure, leave a tag out. " +
-                      "A newTag must be short (1-3 words, e.g. 'High sugar'), broadly reusable, and not a synonym of an existing tag. " +
+        sb.AppendLine("Only include tags well supported by the text; when unsure, leave a tag out. Most meals need " +
+                      "just 0-2 tags. Do NOT apply a tag by default — each must clearly fit.");
+        sb.AppendLine("'High sodium' specifically: reserve it for foods genuinely high in salt — cured/processed " +
+                      "meats (bacon, deli, sausage), canned/instant foods, pizza, chips, or fast-food/restaurant " +
+                      "items known to be salt-heavy. A home-cooked rotisserie-chicken/rice/bean bowl or a plain " +
+                      "hamburger is NOT automatically high sodium. When unsure, leave it off.");
+        sb.AppendLine("A newTag must be short (1-3 words, e.g. 'High sugar'), broadly reusable, and not a synonym of an existing tag. " +
                       "Tags describe nutritional quality or food source. The entry already records its type " +
                       "(breakfast/lunch/dinner/snack/drink), time, and portion — NEVER suggest those as tags.");
         sb.AppendLine();
