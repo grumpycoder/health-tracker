@@ -606,6 +606,9 @@ public static class GeminiAnalyzer
                       "meats (bacon, deli, sausage), canned/instant foods, pizza, chips, or fast-food/restaurant " +
                       "items known to be salt-heavy. A home-cooked rotisserie-chicken/rice/bean bowl or a plain " +
                       "hamburger is NOT automatically high sodium. When unsure, leave it off.");
+        sb.AppendLine("Judge the meal AS A WHOLE for sodium — a lean/grilled main (e.g. grilled chicken sandwich) " +
+                      "is NOT 'high sodium' just because a side like fries is salty. Only tag High sodium when the " +
+                      "meal is PREDOMINANTLY salt-heavy, not when one minor side is.");
         sb.AppendLine("A newTag must be short (1-3 words, e.g. 'High sugar'), broadly reusable, and not a synonym of an existing tag. " +
                       "Tags describe nutritional quality or food source. The entry already records its type " +
                       "(breakfast/lunch/dinner/snack/drink), time, and portion — NEVER suggest those as tags.");
