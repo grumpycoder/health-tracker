@@ -22,7 +22,7 @@
     {
         @foreach (var s in _sessions)
         {
-            <section class="card session-card" @onclick="@(() => _selected = s)">
+            <section class="card session-card" @onclick="@(() => SelectSession(s))">
                 <div class="routine-head">
                     <h2>@RoutineName(s)</h2>
                     <div class="routine-actions">
@@ -47,6 +47,20 @@ else
         <div class="dash-date">@s.Date.ToString("dddd, MMM d")</div>
         <div class="dash-date-sub">@RoutineName(s) · @FormatDuration(s.TotalSeconds)</div>
     </header>
+
+    <section class="card">
+        <div class="inline-fields">
+            <div class="field">
+                <label>Total time (minutes)</label>
+                <input type="number" inputmode="decimal" min="0" step="1" @bind="_editMinutes" />
+            </div>
+        </div>
+        <button class="save-btn" @onclick="() => SaveDuration(s)">Save Time</button>
+        @if (_durationSaved)
+        {
+            <span class="saved-msg">Saved ✓</span>
+        }
+    </section>
 
     @if (s.Sets.Count == 0)
     {
@@ -110,8 +124,32 @@ else
     private Dictionary<Guid, ExerciseDefinition> _defs = new();
     private Dictionary<Guid, string> _routineNames = new();
     private WorkoutSession? _selected;
+    private int _editMinutes;
+    private bool _durationSaved;
 
     protected override async Task OnInitializedAsync() => await Load();
+
+    private void SelectSession(WorkoutSession s)
+    {
+        _selected = s;
+        _editMinutes = (int)Math.Round((s.TotalSeconds ?? 0) / 60.0);
+        _durationSaved = false;
+    }
+
+    /// <summary>Fix a session's recorded time after the fact (e.g. a save that
+    /// captured no duration).</summary>
+    private async Task SaveDuration(WorkoutSession s)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.WorkoutSessions.FindAsync(s.Id);
+        if (e is not null)
+        {
+            e.TotalSeconds = Math.Max(0, _editMinutes) * 60;
+            await db.SaveChangesAsync();
+            s.TotalSeconds = e.TotalSeconds; // reflect in the open detail view
+        }
+        _durationSaved = true;
+    }
 
     private async Task Load()
     {

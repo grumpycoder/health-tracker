@@ -201,6 +201,10 @@ else // Feedback
             <textarea rows="2" @bind="_sessionNotes"></textarea>
         </div>
         <button class="save-btn" @onclick="SaveWorkout">Save Workout</button>
+        @if (_saveError is not null)
+        {
+            <span class="warn-msg">@_saveError</span>
+        }
         <button class="link-btn danger" style="width:100%;margin-top:0.7rem" @onclick="DiscardWorkout">Discard Without Saving</button>
     </section>
 }
@@ -223,6 +227,7 @@ else // Feedback
     private int _rest;
     private int _totalMinutes;
     private string? _sessionNotes;
+    private string? _saveError;
 
     // Live hold countdown for a timed set (e.g. planks).
     private SetVM? _timingSet;
@@ -434,6 +439,7 @@ else // Feedback
         _timer?.Dispose();
         _timer = null;
         _totalMinutes = (int)Math.Round((DateTime.Now - _startedAt).TotalMinutes);
+        _saveError = null;
         _state = State.Feedback;
     }
 
@@ -468,30 +474,38 @@ else // Feedback
             session.Feedback.Add(ex.Feedback);
         }
 
-        await using var db = await DbFactory.CreateDbContextAsync();
-        db.WorkoutSessions.Add(session);
-
-        // Forgot to plan the day? A completed workout makes it a workout day.
-        // (Deliberately chosen day types are left alone.)
-        var day = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == session.Date);
-        if (day is null)
-            db.DailyLogs.Add(new DailyLog { Date = session.Date, DayType = DayType.Workout });
-        else if (day.DayType == DayType.Unset)
-            day.DayType = DayType.Workout;
-
-        await db.SaveChangesAsync();
-
-        // Mirror the session to Apple Health/Fitness (iOS only; no-op otherwise).
-        if (Health.IsAvailable && session.EndedAt is { } ended && ended > session.StartedAt)
+        double? weightLbs = null;
+        try
         {
-            // Latest known body weight scales the active-energy estimate.
-            var weightLbs = await db.BodyMeasurements
+            await using var db = await DbFactory.CreateDbContextAsync();
+            db.WorkoutSessions.Add(session);
+
+            // Forgot to plan the day? A completed workout makes it a workout day.
+            // (Deliberately chosen day types are left alone.)
+            var day = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == session.Date);
+            if (day is null)
+                db.DailyLogs.Add(new DailyLog { Date = session.Date, DayType = DayType.Workout });
+            else if (day.DayType == DayType.Unset)
+                day.DayType = DayType.Workout;
+
+            await db.SaveChangesAsync();
+
+            weightLbs = await db.BodyMeasurements
                 .Where(m => m.WeightLbs != null)
                 .OrderByDescending(m => m.Date)
                 .Select(m => m.WeightLbs)
                 .FirstOrDefaultAsync();
-            try { await Health.WriteWorkoutAsync(session.StartedAt!.Value, ended, _routineName, weightLbs); } catch { }
         }
+        catch (Exception ex)
+        {
+            // Keep the user on the feedback screen with their data intact to retry.
+            _saveError = $"Couldn't save: {ex.Message}";
+            return;
+        }
+
+        // Mirror the session to Apple Health/Fitness (iOS only; no-op otherwise).
+        if (Health.IsAvailable && session.EndedAt is { } ended && ended > session.StartedAt)
+            try { await Health.WriteWorkoutAsync(session.StartedAt!.Value, ended, _routineName, weightLbs); } catch { }
 
         Nav.NavigateTo("");
     }
