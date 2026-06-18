@@ -200,7 +200,7 @@ else // Feedback
             <label>Workout notes</label>
             <textarea rows="2" @bind="_sessionNotes"></textarea>
         </div>
-        <button class="save-btn" @onclick="SaveWorkout">Save Workout</button>
+        <button class="save-btn" disabled="@_saving" @onclick="SaveWorkout">@(_saving ? "Saving…" : "Save Workout")</button>
         @if (_saveError is not null)
         {
             <span class="warn-msg">@_saveError</span>
@@ -228,6 +228,8 @@ else // Feedback
     private int _totalMinutes;
     private string? _sessionNotes;
     private string? _saveError;
+    private bool _saving;   // in-flight guard against double-tap
+    private bool _savedOk;  // commit succeeded; a re-tap just navigates home
 
     // Live hold countdown for a timed set (e.g. planks).
     private SetVM? _timingSet;
@@ -356,6 +358,9 @@ else // Feedback
         _routineId = routine.Id;
         _routineName = routine.Name;
         _startedAt = DateTime.Now;
+        _saving = false;
+        _savedOk = false;
+        _saveError = null;
         _state = State.Active;
         _timer = new System.Threading.Timer(_ => Tick(), null, 1000, 1000);
         SetKeepScreenOn(true);
@@ -445,6 +450,11 @@ else // Feedback
 
     private async Task SaveWorkout()
     {
+        if (_saving) return;          // ignore double-taps
+        if (_savedOk) { Nav.NavigateTo(""); return; } // already saved; just leave
+        _saving = true;
+        _saveError = null;
+
         var session = new WorkoutSession
         {
             Date = DateOnly.FromDateTime(_startedAt),
@@ -478,6 +488,16 @@ else // Feedback
         try
         {
             await using var db = await DbFactory.CreateDbContextAsync();
+
+            // Read first — anything that could throw happens BEFORE the commit, so a
+            // successful save is always followed by navigation (never strands a
+            // committed workout on this screen).
+            weightLbs = await db.BodyMeasurements
+                .Where(m => m.WeightLbs != null)
+                .OrderByDescending(m => m.Date)
+                .Select(m => m.WeightLbs)
+                .FirstOrDefaultAsync();
+
             db.WorkoutSessions.Add(session);
 
             // Forgot to plan the day? A completed workout makes it a workout day.
@@ -489,17 +509,13 @@ else // Feedback
                 day.DayType = DayType.Workout;
 
             await db.SaveChangesAsync();
-
-            weightLbs = await db.BodyMeasurements
-                .Where(m => m.WeightLbs != null)
-                .OrderByDescending(m => m.Date)
-                .Select(m => m.WeightLbs)
-                .FirstOrDefaultAsync();
+            _savedOk = true; // commit succeeded — safe to leave even if Health write hiccups
         }
         catch (Exception ex)
         {
             // Keep the user on the feedback screen with their data intact to retry.
             _saveError = $"Couldn't save: {ex.Message}";
+            _saving = false;
             return;
         }
 
