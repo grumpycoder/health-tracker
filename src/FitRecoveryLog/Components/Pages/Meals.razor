@@ -93,7 +93,7 @@
             <label>Portion note</label>
             <input @bind="_meal.PortionNote" placeholder="e.g. 2 eggs, 1 cup rice" />
         </div>
-        @TagField(_mealTagBox, () => SuggestTagsAsync(_mealTagBox, _meal.MealType.ToString(), _meal.Description, _meal.PortionNote))
+        @TagField(_mealTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealTagBox, _mealTagOptions, _meal.MealType.ToString(), _meal.Description, _meal.PortionNote))
         <div class="field">
             <label>Satiety</label>
             <select @bind="_meal.Satiety">
@@ -103,7 +103,7 @@
                 }
             </select>
         </div>
-        <button class="save-btn" @onclick="SaveMeal">Save Meal</button>
+        <button class="save-btn" disabled="@string.IsNullOrWhiteSpace(_meal.Description)" @onclick="SaveMeal">Save Meal</button>
         @if (_mealSaved)
         {
             <span class="saved-msg">Saved ✓</span>
@@ -147,8 +147,8 @@
             <label>Sugar (cubes / tsp)</label>
             <input type="number" inputmode="decimal" step="1" @bind="_drink.SugarCount" placeholder="e.g. 2" />
         </div>
-        @TagField(_drinkTagBox, () => SuggestTagsAsync(_drinkTagBox, "Drink", _drink.Description, DrinkPortion(_drink)))
-        <button class="save-btn" @onclick="SaveDrink">Save Drink</button>
+        @TagField(_drinkTagBox, _drinkTagOptions, () => SuggestTagsAsync(_drinkTagBox, _drinkTagOptions, "Drink", _drink.Description, DrinkPortion(_drink)))
+        <button class="save-btn" disabled="@string.IsNullOrWhiteSpace(_drink.Description)" @onclick="SaveDrink">Save Drink</button>
         @if (_drinkSaved)
         {
             <span class="saved-msg">Saved ✓</span>
@@ -192,7 +192,7 @@
                                 </div>
                                 <div class="field"><label>Food</label><input @bind="_mealEdit.Description" /></div>
                                 <div class="field"><label>Portion note</label><input @bind="_mealEdit.PortionNote" /></div>
-                                @TagField(_mealEditTagBox, () => SuggestTagsAsync(_mealEditTagBox, _mealEdit.MealType.ToString(), _mealEdit.Description, _mealEdit.PortionNote))
+                                @TagField(_mealEditTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealEditTagBox, _mealTagOptions, _mealEdit.MealType.ToString(), _mealEdit.Description, _mealEdit.PortionNote))
                                 <div class="field">
                                     <label>Satiety</label>
                                     <select @bind="_mealEdit.Satiety">
@@ -236,7 +236,7 @@
                                     <div class="field"><label>Ounces</label><input type="number" inputmode="decimal" @bind="_drinkEdit.Ounces" /></div>
                                     <div class="field"><label>Sugar</label><input type="number" inputmode="decimal" @bind="_drinkEdit.SugarCount" /></div>
                                 </div>
-                                @TagField(_drinkEditTagBox, () => SuggestTagsAsync(_drinkEditTagBox, "Drink", _drinkEdit.Description, DrinkPortion(_drinkEdit)))
+                                @TagField(_drinkEditTagBox, _drinkTagOptions, () => SuggestTagsAsync(_drinkEditTagBox, _drinkTagOptions, "Drink", _drinkEdit.Description, DrinkPortion(_drinkEdit)))
                                 <div class="routine-actions">
                                     <button class="save-btn" @onclick="SaveDrinkEdit">Save</button>
                                     <button class="link-btn" @onclick="() => _editDrinkId = null">Cancel</button>
@@ -291,8 +291,10 @@
         { "Eggs", "Turkey", "Chicken", "Rice", "Mini-Wheats", "Protein bar", "Banana" };
     private static readonly string[] CommonDrinks =
         { "Sweet tea", "Coke Zero", "Coffee", "Water" };
-    private static readonly string[] MealTags =
-        { "High protein", "High carb", "High sodium", "Sweet drink", "Restaurant meal", "Home-cooked", "Recovery meal" };
+    private static readonly string[] MealStarterTags =
+        { "High protein", "High carb", "High sodium", "Restaurant meal", "Home-cooked", "Recovery meal" };
+    private static readonly string[] DrinkStarterTags =
+        { "Sweet drink", "High sugar", "Sugar-free", "Caffeine", "Alcohol", "Hydration" };
 
     private string _tab = "meal";
     // Satisfied is the common case, so the form starts there instead of Unset.
@@ -373,10 +375,12 @@
     private readonly TagBox _drinkTagBox = new();
     private readonly TagBox _drinkEditTagBox = new();
 
-    // Chip vocabulary: the fixed tags + any custom tags already used in the data.
-    private List<string> _tagOptions = MealTags.ToList();
+    // Separate chip vocabularies so meal tags don't appear on drinks and vice versa.
+    // Each = its fixed starter tags + custom tags already used on that entry type.
+    private List<string> _mealTagOptions = MealStarterTags.ToList();
+    private List<string> _drinkTagOptions = DrinkStarterTags.ToList();
 
-    private RenderFragment TagField(TagBox box, Func<Task> suggest) =>
+    private RenderFragment TagField(TagBox box, List<string> options, Func<Task> suggest) =>
         @<div class="field">
             <div style="display:flex;justify-content:space-between;align-items:baseline">
                 <label>Tags</label>
@@ -385,7 +389,7 @@
             </div>
             <div class="chip-row">
                 @* Union so a just-accepted AI tag (not yet in the saved vocabulary) shows as a selected chip. *@
-                @foreach (var tag in _tagOptions.Union(box.Selected, StringComparer.OrdinalIgnoreCase).ToList())
+                @foreach (var tag in options.Union(box.Selected, StringComparer.OrdinalIgnoreCase).ToList())
                 {
                     <button type="button" class="chip @(box.Selected.Contains(tag) ? "selected" : "")"
                             @onclick="() => box.Toggle(tag)">@tag</button>
@@ -393,14 +397,14 @@
                 @if (box.Proposed is { } p)
                 {
                     <button type="button" class="chip proposed" title="AI-proposed new tag — tap to accept"
-                            @onclick="() => AcceptProposed(box)">＋ @p</button>
+                            @onclick="() => AcceptProposed(box, options)">＋ @p</button>
                 }
                 @if (box.Adding)
                 {
                     <input style="flex:1;min-width:7rem;max-width:11rem;border-radius:999px;padding:0.3rem 0.8rem"
                            placeholder="New tag" @bind="box.Draft" @bind:event="oninput"
-                           @onkeydown="@(e => { if (e.Key == "Enter") AddCustomTag(box); })" />
-                    <button type="button" class="chip" @onclick="() => AddCustomTag(box)">Add</button>
+                           @onkeydown="@(e => { if (e.Key == "Enter") AddCustomTag(box, options); })" />
+                    <button type="button" class="chip" @onclick="() => AddCustomTag(box, options)">Add</button>
                 }
                 else
                 {
@@ -417,7 +421,7 @@
     /// <summary>AI tag suggestions for one entry; falls back to keyword matching when
     /// the Gemini call can't happen (no key, offline, error). Only pre-selects chips —
     /// nothing is saved until the user saves the form.</summary>
-    private async Task SuggestTagsAsync(TagBox box, string mealType, string? description, string? portion)
+    private async Task SuggestTagsAsync(TagBox box, List<string> options, string mealType, string? description, string? portion)
     {
         var desc = description?.Trim();
         if (string.IsNullOrWhiteSpace(desc)) { box.Note = "Enter a description first."; return; }
@@ -427,12 +431,12 @@
         {
             var key = await GeminiAnalyzer.KeyStore.GetAsync()
                       ?? throw new InvalidOperationException("No API key");
-            var s = await GeminiAnalyzer.SuggestMealTagsAsync(key, mealType, desc, portion, _tagOptions);
-            foreach (var t in s.Known) box.Selected.Add(Canonical(t));
+            var s = await GeminiAnalyzer.SuggestMealTagsAsync(key, mealType, desc, portion, options);
+            foreach (var t in s.Known) box.Selected.Add(Canonical(t, options));
             // Drop a proposed tag that only differs in case from an existing option
             // or an already-selected one (would otherwise create a casing duplicate).
             box.Proposed = s.Proposed is { } p
-                && !_tagOptions.Contains(p, StringComparer.OrdinalIgnoreCase)
+                && !options.Contains(p, StringComparer.OrdinalIgnoreCase)
                 && !box.Selected.Contains(p)
                 ? p : null;
             if (s.Known.Count == 0 && box.Proposed is null) box.Note = "No tags suggested.";
@@ -448,29 +452,29 @@
 
     /// <summary>Manually add a custom tag: select it and add it to the chip vocabulary
     /// (reusing the existing casing if the tag already exists).</summary>
-    private void AddCustomTag(TagBox box)
+    private void AddCustomTag(TagBox box, List<string> options)
     {
         var t = box.Draft?.Trim();
         box.Adding = false;
         box.Draft = null;
         if (string.IsNullOrWhiteSpace(t)) return;
-        var existing = _tagOptions.FirstOrDefault(x => x.Equals(t, StringComparison.OrdinalIgnoreCase));
-        if (existing is null) _tagOptions.Add(t); else t = existing;
+        var existing = options.FirstOrDefault(x => x.Equals(t, StringComparison.OrdinalIgnoreCase));
+        if (existing is null) options.Add(t); else t = existing;
         box.Selected.Add(t);
     }
 
     /// <summary>Map a tag to the existing vocabulary's casing so the same tag never
     /// gets stored under two casings (e.g. "High potassium" → "High Potassium").</summary>
-    private string Canonical(string tag) =>
-        _tagOptions.FirstOrDefault(x => x.Equals(tag, StringComparison.OrdinalIgnoreCase)) ?? tag;
+    private static string Canonical(string tag, List<string> options) =>
+        options.FirstOrDefault(x => x.Equals(tag, StringComparison.OrdinalIgnoreCase)) ?? tag;
 
     /// <summary>Accept the AI-proposed tag: register it in the vocabulary (so later
     /// entries reuse this casing) and select it.</summary>
-    private void AcceptProposed(TagBox box)
+    private void AcceptProposed(TagBox box, List<string> options)
     {
         if (box.Proposed is not { } p) return;
-        if (!_tagOptions.Contains(p, StringComparer.OrdinalIgnoreCase)) _tagOptions.Add(p);
-        box.Selected.Add(Canonical(p));
+        if (!options.Contains(p, StringComparer.OrdinalIgnoreCase)) options.Add(p);
+        box.Selected.Add(Canonical(p, options));
         box.Proposed = null;
     }
 
@@ -683,11 +687,17 @@
             .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => (g.First().Ounces, g.First().SugarCount, g.First().Tags), StringComparer.OrdinalIgnoreCase);
 
-        // Tag vocabulary: fixed tags + custom (accepted AI-proposed) tags already in use.
-        var usedTags = (await db.MealEntries.Select(m => m.Tags).ToListAsync())
-            .Concat(await db.DrinkEntries.Select(d => d.Tags).ToListAsync())
-            .SelectMany(CsvField.Split);
-        _tagOptions = MealTags.Concat(usedTags)
+        // Separate vocabularies: each = its starter tags + custom tags already used
+        // on that entry type, so meal and drink chips don't bleed into each other.
+        // Exclude the OTHER type's starter tags from used tags, so cross-tagged
+        // historical entries (back when the vocabulary was shared) don't bleed in.
+        var usedMealTags = (await db.MealEntries.Select(m => m.Tags).ToListAsync()).SelectMany(CsvField.Split)
+            .Where(t => !DrinkStarterTags.Contains(t, StringComparer.OrdinalIgnoreCase));
+        var usedDrinkTags = (await db.DrinkEntries.Select(d => d.Tags).ToListAsync()).SelectMany(CsvField.Split)
+            .Where(t => !MealStarterTags.Contains(t, StringComparer.OrdinalIgnoreCase));
+        _mealTagOptions = MealStarterTags.Concat(usedMealTags)
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        _drinkTagOptions = DrinkStarterTags.Concat(usedDrinkTags)
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 

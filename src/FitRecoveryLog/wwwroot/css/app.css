@@ -191,6 +191,7 @@ body { background: var(--bg); color: var(--text); }
     font-weight: 600;
     cursor: pointer;
 }
+.save-btn:disabled { opacity: 0.4; cursor: default; }
 .saved-msg { margin-left: 0.75rem; color: #16a34a; font-weight: 600; }
 .muted { color: var(--muted); }
 
