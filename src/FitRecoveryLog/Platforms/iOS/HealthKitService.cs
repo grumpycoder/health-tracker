@@ -152,7 +152,10 @@ public sealed class HealthKitService : IHealthService
             tcs.TrySetResult(external);
         });
         _store.ExecuteQuery(query);
-        return tcs.Task;
+        // Don't hang forever if the callback never fires — assume no external
+        // workout and proceed (we'd rather write our own than stall).
+        return Task.WhenAny(tcs.Task, Task.Delay(5000)).ContinueWith(_ =>
+            tcs.Task is { IsCompletedSuccessfully: true } t && t.Result);
     }
 
     public Task<int?> ReadStepsAsync(DateOnly date)

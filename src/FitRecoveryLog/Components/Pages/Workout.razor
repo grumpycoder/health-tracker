@@ -519,9 +519,17 @@ else // Feedback
             return;
         }
 
-        // Mirror the session to Apple Health/Fitness (iOS only; no-op otherwise).
+        // Mirror to Apple Health/Fitness — fire-and-forget so a hung or slow
+        // HealthKit query can never block leaving this screen (the DB save is done).
         if (Health.IsAvailable && session.EndedAt is { } ended && ended > session.StartedAt)
-            try { await Health.WriteWorkoutAsync(session.StartedAt!.Value, ended, _routineName, weightLbs); } catch { }
+        {
+            var startedAt = session.StartedAt!.Value;
+            var name = _routineName;
+            _ = Task.Run(async () =>
+            {
+                try { await Health.WriteWorkoutAsync(startedAt, ended, name, weightLbs); } catch { }
+            });
+        }
 
         Nav.NavigateTo("");
     }
