@@ -10,8 +10,21 @@
         <div class="dash-date-sub">@DateTime.Now.ToString("dddd, MMM d")</div>
     </header>
 
+    @if (Health.IsAvailable)
+    {
+        <section class="card">
+            <button class="quick-btn wide" @onclick="PullFromHealth">
+                <span class="quick-emoji">❤️</span> Pull Sleep from Apple Health
+            </button>
+            @if (_pullMsg is not null)
+            {
+                <p class="muted" style="margin:0.5rem 0 0">@_pullMsg</p>
+            }
+        </section>
+    }
+
     <section class="card">
-        <h2>Sleep</h2>
+        <h2>Sleep <span class="muted" style="font-size:0.8rem;font-weight:400">· or enter manually</span></h2>
         <div class="field">
             <label>Date</label>
             <input type="date" @bind="_date" />
@@ -88,19 +101,6 @@
             <span class="warn-msg">@_recoveryWarn</span>
         }
     </section>
-
-    @if (Health.IsAvailable)
-    {
-        <section class="card">
-            <button class="quick-btn wide" @onclick="PullFromHealth">
-                <span class="quick-emoji">❤️</span> Pull Sleep from Apple Health
-            </button>
-            @if (_pullMsg is not null)
-            {
-                <p class="muted" style="margin:0.5rem 0 0">@_pullMsg</p>
-            }
-        </section>
-    }
 
     <Collapsible Title="Recent sleep" Subtitle="@($"{_recentSleep.Count} night(s)")" PersistKey="sleep-recent">
         @if (_recentSleep.Count == 0)
