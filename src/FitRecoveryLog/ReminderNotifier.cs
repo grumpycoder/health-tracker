@@ -29,7 +29,7 @@ public static class ReminderNotifier
         if (!IsSupported) return;
         var pending = await LocalNotificationCenter.Current.GetPendingNotificationList();
         foreach (var n in pending)
-            if (n.NotificationId is not (HoldTimerNotificationId or CravingTimerNotificationId)
+            if (n.NotificationId is not (HoldTimerNotificationId or CravingTimerNotificationId or MealRatingNotificationId)
                 && !validIds.Contains(n.NotificationId))
                 LocalNotificationCenter.Current.Cancel(n.NotificationId);
     }
@@ -84,6 +84,24 @@ public static class ReminderNotifier
         ScheduleOneShotAsync(HoldTimerNotificationId, "Hold complete ✅", $"{exerciseName} — {seconds}s done", seconds);
 
     public static void CancelHoldEnd() => Cancel(HoldTimerNotificationId);
+
+    /// <summary>One-shot "rate how it sat" nudge after a meal/snack logged before eating.</summary>
+    public const int MealRatingNotificationId = 3003;
+
+    public static async Task ScheduleMealRatingAsync(string foodName, bool isSnack)
+    {
+        if (!IsSupported) return;
+        LocalNotificationCenter.Current.Cancel(MealRatingNotificationId);
+        var minutes = isSnack ? 5 : 30;
+        await LocalNotificationCenter.Current.Show(new NotificationRequest
+        {
+            NotificationId = MealRatingNotificationId,
+            Title = "How did it sit? 🍽️",
+            Description = $"Rate how \"{foodName}\" left you.",
+            ReturningData = "meals?tab=log",
+            Schedule = new NotificationRequestSchedule { NotifyTime = DateTime.Now.AddMinutes(minutes) }
+        });
+    }
 
     public static Task ScheduleAsync(MedicationSchedule s)
     {
