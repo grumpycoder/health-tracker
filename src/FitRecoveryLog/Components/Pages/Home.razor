@@ -5,6 +5,7 @@
 @inject NavigationManager Nav
 @inject IHealthService Health
 @inject IJSRuntime JS
+@inject ActiveWorkoutState ActiveWorkout
 
 <PageTitle>Dashboard</PageTitle>
 
@@ -13,6 +14,15 @@
         <div class="dash-date">@_today.ToString("dddd")</div>
         <div class="dash-date-sub">@_today.ToString("MMMM d, yyyy")</div>
     </header>
+
+    @if (ActiveWorkout.HasResumable)
+    {
+        <section class="card" style="background:var(--accent);color:var(--accent-contrast);cursor:pointer"
+                 @onclick="@(() => Nav.NavigateTo("workout"))">
+            <strong>🏋️ Workout in progress</strong>
+            <span style="opacity:0.85"> — tap to resume</span>
+        </section>
+    }
 
     @if (_steps is not null)
     {

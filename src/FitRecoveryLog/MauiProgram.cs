@@ -30,10 +30,11 @@ public static class MauiProgram
 		if (ReminderNotifier.IsSupported)
 		{
 			builder.UseLocalNotification();
-			// Tapping a notification opens the Reminders page.
+			// Tapping a notification opens the route it carries (default: Reminders).
 			LocalNotificationCenter.Current.NotificationActionTapped += e =>
 			{
-				if (e.IsTapped) NotificationNav.Go("reminders");
+				if (e.IsTapped)
+					NotificationNav.Go(string.IsNullOrWhiteSpace(e.Request?.ReturningData) ? "reminders" : e.Request.ReturningData);
 			};
 		}
 		builder.Services.AddMauiBlazorWebView();
@@ -44,6 +45,9 @@ public static class MauiProgram
 #else
 		builder.Services.AddSingleton<FitRecoveryLog.Services.IHealthService, FitRecoveryLog.Services.NoopHealthService>();
 #endif
+
+		// Holds an in-progress workout so it survives navigating away from the page.
+		builder.Services.AddSingleton<FitRecoveryLog.Services.ActiveWorkoutState>();
 
 		// Local-first SQLite database stored in the app's private data directory.
 		var dbPath = Path.Combine(FileSystem.AppDataDirectory, "fitrecoverylog.db3");

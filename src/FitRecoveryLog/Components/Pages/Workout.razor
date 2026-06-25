@@ -5,12 +5,13 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject IHealthService Health
+@inject ActiveWorkoutState Active
 
 <PageTitle>Workout</PageTitle>
 
 <div class="dashboard">
 
-@if (_state == State.Choosing)
+@if (_state == WorkoutState.Choosing)
 {
     <header class="dash-header">
         <div class="dash-date">Start a Workout</div>
@@ -53,7 +54,7 @@
         </section>
     }
 }
-else if (_state == State.Active)
+else if (_state == WorkoutState.Active)
 {
     <header class="dash-header timer-head">
         <div class="dash-date">@Elapsed</div>
@@ -214,28 +215,30 @@ else // Feedback
 @code {
     [Parameter, SupplyParameterFromQuery] public Guid? RoutineId { get; set; }
 
-    private enum State { Choosing, Active, Feedback }
-    private State _state = State.Choosing;
+    // Resumable run state lives in the singleton so it survives navigating away
+    // (Blazor disposes this component on navigation). These properties delegate to it.
+    private WorkoutRun _run = new();
+    private WorkoutState _state { get => _run.State; set => _run.State = value; }
+    private List<ExVM> _exercises => _run.Exercises;
+    private List<StepVM> _steps => _run.Steps;
+    private int _stepIndex { get => _run.StepIndex; set => _run.StepIndex = value; }
+    private Guid? _routineId { get => _run.RoutineId; set => _run.RoutineId = value; }
+    private string _routineName { get => _run.RoutineName; set => _run.RoutineName = value; }
+    private DateTime _startedAt { get => _run.StartedAt; set => _run.StartedAt = value; }
+    private int _rest { get => _run.Rest; set => _run.Rest = value; }
+    private int _totalMinutes { get => _run.TotalMinutes; set => _run.TotalMinutes = value; }
+    private string? _sessionNotes { get => _run.SessionNotes; set => _run.SessionNotes = value; }
+    private SetVM? _timingSet { get => _run.TimingSet; set => _run.TimingSet = value; }
+    private SetVM? _holdDoneSet { get => _run.HoldDoneSet; set => _run.HoldDoneSet = value; }
+    private DateTime _setStart { get => _run.SetStart; set => _run.SetStart = value; }
+    private int _holdTarget { get => _run.HoldTarget; set => _run.HoldTarget = value; }
 
     private List<WorkoutRoutine> _routines = new();
-    private readonly List<ExVM> _exercises = new();
-    private Guid? _routineId;
-    private string _routineName = "Workout";
-
-    private DateTime _startedAt;
     private System.Threading.Timer? _timer;
-    private int _rest;
-    private int _totalMinutes;
-    private string? _sessionNotes;
     private string? _saveError;
     private bool _saving;   // in-flight guard against double-tap
     private bool _savedOk;  // commit succeeded; a re-tap just navigates home
 
-    // Live hold countdown for a timed set (e.g. planks).
-    private SetVM? _timingSet;
-    private SetVM? _holdDoneSet; // hit the full target; awaiting explicit Complete Set
-    private DateTime _setStart;
-    private int _holdTarget;
     private int SetElapsed => (int)(DateTime.Now - _setStart).TotalSeconds;
     private int SetRemaining => _holdTarget - SetElapsed;
 
@@ -243,25 +246,10 @@ else // Feedback
     {
         get
         {
-            var t = _state == State.Active ? DateTime.Now - _startedAt : TimeSpan.FromMinutes(_totalMinutes);
+            var t = _state == WorkoutState.Active ? DateTime.Now - _startedAt : TimeSpan.FromMinutes(_totalMinutes);
             return t.TotalHours >= 1 ? t.ToString(@"h\:mm\:ss") : t.ToString(@"mm\:ss");
         }
     }
-
-    private class SetVM { public int SetNumber; public int? Reps; public int? DurationSeconds; public bool Completed; }
-    private class ExVM
-    {
-        public ExerciseDefinition Def = null!;
-        public int? Rest;   // this routine's rest prescription
-        public bool Skipped; // skipped for this session (injury etc.)
-        public List<SetVM> Sets = new();
-        public ExerciseFeedback Feedback = new();
-    }
-
-    // Circuit order: set 1 of every exercise, then set 2, and so on.
-    private class StepVM { public ExVM Ex = null!; public SetVM Set = null!; }
-    private readonly List<StepVM> _steps = new();
-    private int _stepIndex;
 
     private StepVM? Current => _stepIndex < _steps.Count ? _steps[_stepIndex] : null;
     private int TotalSets => _exercises.Where(e => !e.Skipped).Sum(e => e.Sets.Count);
@@ -317,6 +305,16 @@ else // Feedback
     protected override async Task OnInitializedAsync()
     {
         _advice = AiAdviceStore.LoadExercises();
+
+        // Resume an in-progress workout if one survived navigation.
+        if (Active.HasResumable)
+        {
+            _run = Active.Current!;
+            StartTimer();
+            SetKeepScreenOn(true);
+            return;
+        }
+
         await using var db = await DbFactory.CreateDbContextAsync();
         _routines = await db.WorkoutRoutines
             .Include(r => r.Exercises).ThenInclude(e => e.ExerciseDefinition)
@@ -328,6 +326,8 @@ else // Feedback
 
     private void StartWorkout(WorkoutRoutine routine)
     {
+        _run = new WorkoutRun();      // fresh session
+        Active.Current = _run;        // persist it across navigation
         _exercises.Clear();
         foreach (var re in routine.Exercises.OrderBy(e => e.Order))
         {
@@ -361,10 +361,16 @@ else // Feedback
         _saving = false;
         _savedOk = false;
         _saveError = null;
-        _state = State.Active;
-        _timer = new System.Threading.Timer(_ => Tick(), null, 1000, 1000);
+        _state = WorkoutState.Active;
+        StartTimer();
         SetKeepScreenOn(true);
         _ = ReminderNotifier.RequestPermissionAsync(); // so hold-end alerts can fire
+    }
+
+    private void StartTimer()
+    {
+        _timer?.Dispose();
+        _timer = new System.Threading.Timer(_ => Tick(), null, 1000, 1000);
     }
 
     /// <summary>Prevent the device from auto-locking mid-workout (timed holds especially).</summary>
@@ -421,20 +427,25 @@ else // Feedback
         try { Microsoft.Maui.Devices.HapticFeedback.Default.Perform(Microsoft.Maui.Devices.HapticFeedbackType.LongPress); } catch { }
     }
 
-    private void DiscardWorkout()
+    private async Task DiscardWorkout()
     {
         // Nothing is persisted until Save, so just tear down and return to the chooser.
         SetKeepScreenOn(false);
         ReminderNotifier.CancelHoldEnd();
         _timer?.Dispose();
         _timer = null;
-        _timingSet = null;
-        _holdDoneSet = null;
-        _rest = 0;
-        _exercises.Clear();
-        _steps.Clear();
-        _stepIndex = 0;
-        _state = State.Choosing;
+        Active.Current = null;        // drop the persisted session
+        _run = new WorkoutRun();      // back to a clean chooser
+        await ReloadRoutines();
+        _state = WorkoutState.Choosing;
+    }
+
+    private async Task ReloadRoutines()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _routines = await db.WorkoutRoutines
+            .Include(r => r.Exercises).ThenInclude(e => e.ExerciseDefinition)
+            .OrderBy(r => r.Name).ToListAsync();
     }
 
     private void GoToFeedback()
@@ -445,7 +456,7 @@ else // Feedback
         _timer = null;
         _totalMinutes = (int)Math.Round((DateTime.Now - _startedAt).TotalMinutes);
         _saveError = null;
-        _state = State.Feedback;
+        _state = WorkoutState.Feedback;
     }
 
     private async Task SaveWorkout()
@@ -510,6 +521,7 @@ else // Feedback
 
             await db.SaveChangesAsync();
             _savedOk = true; // commit succeeded — safe to leave even if Health write hiccups
+            Active.Current = null; // session is persisted; drop the in-progress copy
         }
         catch (Exception ex)
         {
