@@ -187,9 +187,11 @@
         else
         {
             <ul class="timeline">
-                @foreach (var m in _todayMeals)
+                @foreach (var item in MergedToday())
                 {
                     <li>
+                    @if (item.Meal is { } m)
+                    {
                         @if (_editMealId == m.Id)
                         {
                             <div class="edit-exercise" style="width:100%">
@@ -245,11 +247,9 @@
                                 </div>
                             }
                         }
-                    </li>
-                }
-                @foreach (var d in _todayDrinks)
-                {
-                    <li>
+                    }
+                    else if (item.Drink is { } d)
+                    {
                         @if (_editDrinkId == d.Id)
                         {
                             <div class="edit-exercise" style="width:100%">
@@ -283,6 +283,7 @@
                                 </div>
                             </div>
                         }
+                    }
                     </li>
                 }
             </ul>
@@ -336,6 +337,12 @@
 
     private List<MealEntry> _todayMeals = new();
     private List<DrinkEntry> _todayDrinks = new();
+
+    // Meals and drinks merged into one chronological list for the Log tab.
+    private IEnumerable<(DateTime Time, MealEntry? Meal, DrinkEntry? Drink)> MergedToday() =>
+        _todayMeals.Select(m => (m.Time, (MealEntry?)m, (DrinkEntry?)null))
+            .Concat(_todayDrinks.Select(d => (d.Time, (MealEntry?)null, (DrinkEntry?)d)))
+            .OrderBy(x => x.Time);
 
     // Saved food/drink names (typeahead libraries) — seed list + everything logged.
     private List<string> _foodLib = new();
@@ -588,6 +595,8 @@
             e.Satiety = _mealEdit.Satiety;
             e.Tags = CsvField.Join(_mealEditTagBox.Selected);
             await db.SaveChangesAsync();
+            if (_mealEdit.Satiety != Satiety.Unset)
+                ReminderNotifier.Cancel(ReminderNotifier.MealRatingNotificationId);
         }
         _editMealId = null;
         await LoadToday();
@@ -642,6 +651,8 @@
         await using var db = await DbFactory.CreateDbContextAsync();
         var e = await db.MealEntries.FindAsync(m.Id);
         if (e is not null) { e.Satiety = satiety; await db.SaveChangesAsync(); }
+        // Rated before the reminder fired — cancel the pending nudge.
+        ReminderNotifier.Cancel(ReminderNotifier.MealRatingNotificationId);
         await LoadToday();
     }
 
