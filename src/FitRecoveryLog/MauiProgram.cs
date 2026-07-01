@@ -48,6 +48,8 @@ public static class MauiProgram
 
 		// Holds an in-progress workout so it survives navigating away from the page.
 		builder.Services.AddSingleton<FitRecoveryLog.Services.ActiveWorkoutState>();
+		// App-wide transient toast.
+		builder.Services.AddSingleton<FitRecoveryLog.Services.ToastService>();
 
 		// Local-first SQLite database stored in the app's private data directory.
 		var dbPath = Path.Combine(FileSystem.AppDataDirectory, "fitrecoverylog.db3");

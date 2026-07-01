@@ -44,7 +44,7 @@
                         @if (_logSiteFor == sc.Id)
                         {
                             <div class="chip-row" style="margin-top:0.5rem">
-                                <span class="muted" style="align-self:center;font-size:0.75rem">site:</span>
+                                <span class="muted" style="align-self:center;font-size:0.75rem">site (tap to change):</span>
                                 @foreach (var site in InjectionSites)
                                 {
                                     <button type="button" class="chip @(site == _suggestedSite ? "selected" : "")"
@@ -193,8 +193,11 @@
         await Load();
     }
 
-    private void LogMedClicked(MedicationSchedule sc)
+    private Guid? _lastLoggedMedId; // the dose just logged, so a site change updates it
+
+    private async Task LogMedClicked(MedicationSchedule sc)
     {
+        _lastLoggedMedId = null;
         if (sc.Form == MedicationForm.Injection)
         {
             var last = _recentMeds.FirstOrDefault(m =>
@@ -206,11 +209,13 @@
                 not null when last.Contains("Right") => last.Replace("Right", "Left"),
                 _ => InjectionSites.FirstOrDefault()
             };
+            // Log it now with the suggested site; the chips stay open to change it.
+            await LogMedDose(sc, _suggestedSite);
             _logSiteFor = sc.Id;
         }
         else
         {
-            _ = LogMedDose(sc, null);
+            await LogMedDose(sc, null);
         }
     }
 
@@ -218,14 +223,25 @@
     {
         await using (var db = await DbFactory.CreateDbContextAsync())
         {
-            db.MedicationEntries.Add(new MedicationEntry
+            // Site change on the dose we just logged updates it in place.
+            if (_lastLoggedMedId is { } id && await db.MedicationEntries.FindAsync(id) is { } existing)
             {
-                Name = sc.Name, Dose = sc.Dose, Frequency = sc.Repeat.ToString(),
-                TakenAt = DateTime.Now, InjectionSite = site
-            });
-            await db.SaveChangesAsync();
+                existing.InjectionSite = site;
+                await db.SaveChangesAsync();
+                _suggestedSite = site;
+            }
+            else
+            {
+                var entry = new MedicationEntry
+                {
+                    Name = sc.Name, Dose = sc.Dose, Frequency = sc.Repeat.ToString(),
+                    TakenAt = DateTime.Now, InjectionSite = site
+                };
+                db.MedicationEntries.Add(entry);
+                await db.SaveChangesAsync();
+                _lastLoggedMedId = entry.Id;
+            }
         }
-        _logSiteFor = null;
         await Load();
     }
 }

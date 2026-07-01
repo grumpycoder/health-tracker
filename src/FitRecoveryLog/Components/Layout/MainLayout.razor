@@ -3,8 +3,16 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject FitRecoveryLog.Services.ToastService Toast
 
 <div class="app-shell">
+    @if (Toast.Message is not null)
+    {
+        <div style="position:fixed;top:0;left:0;right:0;z-index:2000;background:#16a34a;color:#fff;
+                    font-weight:600;text-align:center;padding:calc(env(safe-area-inset-top) + 0.6rem) 1rem 0.6rem;">
+            @Toast.Message
+        </div>
+    }
     <article class="content">
         @Body
     </article>
@@ -38,10 +46,13 @@
     {
         NotificationNav.RouteRequested += OnRouteRequested;
         Nav.LocationChanged += OnLocationChanged;
+        Toast.OnChange += OnToastChanged;
         // Cold start from a notification tap: the route was stashed before Blazor loaded.
         if (NotificationNav.Consume() is { } route)
             Nav.NavigateTo(route);
     }
+
+    private Task OnToastChanged() => InvokeAsync(StateHasChanged);
 
     // Switching screens otherwise keeps the previous page's scroll position.
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e) =>
@@ -71,5 +82,6 @@
     {
         NotificationNav.RouteRequested -= OnRouteRequested;
         Nav.LocationChanged -= OnLocationChanged;
+        Toast.OnChange -= OnToastChanged;
     }
 }

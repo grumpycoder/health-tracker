@@ -1,5 +1,6 @@
 @page "/medication"
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject FitRecoveryLog.Services.ToastService Toast
 
 <PageTitle>Medication & Labs</PageTitle>
 
@@ -61,14 +62,20 @@
                         }
                         else
                         {
-                            <div class="ex-row" style="width:100%">
-                                <div>
-                                    <span class="entry">@FormGlyph(sc.Form) <strong>@sc.Name</strong>
-                                        <span class="muted"> @sc.Dose · @sc.Repeat @sc.ReminderTime.ToString("h:mm tt")</span>
-                                    </span>
+                            <div style="width:100%">
+                                <div class="entry" style="margin-bottom:0.5rem">
+                                    @FormGlyph(sc.Form) <strong>@sc.Name</strong>
+                                    <span class="muted"> @sc.Dose · @sc.Repeat @sc.ReminderTime.ToString("h:mm tt")</span>
                                 </div>
                                 <div class="routine-actions">
-                                    <button class="save-btn" style="padding:0.4rem 0.9rem" @onclick="() => LogClicked(sc)">Log Now</button>
+                                    @if (_logSiteFor == sc.Id)
+                                    {
+                                        <button class="save-btn" style="padding:0.4rem 0.9rem" @onclick="() => DoneLogging()">Done</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="save-btn" style="padding:0.4rem 0.9rem" @onclick="() => LogClicked(sc)">Log Now</button>
+                                    }
                                     <button class="icon-action" title="Edit" aria-label="Edit" @onclick="() => StartEditSched(sc)">✏️</button>
                                     <button class="icon-action danger" title="Remove" aria-label="Remove" @onclick="() => DeleteSched(sc)">🗑</button>
                                 </div>
@@ -76,17 +83,13 @@
                             @if (_logSiteFor == sc.Id)
                             {
                                 <div class="chip-row" style="margin-top:0.5rem">
-                                    <span class="muted" style="align-self:center;font-size:0.75rem">site:</span>
+                                    <span class="muted" style="align-self:center;font-size:0.75rem">site (tap to change):</span>
                                     @foreach (var site in InjectionSites)
                                     {
                                         <button type="button" class="chip @(site == _suggestedSite ? "selected" : "")"
                                                 @onclick="() => LogSchedule(sc, site)">@site</button>
                                     }
                                 </div>
-                            }
-                            @if (_loggedSchedId == sc.Id)
-                            {
-                                <p class="saved-msg" style="margin:0.4rem 0 0">Logged ✓</p>
                             }
                         }
                     </li>
@@ -362,7 +365,13 @@
     private MedicationSchedule _schedEdit = new();
     private Guid? _logSiteFor;     // schedule awaiting a site pick (injections)
     private string? _suggestedSite;
-    private Guid? _loggedSchedId;  // shows a transient "Logged ✓"
+
+    /// <summary>Close the injection site picker after logging.</summary>
+    private void DoneLogging()
+    {
+        _logSiteFor = null;
+        _lastLoggedMedId = null;
+    }
 
     // Inline edit state
     private Guid? _editMedId;
@@ -538,9 +547,11 @@
         await LoadRecent();
     }
 
-    private void LogClicked(MedicationSchedule sc)
+    private Guid? _lastLoggedMedId; // the dose just logged, so a site change updates it
+
+    private async Task LogClicked(MedicationSchedule sc)
     {
-        _loggedSchedId = null;
+        _lastLoggedMedId = null;
         if (sc.Form == MedicationForm.Injection)
         {
             // Suggest the mirror of the last site used for this medication.
@@ -553,25 +564,41 @@
                 not null when last.Contains("Right") => last.Replace("Right", "Left"),
                 _ => InjectionSites.FirstOrDefault()
             };
+            // Log it now with the suggested site; the chips stay open to change it.
+            await LogSchedule(sc, _suggestedSite);
             _logSiteFor = sc.Id;
         }
         else
         {
-            _ = LogSchedule(sc, null);
+            await LogSchedule(sc, null);
         }
     }
 
     private async Task LogSchedule(MedicationSchedule sc, string? site)
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        db.MedicationEntries.Add(new MedicationEntry
+        // If this is a site change on the dose we just logged, update it in place
+        // (don't create a second entry).
+        if (_lastLoggedMedId is { } id && await db.MedicationEntries.FindAsync(id) is { } existing)
         {
-            Name = sc.Name, Dose = sc.Dose, Frequency = sc.Repeat.ToString(),
-            TakenAt = DateTime.Now, InjectionSite = site
-        });
-        await db.SaveChangesAsync();
-        _logSiteFor = null;
-        _loggedSchedId = sc.Id;
-        await LoadRecent();
+            existing.InjectionSite = site;
+            await db.SaveChangesAsync();
+            _suggestedSite = site;
+            await LoadRecent();
+            _ = Toast.Show($"Site updated — {site}");
+        }
+        else
+        {
+            var entry = new MedicationEntry
+            {
+                Name = sc.Name, Dose = sc.Dose, Frequency = sc.Repeat.ToString(),
+                TakenAt = DateTime.Now, InjectionSite = site
+            };
+            db.MedicationEntries.Add(entry);
+            await db.SaveChangesAsync();
+            _lastLoggedMedId = entry.Id;
+            await LoadRecent();
+            _ = Toast.Show(string.IsNullOrWhiteSpace(site) ? $"Logged ✓ {sc.Name}" : $"Logged ✓ {sc.Name} — {site}");
+        }
     }
 }
