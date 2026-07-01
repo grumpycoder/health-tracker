@@ -1,6 +1,7 @@
 @page "/measurements"
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject IHealthService Health
+@inject FitRecoveryLog.Services.ToastService Toast
 
 <PageTitle>Body Measurements</PageTitle>
 
@@ -43,10 +44,6 @@
                           placeholder="e.g. belt one notch tighter"></textarea>
             </div>
             <button class="save-btn" type="submit">Save Measurement</button>
-            @if (_saved)
-            {
-                <span class="saved-msg">Saved ✓</span>
-            }
             @if (_warn is not null)
             {
                 <span class="warn-msg">@_warn</span>
@@ -168,7 +165,6 @@
 @code {
     private BodyMeasurement _entry = new() { Date = DateOnly.FromDateTime(DateTime.Now) };
     private List<BodyMeasurement> _history = new();
-    private bool _saved;
     private string? _warn;
 
     // <input type="date"> binds to DateTime; bridge it to the entity's DateOnly.
@@ -373,7 +369,6 @@
             && string.IsNullOrWhiteSpace(_entry.ClothingFitNotes))
         {
             _warn = "Enter at least one measurement.";
-            _saved = false;
             return;
         }
         _warn = null;
@@ -392,8 +387,8 @@
                 try { await Health.WriteWaistAsync(entry.Date, waist, entry.Id); } catch { }
         }
 
-        _saved = true;
         _entry = new BodyMeasurement { Date = DateOnly.FromDateTime(_dateInput) };
         await LoadHistory();
+        _ = Toast.Show("Measurement saved ✓");
     }
 }

@@ -2,6 +2,7 @@
 @using FitRecoveryLog.Services
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
+@inject ToastService Toast
 
 <PageTitle>Meals & Drinks</PageTitle>
 
@@ -116,10 +117,6 @@
             </div>
         }
         <button class="save-btn" disabled="@string.IsNullOrWhiteSpace(_meal.Description)" @onclick="SaveMeal">Save Meal</button>
-        @if (_mealSaved)
-        {
-            <span class="saved-msg">Saved ✓</span>
-        }
         @if (_mealWarn is not null)
         {
             <span class="warn-msg">@_mealWarn</span>
@@ -161,10 +158,6 @@
         </div>
         @TagField(_drinkTagBox, _drinkTagOptions, () => SuggestTagsAsync(_drinkTagBox, _drinkTagOptions, "Drink", _drink.Description, DrinkPortion(_drink)))
         <button class="save-btn" disabled="@string.IsNullOrWhiteSpace(_drink.Description)" @onclick="SaveDrink">Save Drink</button>
-        @if (_drinkSaved)
-        {
-            <span class="saved-msg">Saved ✓</span>
-        }
         @if (_drinkWarn is not null)
         {
             <span class="warn-msg">@_drinkWarn</span>
@@ -332,7 +325,6 @@
     private static MealEntry NewMeal() => new() { Satiety = Satiety.Satisfied };
     private MealEntry _meal = NewMeal();
     private DrinkEntry _drink = new();
-    private bool _mealSaved, _drinkSaved;
     private string? _mealWarn, _drinkWarn;
 
     private List<MealEntry> _todayMeals = new();
@@ -658,7 +650,7 @@
 
     private async Task SaveMeal()
     {
-        if (string.IsNullOrWhiteSpace(_meal.Description)) { _mealWarn = "Enter a food first."; _mealSaved = false; return; }
+        if (string.IsNullOrWhiteSpace(_meal.Description)) { _mealWarn = "Enter a food first."; return; }
         _mealWarn = null;
         _meal.Time = DateTime.Now;
         _meal.Tags = CsvField.Join(_mealTagBox.Selected);
@@ -675,16 +667,16 @@
         if (remind)
             try { await ReminderNotifier.ScheduleMealRatingAsync(foodName, isSnack); } catch { }
 
-        _mealSaved = true;
         _meal = NewMeal();
         _mealTagBox.Reset();
         _remindFullness = false;
         await LoadToday();
+        _ = Toast.Show(remind ? "Meal logged ✓ — I'll remind you to rate it" : "Meal logged ✓");
     }
 
     private async Task SaveDrink()
     {
-        if (string.IsNullOrWhiteSpace(_drink.Description)) { _drinkWarn = "Enter a drink first."; _drinkSaved = false; return; }
+        if (string.IsNullOrWhiteSpace(_drink.Description)) { _drinkWarn = "Enter a drink first."; return; }
         _drinkWarn = null;
         _drink.Time = DateTime.Now;
         _drink.Tags = CsvField.Join(_drinkTagBox.Selected);
@@ -692,10 +684,10 @@
         db.DrinkEntries.Add(_drink);
         await db.SaveChangesAsync();
 
-        _drinkSaved = true;
         _drink = new DrinkEntry();
         _drinkTagBox.Reset();
         await LoadToday();
+        _ = Toast.Show("Drink logged ✓");
     }
 
     // The "Log" tab can browse any day; edit/delete work the same everywhere.

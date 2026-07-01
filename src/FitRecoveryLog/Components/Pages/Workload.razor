@@ -1,6 +1,7 @@
 @page "/workload"
 @using FitRecoveryLog.Services
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject ToastService Toast
 
 <PageTitle>Physical Workload</PageTitle>
 
@@ -67,10 +68,6 @@
             }
         }
         <button class="save-btn" @onclick="Save">Save Activity</button>
-        @if (_saved)
-        {
-            <span class="saved-msg">Saved ✓</span>
-        }
         @if (_warn is not null)
         {
             <span class="warn-msg">@_warn</span>
@@ -145,7 +142,6 @@
     private PhysicalWorkloadEntry _entry = new() { Intensity = Intensity.Moderate };
     private DateTime _date = DateTime.Now.Date;
     private readonly HashSet<string> _areas = new();
-    private bool _saved;
     private string? _warn;
     private List<PhysicalWorkloadEntry> _recent = new();
 
@@ -235,7 +231,7 @@
 
     private async Task Save()
     {
-        if (string.IsNullOrWhiteSpace(_entry.Activity)) { _warn = "Enter an activity first."; _saved = false; return; }
+        if (string.IsNullOrWhiteSpace(_entry.Activity)) { _warn = "Enter an activity first."; return; }
         _warn = null;
         _entry.Date = DateOnly.FromDateTime(_date);
         _entry.BodyAreasAffected = CsvField.Join(_areas);
@@ -244,10 +240,10 @@
         db.PhysicalWorkloadEntries.Add(_entry);
         await db.SaveChangesAsync();
 
-        _saved = true;
         _entry = new PhysicalWorkloadEntry { Intensity = Intensity.Moderate };
         _areas.Clear();
         await LoadRecent();
+        _ = Toast.Show("Activity saved ✓");
     }
 
     private async Task LoadRecent()

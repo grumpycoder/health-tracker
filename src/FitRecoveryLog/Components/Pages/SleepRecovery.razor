@@ -1,6 +1,7 @@
 @page "/sleep"
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject IHealthService Health
+@inject FitRecoveryLog.Services.ToastService Toast
 
 <PageTitle>Sleep & Recovery</PageTitle>
 
@@ -46,10 +47,6 @@
             <textarea rows="2" @bind="_sleep.Notes" placeholder="e.g. woke at 3am, dog"></textarea>
         </div>
         <button class="save-btn" @onclick="SaveSleep">Save Sleep</button>
-        @if (_sleepSaved)
-        {
-            <span class="saved-msg">Saved ✓</span>
-        }
         @if (_sleepWarn is not null)
         {
             <span class="warn-msg">@_sleepWarn</span>
@@ -92,10 +89,6 @@
                       placeholder="e.g. yard work yesterday, lower back tight"></textarea>
         </div>
         <button class="save-btn" @onclick="SaveRecovery">Save Recovery</button>
-        @if (_recoverySaved)
-        {
-            <span class="saved-msg">Saved ✓</span>
-        }
         @if (_recoveryWarn is not null)
         {
             <span class="warn-msg">@_recoveryWarn</span>
@@ -163,7 +156,6 @@
     private SleepEntry _sleep = new();
     private RecoveryEntry _recovery = new();
     private readonly HashSet<string> _soreLocs = new();
-    private bool _sleepSaved, _recoverySaved;
     private string? _sleepWarn, _recoveryWarn;
     private List<SleepEntry> _recentSleep = new();
 
@@ -263,7 +255,7 @@
         if (_sleep.DurationHours is null && _sleep.SleepScore is null
             && _sleep.Interruptions is null && string.IsNullOrWhiteSpace(_sleep.Notes))
         {
-            _sleepWarn = "Enter sleep duration, score, or a note."; _sleepSaved = false; return;
+            _sleepWarn = "Enter sleep duration, score, or a note."; return;
         }
         _sleepWarn = null;
         _sleep.Date = DateOnly.FromDateTime(_date);
@@ -271,9 +263,9 @@
         db.SleepEntries.Add(_sleep);
         await db.SaveChangesAsync();
 
-        _sleepSaved = true;
         _sleep = new SleepEntry();
         await LoadRecent();
+        _ = Toast.Show("Sleep logged ✓");
     }
 
     private async Task SaveRecovery()
@@ -281,7 +273,7 @@
         if (_recovery.RecoveryRating is null && _recovery.FatigueRating is null
             && _soreLocs.Count == 0 && string.IsNullOrWhiteSpace(_recovery.Notes))
         {
-            _recoveryWarn = "Enter a rating, soreness, or a note."; _recoverySaved = false; return;
+            _recoveryWarn = "Enter a rating, soreness, or a note."; return;
         }
         _recoveryWarn = null;
         _recovery.Date = DateOnly.FromDateTime(_date);
@@ -290,9 +282,9 @@
         db.RecoveryEntries.Add(_recovery);
         await db.SaveChangesAsync();
 
-        _recoverySaved = true;
         _recovery = new RecoveryEntry();
         _soreLocs.Clear();
+        _ = Toast.Show("Recovery logged ✓");
     }
 
     private async Task LoadRecent()
