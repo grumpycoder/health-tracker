@@ -5,6 +5,7 @@
 @using Microsoft.Maui.Storage
 @using Microsoft.Maui.ApplicationModel.DataTransfer
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject FitRecoveryLog.Services.AutoBackup AutoBackup
 
 <PageTitle>Export Data</PageTitle>
 
@@ -18,6 +19,11 @@
         <h2>Full backup (JSON)</h2>
         <p class="muted" style="margin:0 0 0.6rem">Every record, machine-readable — good for backups.</p>
         <button class="save-btn" disabled="@_busy" @onclick="ExportJson">Export JSON</button>
+        <p class="muted" style="margin:0.6rem 0 0;font-size:0.8rem">
+            @(AutoBackup.Latest() is { } la
+                ? $"Auto-backup runs daily. Latest: {la.When:MMM d, h:mm tt}. Export & share regularly — auto-backups don't survive deleting the app."
+                : "Auto-backup runs daily on open. Export & share regularly for off-device safety.")
+        </p>
     </section>
 
     <section class="card">
@@ -46,6 +52,11 @@
         @if (_pendingRestore is null)
         {
             <button class="save-btn" disabled="@_busy" @onclick="PickRestoreFile">Choose Backup File</button>
+            @if (AutoBackup.Latest() is { } ra)
+            {
+                <button class="link-btn" style="margin-left:0.6rem" disabled="@_busy"
+                        @onclick="LoadLatestAutoBackup">Use latest auto-backup (@ra.When.ToString("MMM d, h:mm tt"))</button>
+            }
         }
         else
         {
@@ -75,6 +86,12 @@
     private string? _restoreFileName;
     private string? _restoreSummary;
 
+    protected override async Task OnInitializedAsync()
+    {
+        // Guarantee a same-day snapshot exists so "restore latest auto-backup" is available.
+        await AutoBackup.SnapshotIfDueAsync();
+    }
+
     private async Task PickRestoreFile()
     {
         _status = null;
@@ -102,6 +119,23 @@
         catch (Exception ex)
         {
             _status = $"Could not read backup: {ex.Message}";
+        }
+    }
+
+    private async Task LoadLatestAutoBackup()
+    {
+        _status = null;
+        try
+        {
+            if (AutoBackup.Latest() is not { } a) { _status = "No auto-backup found yet."; return; }
+            var backup = BackupRestore.Parse(await File.ReadAllTextAsync(a.Path));
+            _pendingRestore = backup;
+            _restoreFileName = $"auto-backup ({a.When:MMM d, h:mm tt})";
+            _restoreSummary = BackupRestore.Summarize(backup);
+        }
+        catch (Exception ex)
+        {
+            _status = $"Could not read auto-backup: {ex.Message}";
         }
     }
 
@@ -142,33 +176,10 @@
 
     private async Task ExportJson()
     {
-        await Run("fitrecoverylog-backup.json", async db =>
-        {
-            var data = new
-            {
-                exportedAt = DateTime.Now,
-                dailyLogs = await db.DailyLogs.ToListAsync(),
-                noteEntries = await db.NoteEntries.ToListAsync(),
-                bodyMeasurements = await db.BodyMeasurements.ToListAsync(),
-                meals = await db.MealEntries.ToListAsync(),
-                drinks = await db.DrinkEntries.ToListAsync(),
-                sleep = await db.SleepEntries.ToListAsync(),
-                recovery = await db.RecoveryEntries.ToListAsync(),
-                physicalWorkload = await db.PhysicalWorkloadEntries.ToListAsync(),
-                medications = await db.MedicationEntries.ToListAsync(),
-                medicationSchedules = await db.MedicationSchedules.ToListAsync(),
-                labs = await db.LabResults.ToListAsync(),
-                exercises = await db.ExerciseDefinitions.ToListAsync(),
-                routines = await db.WorkoutRoutines.ToListAsync(),
-                routineExercises = await db.RoutineExercises.ToListAsync(),
-                workoutSessions = await db.WorkoutSessions.ToListAsync(),
-                exerciseSets = await db.ExerciseSets.ToListAsync(),
-                exerciseFeedback = await db.ExerciseFeedback.ToListAsync(),
-                weeklyReviews = await db.WeeklyReviews.ToListAsync(),
-                reminderSettings = await db.ReminderSettings.ToListAsync(),
-            };
-            return JsonSerializer.Serialize(data, JsonOpts);
-        });
+        await Run("fitrecoverylog-backup.json", db => BackupRestore.BuildJsonAsync(db));
+        // Count this as an off-device backup and push the weekly reminder out a week.
+        AutoBackup.MarkExported();
+        await AutoBackup.EnsureBackupReminderAsync();
     }
 
     private async Task ExportMarkdown()

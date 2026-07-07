@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
 
 namespace FitRecoveryLog.Data;
 
@@ -12,6 +13,16 @@ public static class BackupRestore
     private static readonly JsonSerializerOptions Opts = new()
     {
         PropertyNameCaseInsensitive = true,
+        Converters = { new JsonStringEnumConverter() }
+    };
+
+    // Serialize options must ignore reference cycles — EF fixup links
+    // WorkoutSession <-> ExerciseSet/Feedback navigations, which would otherwise
+    // throw on serialization.
+    private static readonly JsonSerializerOptions WriteOpts = new()
+    {
+        WriteIndented = true,
+        ReferenceHandler = ReferenceHandler.IgnoreCycles,
         Converters = { new JsonStringEnumConverter() }
     };
 
@@ -41,6 +52,35 @@ public static class BackupRestore
     public static Backup Parse(string json) =>
         JsonSerializer.Deserialize<Backup>(json, Opts)
         ?? throw new InvalidOperationException("Not a valid backup file");
+
+    /// <summary>Serialize the entire database to a restore-compatible backup JSON.
+    /// Shared by the Export page and the automatic snapshot.</summary>
+    public static async Task<string> BuildJsonAsync(AppDbContext db)
+    {
+        var b = new Backup
+        {
+            DailyLogs = await db.DailyLogs.ToListAsync(),
+            NoteEntries = await db.NoteEntries.ToListAsync(),
+            BodyMeasurements = await db.BodyMeasurements.ToListAsync(),
+            Meals = await db.MealEntries.ToListAsync(),
+            Drinks = await db.DrinkEntries.ToListAsync(),
+            Sleep = await db.SleepEntries.ToListAsync(),
+            Recovery = await db.RecoveryEntries.ToListAsync(),
+            PhysicalWorkload = await db.PhysicalWorkloadEntries.ToListAsync(),
+            Medications = await db.MedicationEntries.ToListAsync(),
+            MedicationSchedules = await db.MedicationSchedules.ToListAsync(),
+            Labs = await db.LabResults.ToListAsync(),
+            Exercises = await db.ExerciseDefinitions.ToListAsync(),
+            Routines = await db.WorkoutRoutines.ToListAsync(),
+            RoutineExercises = await db.RoutineExercises.ToListAsync(),
+            WorkoutSessions = await db.WorkoutSessions.ToListAsync(),
+            ExerciseSets = await db.ExerciseSets.ToListAsync(),
+            ExerciseFeedback = await db.ExerciseFeedback.ToListAsync(),
+            WeeklyReviews = await db.WeeklyReviews.ToListAsync(),
+            ReminderSettings = await db.ReminderSettings.ToListAsync(),
+        };
+        return JsonSerializer.Serialize(b, WriteOpts);
+    }
 
     /// <summary>One-line summary of what the backup contains, for the confirm step.</summary>
     public static string Summarize(Backup b)

@@ -50,6 +50,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<FitRecoveryLog.Services.ActiveWorkoutState>();
 		// App-wide transient toast.
 		builder.Services.AddSingleton<FitRecoveryLog.Services.ToastService>();
+		// Local automatic daily backup snapshots.
+		builder.Services.AddSingleton<FitRecoveryLog.Services.AutoBackup>();
 
 		// Local-first SQLite database stored in the app's private data directory.
 		var dbPath = Path.Combine(FileSystem.AppDataDirectory, "fitrecoverylog.db3");
