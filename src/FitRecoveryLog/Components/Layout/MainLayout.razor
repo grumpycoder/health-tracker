@@ -4,6 +4,7 @@
 @inject IJSRuntime JS
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject FitRecoveryLog.Services.ToastService Toast
+@inject FitRecoveryLog.Services.AutoBackup AutoBackup
 
 <div class="app-shell">
     @if (Toast.Message is not null)
@@ -74,9 +75,48 @@
                 .Concat(await db.CessationGoals.Select(g => g.NotificationId).ToListAsync())
                 .ToHashSet();
             await ReminderNotifier.CancelOrphanedAsync(valid);
+
+            // Reschedule routine reminders, skipping the current period when the
+            // task is already done (e.g. a measurement logged this week) so they
+            // don't nag after you've completed them.
+            foreach (var s in await db.ReminderSettings.ToListAsync())
+            {
+                if (!s.Active) { ReminderNotifier.Cancel(s.NotificationId); continue; }
+                var interval = s.Repeat switch
+                {
+                    ReminderRepeat.Daily => 1, ReminderRepeat.Weekly => 7,
+                    ReminderRepeat.Biweekly => 14, ReminderRepeat.Monthly => 30, _ => 7
+                };
+                var since = DateOnly.FromDateTime(DateTime.Now.AddDays(-interval));
+                var done = s.Key switch
+                {
+                    "measurement" => await db.BodyMeasurements.AnyAsync(m => m.Date >= since),
+                    "progressPhoto" => await db.BodyMeasurements.AnyAsync(m => m.PhotoPath != null && m.Date >= since),
+                    "labCheck" => await db.LabResults.AnyAsync(l => l.Date >= since),
+                    "weeklyReview" => await db.WeeklyReviews.AnyAsync(w => w.WeekStart >= since),
+                    _ => false
+                };
+                if (done)
+                    await ReminderNotifier.ScheduleAsync(s, Label(s.Key), DateTime.Now.AddDays(interval));
+                else
+                    await ReminderNotifier.ScheduleAsync(s, Label(s.Key));
+            }
         }
         catch { /* never block app startup on notification cleanup */ }
+
+        // Local daily snapshot + the export-aware weekly backup reminder.
+        await AutoBackup.SnapshotIfDueAsync();
+        await AutoBackup.EnsureBackupReminderAsync();
     }
+
+    private static string Label(string key) => key switch
+    {
+        "measurement" => "Body Measurement",
+        "labCheck" => "Lab Check",
+        "weeklyReview" => "Weekly Review",
+        "progressPhoto" => "Progress Photo",
+        _ => key
+    };
 
     public void Dispose()
     {

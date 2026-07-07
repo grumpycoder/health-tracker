@@ -117,7 +117,8 @@
         try { _permission = await ReminderNotifier.RequestPermissionAsync(); } catch { _permission = null; }
         await Load();
         foreach (var s in _activeSchedules) try { await ReminderNotifier.ScheduleAsync(s); } catch { }
-        foreach (var s in _settings) try { await ReminderNotifier.ScheduleAsync(s, Label(s.Key)); } catch { }
+        // Routine reminder (setting) scheduling — including skip-when-done — is handled
+        // once on app launch in MainLayout; rescheduling here would re-nag after logging.
     }
 
     private async Task Load()

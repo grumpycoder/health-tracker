@@ -29,7 +29,8 @@ public static class ReminderNotifier
         if (!IsSupported) return;
         var pending = await LocalNotificationCenter.Current.GetPendingNotificationList();
         foreach (var n in pending)
-            if (n.NotificationId is not (HoldTimerNotificationId or CravingTimerNotificationId or MealRatingNotificationId)
+            if (n.NotificationId is not (HoldTimerNotificationId or CravingTimerNotificationId
+                    or MealRatingNotificationId or BackupReminderNotificationId)
                 && !validIds.Contains(n.NotificationId))
                 LocalNotificationCenter.Current.Cancel(n.NotificationId);
     }
@@ -85,6 +86,29 @@ public static class ReminderNotifier
 
     public static void CancelHoldEnd() => Cancel(HoldTimerNotificationId);
 
+    /// <summary>Weekly nudge to export an off-device backup (auto-snapshots don't
+    /// survive an uninstall). Idempotent — safe to call every launch.</summary>
+    public const int BackupReminderNotificationId = 3004;
+
+    public static async Task ScheduleBackupReminderAsync(DateTime due)
+    {
+        if (!IsSupported) return;
+        LocalNotificationCenter.Current.Cancel(BackupReminderNotificationId);
+        if (due <= DateTime.Now) due = DateTime.Now.AddDays(1); // never fire immediately
+        await LocalNotificationCenter.Current.Show(new NotificationRequest
+        {
+            NotificationId = BackupReminderNotificationId,
+            Title = "Back up your Fit Log 💾",
+            Description = "Export a backup so your data is safe off-device.",
+            ReturningData = "export",
+            Schedule = new NotificationRequestSchedule
+            {
+                NotifyTime = due,
+                RepeatType = NotificationRepeat.Weekly
+            }
+        });
+    }
+
     /// <summary>One-shot "rate how it sat" nudge after a meal/snack logged before eating.</summary>
     public const int MealRatingNotificationId = 3003;
 
@@ -111,6 +135,13 @@ public static class ReminderNotifier
 
     public static Task ScheduleAsync(ReminderSetting s, string title) =>
         ScheduleAsync(s.NotificationId, title, null, NextDue(s), s.Repeat, s.Active);
+
+    /// <summary>Schedule a routine reminder whose next fire is no earlier than
+    /// <paramref name="notBefore"/> — used to skip the current period when the task
+    /// is already done (e.g. a measurement logged this week).</summary>
+    public static Task ScheduleAsync(ReminderSetting s, string title, DateTime notBefore) =>
+        ScheduleAsync(s.NotificationId, title, null,
+            NextOccurrence(DateOnly.FromDateTime(notBefore), s.Time, s.Repeat), s.Repeat, s.Active);
 
     public static DateTime NextDue(MedicationSchedule s) =>
         NextOccurrence(s.StartDate, s.ReminderTime, s.Repeat);
