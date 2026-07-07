@@ -357,12 +357,11 @@
     private void SelectDrink(string name)
     {
         _drink.Description = name;
+        // Deliberately do NOT prefill ounces/sugar: a stale amount carried forward
+        // silently (e.g. a one-off 16oz sticking to later 8oz teas) corrupts the
+        // data. The amount must be entered each time so it's always correct.
         if (_drinkDefaults.TryGetValue(name, out var d))
-        {
-            _drink.Ounces = d.Oz;
-            _drink.SugarCount = d.Sugar;
-            _drinkTagBox.Load(CsvField.Split(d.Tags)); // reuse last time's tags
-        }
+            _drinkTagBox.Load(CsvField.Split(d.Tags)); // tags are visible chips — safe to recall
     }
 
     private static List<string> Suggest(List<string> lib, string? query)
