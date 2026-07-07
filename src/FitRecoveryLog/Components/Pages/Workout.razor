@@ -41,12 +41,24 @@
     {
         @foreach (var r in _routines)
         {
+            var age = RoutineAge(r.Id);
             <section class="card">
                 <div class="routine-head">
                     <h2>@r.Name</h2>
                     <button class="save-btn" @onclick="@(() => StartWorkout(r))">Start ▶</button>
                 </div>
-                <p class="muted">@r.Exercises.Count exercise(s)</p>
+                <p class="muted" style="margin:0.2rem 0 0">
+                    @r.Exercises.Count exercise(s)@(age is { } a ? $" · running {a.Text} · {a.Count} workout(s)" : "")
+                    @if (age is { Stale: true })
+                    {
+                        <span class="badge warn" style="margin-left:0.4rem">time to progress</span>
+                    }
+                </p>
+                @if (age is { Stale: true })
+                {
+                    <button class="link-btn" style="padding:0;margin-top:0.4rem"
+                            @onclick="@(() => Nav.NavigateTo("routines"))">Design a fresh routine ✨</button>
+                }
             </section>
         }
         <section class="card">
@@ -320,8 +332,31 @@ else // Feedback
             .Include(r => r.Exercises).ThenInclude(e => e.ExerciseDefinition)
             .OrderBy(r => r.Name).ToListAsync();
 
+        // Per-routine usage, to show running time + a "time to progress" nudge here
+        // (the workout chooser) where it's actually seen day to day.
+        var stats = await db.WorkoutSessions.Where(w => w.RoutineId != null)
+            .GroupBy(w => w.RoutineId!.Value)
+            .Select(g => new { Id = g.Key, Count = g.Count(), First = g.Min(x => x.Date), Last = g.Max(x => x.Date) })
+            .ToListAsync();
+        _routineStats = stats.ToDictionary(x => x.Id, x => (x.Count, x.First, x.Last));
+
         if (RoutineId is { } id && _routines.FirstOrDefault(r => r.Id == id) is { } match)
             StartWorkout(match);
+    }
+
+    // RoutineId -> (session count, first used, last used).
+    private Dictionary<Guid, (int Count, DateOnly First, DateOnly Last)> _routineStats = new();
+
+    /// <summary>Running time + staleness (5+ weeks OR 25+ sessions of recent use).</summary>
+    private (string Text, int Count, bool Stale)? RoutineAge(Guid id)
+    {
+        if (!_routineStats.TryGetValue(id, out var s) || s.Count == 0) return null;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var weeks = (today.DayNumber - s.First.DayNumber) / 7;
+        var text = weeks < 1 ? "under a week" : $"{weeks} wk{(weeks == 1 ? "" : "s")}";
+        var activeRecently = today.DayNumber - s.Last.DayNumber <= 14;
+        var stale = activeRecently && (weeks >= 5 || s.Count >= 25);
+        return (text, s.Count, stale);
     }
 
     private void StartWorkout(WorkoutRoutine routine)

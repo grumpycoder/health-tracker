@@ -518,8 +518,9 @@
     // RoutineId -> (session count, first used, last used).
     private Dictionary<Guid, (int Count, DateOnly First, DateOnly Last)> _routineStats = new();
 
-    /// <summary>How long a routine's been in rotation, and whether it's gone stale
-    /// (6+ weeks of active use) so a fresh one is worth suggesting.</summary>
+    /// <summary>How long a routine's been in rotation, and whether it's gone stale —
+    /// 5+ weeks OR 25+ sessions of active use — so a fresh one is worth suggesting.
+    /// The session-count trigger catches frequent trainers before the calendar does.</summary>
     private (string Text, int Count, bool Stale)? RoutineAge(Guid id)
     {
         if (!_routineStats.TryGetValue(id, out var s) || s.Count == 0) return null;
@@ -527,7 +528,7 @@
         var weeks = (today.DayNumber - s.First.DayNumber) / 7;
         var text = weeks < 1 ? "under a week" : $"{weeks} wk{(weeks == 1 ? "" : "s")}";
         var activeRecently = today.DayNumber - s.Last.DayNumber <= 14;
-        var stale = weeks >= 6 && activeRecently && s.Count >= 6;
+        var stale = activeRecently && (weeks >= 5 || s.Count >= 25);
         return (text, s.Count, stale);
     }
 
