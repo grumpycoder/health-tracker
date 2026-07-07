@@ -55,6 +55,14 @@
 
     private Task OnToastChanged() => InvokeAsync(StateHasChanged);
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        // Apply the saved text-size scale to the whole app.
+        var pct = Microsoft.Maui.Storage.Preferences.Default.Get("text_scale_pct", 100);
+        try { await JS.InvokeVoidAsync("textScale.apply", pct); } catch { }
+    }
+
     // Switching screens otherwise keeps the previous page's scroll position.
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e) =>
         _ = InvokeAsync(async () => { try { await JS.InvokeVoidAsync("scrollContentTop"); } catch { } });

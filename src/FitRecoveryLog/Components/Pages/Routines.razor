@@ -24,7 +24,7 @@
 
     @if (_hasAiKey)
     {
-        <section class="card">
+        <section class="card" id="suggest-card">
             <h2>✨ Suggest a Routine</h2>
             <p class="muted" style="margin:0 0 0.5rem">
                 Drafts a routine from your training history — covering muscle groups
@@ -109,6 +109,24 @@
                             @onclick="@(() => Nav.NavigateTo($"workout?routineId={r.Id}"))">Start ▶</button>
                 </div>
             </div>
+
+            @if (RoutineAge(r.Id) is { } age)
+            {
+                <p class="muted" style="margin:0.3rem 0 0;font-size:0.8rem">
+                    ⏱ Running @age.Text · @age.Count workout(s)
+                    @if (age.Stale)
+                    {
+                        <span class="badge warn" style="margin-left:0.4rem">time to freshen up</span>
+                    }
+                </p>
+                @if (age.Stale && _hasAiKey)
+                {
+                    <p class="muted" style="margin:0.2rem 0 0;font-size:0.78rem">
+                        You've run this a while — <a class="link-btn" style="padding:0" @onclick:stopPropagation
+                            @onclick="ScrollToSuggest">generate a fresh routine ✨</a> to keep progressing.
+                    </p>
+                }
+            }
 
             @if (!expanded)
             {
@@ -446,7 +464,10 @@
                 def = new ExerciseDefinition
                 {
                     Name = ex.Name,
-                    Measure = ex.Measure == "duration" ? ExerciseMeasure.Duration : ExerciseMeasure.Reps
+                    Measure = ex.Measure == "duration" ? ExerciseMeasure.Duration : ExerciseMeasure.Reps,
+                    // Seed muscle groups from the AI suggestion so volume tracking works
+                    // for new exercises without manual tagging.
+                    MuscleGroups = string.IsNullOrWhiteSpace(ex.Muscles) ? null : ex.Muscles
                 };
                 db.ExerciseDefinitions.Add(def);
             }
@@ -485,6 +506,34 @@
             .Select(x => (x.Name, x.Measure)).ToList();
         foreach (var r in _routines)
             _draft.TryAdd(r.Id, new ExerciseDraft());
+
+        // Per-routine usage: how long it's been in rotation and how many sessions.
+        var stats = await db.WorkoutSessions.Where(w => w.RoutineId != null)
+            .GroupBy(w => w.RoutineId!.Value)
+            .Select(g => new { Id = g.Key, Count = g.Count(), First = g.Min(x => x.Date), Last = g.Max(x => x.Date) })
+            .ToListAsync();
+        _routineStats = stats.ToDictionary(x => x.Id, x => (x.Count, x.First, x.Last));
+    }
+
+    // RoutineId -> (session count, first used, last used).
+    private Dictionary<Guid, (int Count, DateOnly First, DateOnly Last)> _routineStats = new();
+
+    /// <summary>How long a routine's been in rotation, and whether it's gone stale
+    /// (6+ weeks of active use) so a fresh one is worth suggesting.</summary>
+    private (string Text, int Count, bool Stale)? RoutineAge(Guid id)
+    {
+        if (!_routineStats.TryGetValue(id, out var s) || s.Count == 0) return null;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var weeks = (today.DayNumber - s.First.DayNumber) / 7;
+        var text = weeks < 1 ? "under a week" : $"{weeks} wk{(weeks == 1 ? "" : "s")}";
+        var activeRecently = today.DayNumber - s.Last.DayNumber <= 14;
+        var stale = weeks >= 6 && activeRecently && s.Count >= 6;
+        return (text, s.Count, stale);
+    }
+
+    private async Task ScrollToSuggest()
+    {
+        try { await JS.InvokeVoidAsync("scrollToId", "suggest-card"); } catch { }
     }
 
     private void SelectLibrary(ExerciseDraft d, (string Name, ExerciseMeasure Measure) lib)

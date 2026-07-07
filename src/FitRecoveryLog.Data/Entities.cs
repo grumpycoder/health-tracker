@@ -48,8 +48,14 @@ public class ExerciseDefinition : EntityBase
     public string? ProgressionNotes { get; set; }
     /// <summary>Optional demo/how-to link (e.g. a YouTube video).</summary>
     public string? VideoUrl { get; set; }
+    /// <summary>CSV of primary muscle groups worked (Chest, Back, …). Powers
+    /// per-muscle volume analysis and routine balancing. Use <see cref="MuscleGroupList"/>.</summary>
+    public string? MuscleGroups { get; set; }
     /// <summary>Hidden from routine pickers but kept for history.</summary>
     public bool Retired { get; set; }
+
+    [NotMapped]
+    public IReadOnlyList<string> MuscleGroupList => CsvField.Split(MuscleGroups);
 }
 
 /// <summary>A reusable routine: an ordered list of exercises.</summary>

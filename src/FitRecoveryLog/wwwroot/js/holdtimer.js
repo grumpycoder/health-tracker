@@ -51,6 +51,16 @@
         }
     };
 
+    // Smooth-scroll to an element by id (e.g. the "Suggest a Routine" card).
+    window.scrollToId = function (id) {
+        try { document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) { }
+    };
+
+    // App-wide text scaling: set the root font-size so every rem-based size grows.
+    window.textScale = {
+        apply(pct) { try { document.documentElement.style.fontSize = pct + "%"; } catch (e) { } }
+    };
+
     // Reset scroll on navigation — Blazor otherwise keeps the previous page's
     // scroll position when you switch screens.
     window.scrollContentTop = function () {

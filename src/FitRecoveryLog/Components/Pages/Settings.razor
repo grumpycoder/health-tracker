@@ -1,5 +1,6 @@
 @page "/settings"
 @using FitRecoveryLog.Services
+@inject IJSRuntime JS
 
 <PageTitle>Settings</PageTitle>
 
@@ -8,6 +9,18 @@
         <div class="dash-date">Settings</div>
         <div class="dash-date-sub">App configuration</div>
     </header>
+
+    <section class="card">
+        <h2>Text size</h2>
+        <p class="muted" style="margin:0 0 0.6rem">Make everything bigger or smaller across the app.</p>
+        <div class="chip-row">
+            @foreach (var opt in TextSizes)
+            {
+                <button type="button" class="chip @(_textScale == opt.Pct ? "selected" : "")"
+                        @onclick="() => SetTextScale(opt.Pct)">@opt.Label</button>
+            }
+        </div>
+    </section>
 
     <section class="card">
         <h2>AI Analysis (Gemini)</h2>
@@ -72,12 +85,24 @@
     private string _goals = "";
     private bool _goalsSaved;
 
+    private static readonly (string Label, int Pct)[] TextSizes =
+        { ("Normal", 100), ("Large", 120), ("Larger", 140), ("Largest", 160) };
+    private int _textScale = 100;
+
     protected override async Task OnInitializedAsync()
     {
         var existing = await GeminiAnalyzer.KeyStore.GetAsync();
         _hasKey = !string.IsNullOrEmpty(existing);
         if (_hasKey) _key = existing!;
         _goals = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.UserGoalsPrefKey, "");
+        _textScale = Microsoft.Maui.Storage.Preferences.Default.Get("text_scale_pct", 100);
+    }
+
+    private async Task SetTextScale(int pct)
+    {
+        _textScale = pct;
+        Microsoft.Maui.Storage.Preferences.Default.Set("text_scale_pct", pct);
+        try { await JS.InvokeVoidAsync("textScale.apply", pct); } catch { }
     }
 
     private void SaveGoals()

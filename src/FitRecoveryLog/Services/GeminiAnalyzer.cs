@@ -413,9 +413,14 @@ public static class GeminiAnalyzer
         int Sets, int? Reps, int? DurationSeconds, int? RestSeconds);
     public sealed record RoutineSuggestion(string Name, string Rationale, List<SuggestedExercise> Exercises);
 
-    /// <summary>Builds the routine-design prompt: exercise library, existing routines,
-    /// and per-exercise 8-week stats, asking for a draft routine that covers
-    /// under-trained muscle groups (inferred from exercise names).</summary>
+    /// <summary>Muscle groups the app tags exercises with — must match the Exercise
+    /// Library picker so the model uses consistent names.</summary>
+    private static readonly string[] MuscleCatalog =
+        { "Chest", "Back", "Shoulders", "Biceps", "Triceps", "Forearms", "Core", "Glutes", "Quads", "Hamstrings", "Calves" };
+
+    /// <summary>Builds the routine-design prompt: exercise library (with muscle tags),
+    /// existing routines, per-exercise 8-week stats, and real per-muscle set volume,
+    /// asking for a draft routine that prioritizes under-trained muscle groups.</summary>
     public static async Task<string> BuildRoutinePromptAsync(AppDbContext db, string? hint, bool bodyweightOnly = true)
     {
         var since = DateOnly.FromDateTime(DateTime.Now).AddDays(-WindowDays);
@@ -439,6 +444,8 @@ public static class GeminiAnalyzer
 """);
         sb.AppendLine("Rules: prefer library exercises (isNew=false, exact name and measure). " +
                       "Add NEW exercises (isNew=true) where the library lacks coverage for an under-trained muscle group.");
+        sb.AppendLine("TARGET BALANCE — use the MUSCLE VOLUME data below (real sets per muscle group): prioritize the " +
+                      $"lowest-volume and untrained groups. Set each exercise's \"muscles\" from this list: {string.Join(", ", MuscleCatalog)}.");
         sb.AppendLine("TIME BUDGET — the whole routine must finish in about 15-17 minutes (unless USER REQUEST says otherwise). " +
                       "Estimate sets × (work + rest), a reps set ≈ 40s of work. That usually means 4-6 exercises; fewer, harder exercises beat a long list.");
         sb.AppendLine("USE THE RATINGS — recent feedback, act on it:");
@@ -452,11 +459,12 @@ public static class GeminiAnalyzer
         if (!string.IsNullOrWhiteSpace(hint)) sb.AppendLine($"USER REQUEST (honor this): {hint.Trim()}");
 
         sb.AppendLine();
-        sb.AppendLine("EXERCISE LIBRARY (name | measure | equipment):");
+        sb.AppendLine("EXERCISE LIBRARY (name | measure | muscles | equipment):");
         var defs = await db.ExerciseDefinitions.Where(e => !e.Retired).OrderBy(e => e.Name).ToListAsync();
         if (defs.Count == 0) sb.AppendLine("(empty)");
         foreach (var d in defs)
             sb.AppendLine($"- {d.Name} | {(d.Measure == ExerciseMeasure.Duration ? "duration" : "reps")}" +
+                          $" | {(string.IsNullOrWhiteSpace(d.MuscleGroups) ? "muscles unset" : d.MuscleGroups)}" +
                           (string.IsNullOrWhiteSpace(d.EquipmentNotes) ? "" : $" | {d.EquipmentNotes}"));
 
         sb.AppendLine();
@@ -488,6 +496,31 @@ public static class GeminiAnalyzer
             sb.AppendLine($"- {g.Key}: {sessCount} session(s), best {(bestSecs > 0 ? $"{bestSecs}s" : $"{bestReps} reps")}" +
                           (lastFb is null ? "" : $", rated {lastFb.Difficulty}") +
                           (lastFb?.PainOrDiscomfort == true ? ", PAIN flagged" : ""));
+        }
+
+        // Per-muscle set volume over the window, from each exercise's muscle-group tags.
+        // This is the real balance signal — target the least-worked groups.
+        var muscleByName = defs.ToDictionary(d => d.Name, d => d.MuscleGroupList, StringComparer.OrdinalIgnoreCase);
+        var volume = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var set in sessions.SelectMany(s => s.Sets))
+        {
+            var name = set.ExerciseDefinition?.Name;
+            if (name is null || !muscleByName.TryGetValue(name, out var groups)) continue;
+            foreach (var mg in groups) volume[mg] = volume.GetValueOrDefault(mg) + 1;
+        }
+        sb.AppendLine();
+        if (volume.Count > 0)
+        {
+            sb.AppendLine("MUSCLE VOLUME (last 8 weeks, total sets per group — LOW groups are under-trained; prioritize them):");
+            foreach (var kv in volume.OrderBy(x => x.Value))
+                sb.AppendLine($"- {kv.Key}: {kv.Value} sets");
+            var untouched = MuscleCatalog.Where(m => !volume.ContainsKey(m)).ToList();
+            if (untouched.Count > 0)
+                sb.AppendLine($"- Not trained at all: {string.Join(", ", untouched)}");
+        }
+        else
+        {
+            sb.AppendLine("MUSCLE VOLUME: unavailable — library exercises have no muscle-group tags yet. Infer muscle groups from exercise names instead.");
         }
 
         return sb.ToString();

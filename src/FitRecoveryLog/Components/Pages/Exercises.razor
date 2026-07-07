@@ -89,6 +89,16 @@ else
             <label>Demo video link <span class="muted">(how-to, e.g. YouTube)</span></label>
             <input @bind="_videoTo" placeholder="https://…" inputmode="url" />
         </div>
+        <div class="field">
+            <label>Muscle groups <span class="muted">(powers routine balancing)</span></label>
+            <div class="chip-row">
+                @foreach (var mg in MuscleGroupsCatalog)
+                {
+                    <button type="button" class="chip @(_muscles.Contains(mg) ? "selected" : "")"
+                            @onclick="() => ToggleMuscle(mg)">@mg</button>
+                }
+            </div>
+        </div>
         <button class="save-btn" @onclick="() => Rename(ex)">Save</button>
         <button class="link-btn" style="margin-left:0.6rem" @onclick="() => OpenDemo(ex)">
             🎬 @(string.IsNullOrWhiteSpace(ex.VideoUrl) ? "Search how-to" : "Watch demo")
@@ -128,11 +138,17 @@ else
     private Dictionary<Guid, DateOnly> _sessionDates = new();
     private List<(Guid Def, Guid Session, Difficulty Diff)> _feedback = new();
 
+    public static readonly string[] MuscleGroupsCatalog =
+        { "Chest", "Back", "Shoulders", "Biceps", "Triceps", "Forearms", "Core", "Glutes", "Quads", "Hamstrings", "Calves" };
+
     private ExerciseDefinition? _selected;
     private string _renameTo = "";
     private string _videoTo = "";
+    private readonly HashSet<string> _muscles = new(StringComparer.OrdinalIgnoreCase);
     private Guid? _mergeTargetId;
     private string? _status;
+
+    private void ToggleMuscle(string mg) { if (!_muscles.Add(mg)) _muscles.Remove(mg); }
 
     protected override async Task OnInitializedAsync() => await Load();
 
@@ -156,6 +172,8 @@ else
         _selected = ex;
         _renameTo = ex.Name;
         _videoTo = ex.VideoUrl ?? "";
+        _muscles.Clear();
+        foreach (var m in ex.MuscleGroupList) _muscles.Add(m);
         _mergeTargetId = null;
         _status = null;
     }
@@ -214,6 +232,7 @@ else
         {
             e.Name = name;
             e.VideoUrl = string.IsNullOrWhiteSpace(_videoTo) ? null : _videoTo.Trim();
+            e.MuscleGroups = _muscles.Count == 0 ? null : CsvField.Join(_muscles);
             await db.SaveChangesAsync();
         }
         _status = "Saved.";
