@@ -82,21 +82,22 @@ public static class GeminiAnalyzer
   "analysis": "plain-text analysis with sections: WORKOUT PROGRESSION, BODY TREND, MEAL PATTERNS, SLEEP, TOP 3 ACTIONS. Short uppercase headings and dash bullets, no markdown symbols.",
   "exercises": [{ "name": "<exercise name exactly as it appears in the data>", "action": "progress" | "hold" | "backoff", "target": "<next-week target, e.g. 3x22 reps or 3x35s>" }],
   "topActions": ["<highest-impact action>", "<second>", "<third>"],
-  "mealFlags": ["<0-3 short flags about eating/drinking habits worth attention, e.g. 'Sweet tea down from ~32oz to ~16oz/day — keep tapering'>"],
+  "mealFlags": ["<0-2 short, balanced notes — a positive is fine ('Sweet tea down to ~16oz/day — on target'); reserve concerns for genuine multi-week patterns, never single items or 'cut it out' advice>"],
   "bodyTrend": { "status": "on-track" | "off-track" | "unclear", "note": "<one short sentence, e.g. 'Weight down ~1 lb/week'>" }
 }
 """);
         sb.AppendLine("Be specific and reference the data. Say plainly where data is too sparse to conclude anything.");
-        sb.AppendLine("For drinks and treats, judge QUANTITY and TREND — not just how often they appear. Use the weekly " +
-                      "volume data: something consumed daily but at half the previous volume is meaningful progress; " +
-                      "acknowledge the reduction and suggest the next moderation step rather than blanket elimination.");
-        sb.AppendLine("Judge the FOOD, not the venue: a grilled chicken sandwich from a drive-thru is a reasonable " +
-                      "protein choice — don't penalize restaurant/fast-food meals as a category; assess what was actually eaten.");
-        sb.AppendLine("Zero-sugar drinks (Coke Zero, diet soda, sugar-free) are NOT sugary drinks — treat them as " +
-                      "taste variety, not a concern.");
-        sb.AppendLine("Keep sugar in PROPORTION: a small treat (~15g sugar or less, e.g. one cookie/dessert) is " +
-                      "normal — a banana has ~14g. Only flag sugar when daily totals are genuinely high or it's a " +
-                      "frequent pattern, not for an occasional modest serving.");
+        sb.AppendLine("DIET FRAMING — assess intake AS A WHOLE, balanced, not a hunt for negatives:");
+        sb.AppendLine("- Judge the overall diet and its TREND across the 8 weeks, not isolated items. Lead with what's working; raise at most 1-2 things genuinely worth attention.");
+        sb.AppendLine("- Coach MODERATION, never ELIMINATION. Do NOT recommend cutting sugar, sodium, sweet drinks, or any food to zero. Reasonable amounts relative to overall intake are fine.");
+        sb.AppendLine("- Judge QUANTITY and TREND, not frequency. Use the weekly volume data, but do NOT call rising logged volume an 'increasing consumption trend': early weeks usually have sparse/partial logging, so a rise across weeks typically means MORE COMPLETE LOGGING, not more intake. Only call a trend real if logging is consistent throughout — otherwise say the trend is unclear and defer to the user's stated goals for the real baseline/direction.");
+        sb.AppendLine("- Meal TAGS (e.g. 'High sodium', 'High sugar') are AI-suggested heuristics that over-apply; do NOT treat tag frequency as proof of a dietary pattern. Judge the actual foods eaten, not how often a tag appears.");
+        sb.AppendLine("- Judge the FOOD, not the venue: a grilled chicken sandwich from a drive-thru is a reasonable protein choice; don't penalize restaurant/fast-food as a category.");
+        sb.AppendLine("- Zero-sugar drinks (Coke Zero, diet, sugar-free) are NOT sugary drinks — taste variety, not a concern.");
+        sb.AppendLine("- Keep sugar in PROPORTION: a small treat (~15g or less; a banana is ~14g) is normal. Flag sugar only when daily totals are genuinely high or a frequent pattern.");
+        sb.AppendLine("- Keep sodium in PROPORTION too: normal seasoned or home-cooked meals and an occasional restaurant meal are fine — never suggest zero/low sodium; flag only a consistently high-sodium pattern.");
+        sb.AppendLine("- HIGH BAR for any sugar/sodium concern: never call ordinary eating — a treat, cereal, or a restaurant meal — a concerning 'pattern'. Raise sugar or sodium ONLY if you can cite a specific, genuinely excessive quantity from the data. If you can't cite a real number, don't raise it. Do not bundle unrelated items into a vague pattern.");
+        sb.AppendLine("- Against a stated goal, small overages (within ~25%, e.g. 20oz vs a 16oz goal) are ON-TRACK — mention neutrally at most; reserve 'significantly above' for large, sustained excess.");
         AppendUserGoals(sb);
         sb.AppendLine();
 
