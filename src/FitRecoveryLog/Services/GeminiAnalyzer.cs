@@ -621,7 +621,7 @@ public static class GeminiAnalyzer
         }
     }
 
-    public sealed record TagSuggestion(List<string> Known, string? Proposed);
+    public sealed record TagSuggestion(List<string> Known, string? Proposed, int? Stars, string? StarReason);
 
     /// <summary>Suggests tags for one meal from its free-text description (meal text is
     /// already part of the analysis payloads, so this sends no new data category).
@@ -630,9 +630,9 @@ public static class GeminiAnalyzer
         string description, string? portionNote, IReadOnlyList<string> vocabulary)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("Tag one logged meal for a personal nutrition tracker.");
+        sb.AppendLine("Tag one logged meal for a personal nutrition tracker, and rate how well it fits the user's goals.");
         sb.AppendLine("Respond with ONLY a JSON object:");
-        sb.AppendLine("""{ "tags": ["<existing tags that clearly apply>"], "newTag": "<one new tag ONLY if something important has no existing tag, else null>" }""");
+        sb.AppendLine("""{ "tags": ["<existing tags that clearly apply>"], "newTag": "<one new tag ONLY if something important has no existing tag, else null>", "stars": <1-5 how well this meal fits the user's goals below>, "starReason": "<≤8 words, encouraging>" }""");
         sb.AppendLine($"Existing tags (use these exact strings, strongly prefer them): {string.Join(" | ", vocabulary)}");
         sb.AppendLine("Only include tags well supported by the text; when unsure, leave a tag out. Most meals need " +
                       "just 0-2 tags. Do NOT apply a tag by default — each must clearly fit.");
@@ -646,16 +646,23 @@ public static class GeminiAnalyzer
         sb.AppendLine("A newTag must be short (1-3 words, e.g. 'High sugar'), broadly reusable, and not a synonym of an existing tag. " +
                       "Tags describe nutritional quality or food source. The entry already records its type " +
                       "(breakfast/lunch/dinner/snack/drink), time, and portion — NEVER suggest those as tags.");
+        sb.AppendLine("STARS (1-5) = how well this meal fits the user's goals below, encouraging and moderation-minded: " +
+                      "a sensible everyday meal is 3-4; a great goal-aligned choice is 5; a clear off-plan splurge is 1-2. " +
+                      "A reasonable treat is not a failure — don't be harsh. If no goals are set, rate general balance/protein.");
+        AppendUserGoals(sb);
         sb.AppendLine();
         sb.AppendLine($"MEAL: {mealType} \"{description}\"" +
                       (string.IsNullOrWhiteSpace(portionNote) ? "" : $" portion:\"{portionNote}\""));
 
         var text = await GenerateAsync(apiKey, sb.ToString());
-        if (string.IsNullOrWhiteSpace(text)) return new(new(), null);
+        if (string.IsNullOrWhiteSpace(text)) return new(new(), null, null, null);
         try
         {
             using var doc = JsonDocument.Parse(text);
             var root = doc.RootElement;
+            int? stars = root.TryGetProperty("stars", out var st) && st.ValueKind == JsonValueKind.Number
+                && st.TryGetInt32(out var sv) ? Math.Clamp(sv, 1, 5) : null;
+            var starReason = root.TryGetProperty("starReason", out var sr) ? sr.GetString() : null;
             // Map results back onto canonical vocabulary casing; drop anything else.
             var canon = vocabulary.ToDictionary(v => v, v => v, StringComparer.OrdinalIgnoreCase);
             var known = new List<string>();
@@ -680,11 +687,11 @@ public static class GeminiAnalyzer
                 }
             }
             else proposed = null;
-            return new(known, proposed);
+            return new(known, proposed, stars, starReason);
         }
         catch (JsonException)
         {
-            return new(new(), null);
+            return new(new(), null, null, null);
         }
     }
 

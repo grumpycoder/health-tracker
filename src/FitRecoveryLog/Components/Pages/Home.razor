@@ -32,6 +32,18 @@
         </section>
     }
 
+    @if (_goalFitAvg is { } gf)
+    {
+        <section class="card steps-today" style="cursor:pointer" @onclick="@(() => Nav.NavigateTo("meals"))"
+                 title="Average 'fit with your goals' across today's rated meals">
+            <span class="quick-emoji">✨</span>
+            <span>
+                <strong style="color:#f5b301">@gf.ToString("0.0")★</strong> goal fit today
+                <span class="muted" style="font-size:0.8rem"> · @_goalFitCount meal(s)</span>
+            </span>
+        </section>
+    }
+
     <section class="card">
         <h2>Today's plan</h2>
         <div class="daytype-grid">
@@ -199,6 +211,10 @@
     private DailyLog _log = new();
     private int? _steps;
 
+    // Today's "fit with your goals" average across meals that carry a star rating.
+    private double? _goalFitAvg;
+    private int _goalFitCount;
+
     // Timestamped notes, addable any time through the day.
     private string _noteText = "";
     private List<NoteEntry> _todayNotes = new();
@@ -280,6 +296,19 @@
         _log = existing ?? new DailyLog { Date = _today };
         await LoadNotes(db);
         await LoadCessation(db);
+        await LoadGoalFit(db);
+    }
+
+    private async Task LoadGoalFit(AppDbContext db)
+    {
+        var start = _today.ToDateTime(TimeOnly.MinValue);
+        var end = start.AddDays(1);
+        var stars = await db.MealEntries
+            .Where(m => m.Time >= start && m.Time < end && m.QualityStars != null)
+            .Select(m => m.QualityStars!.Value)
+            .ToListAsync();
+        _goalFitCount = stars.Count;
+        _goalFitAvg = stars.Count == 0 ? null : stars.Average();
     }
 
     private async Task LoadCessation(AppDbContext db)

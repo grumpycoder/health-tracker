@@ -152,6 +152,8 @@ public class MealEntry : EntityBase
     /// <summary>CSV of tags (High protein, Restaurant meal, etc.). Use <see cref="TagList"/>.</summary>
     public string? Tags { get; set; }
     public Satiety Satiety { get; set; } = Satiety.Unset;
+    /// <summary>Optional 1-5 "fit with your goals" score from the ✨ tag suggester.</summary>
+    public int? QualityStars { get; set; }
 
     [NotMapped]
     public IReadOnlyList<string> TagList => CsvField.Split(Tags);

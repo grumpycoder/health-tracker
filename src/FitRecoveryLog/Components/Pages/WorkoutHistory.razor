@@ -1,6 +1,7 @@
 @page "/workout-history"
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
+@inject FitRecoveryLog.Services.ToastService Toast
 
 <PageTitle>Workout History</PageTitle>
 
@@ -49,17 +50,15 @@ else
     </header>
 
     <section class="card">
-        <div class="inline-fields">
-            <div class="field">
-                <label>Total time (minutes)</label>
-                <input type="number" inputmode="decimal" min="0" step="1" @bind="_editMinutes" />
-            </div>
+        <div class="field">
+            <label>Total time (minutes)</label>
+            <input type="number" inputmode="decimal" min="0" step="1" @bind="_editMinutes" />
         </div>
-        <button class="save-btn" @onclick="() => SaveDuration(s)">Save Time</button>
-        @if (_durationSaved)
-        {
-            <span class="saved-msg">Saved ✓</span>
-        }
+        <div class="field">
+            <label>Workout notes</label>
+            <textarea rows="3" @bind="s.Notes"></textarea>
+        </div>
+        <button class="save-btn" @onclick="() => SaveSession(s)">Save Changes</button>
     </section>
 
     @if (s.Sets.Count == 0)
@@ -75,14 +74,23 @@ else
             <section class="card">
                 <h2>@(def?.Name ?? "Unknown exercise")</h2>
                 <table class="set-table">
-                    <thead><tr><th>Set</th><th>@(def?.Measure == ExerciseMeasure.Duration ? "Time" : "Reps")</th><th>Done</th></tr></thead>
+                    <thead><tr><th>Set</th><th>@(def?.Measure == ExerciseMeasure.Duration ? "Time (s)" : "Reps")</th><th>Done</th></tr></thead>
                     <tbody>
                         @foreach (var set in grp.OrderBy(x => x.SetNumber))
                         {
                             <tr class="@(set.Completed ? "done" : "")">
                                 <td>@set.SetNumber</td>
-                                <td>@SetValue(def, set)</td>
-                                <td>@(set.Completed ? "✓" : "—")</td>
+                                <td>
+                                    @if (def?.Measure == ExerciseMeasure.Duration)
+                                    {
+                                        <input type="number" inputmode="decimal" min="0" style="width:5rem" @bind="set.DurationSeconds" />
+                                    }
+                                    else
+                                    {
+                                        <input type="number" inputmode="decimal" min="0" style="width:5rem" @bind="set.Reps" />
+                                    }
+                                </td>
+                                <td><input type="checkbox" @bind="set.Completed" /></td>
                             </tr>
                         }
                     </tbody>
@@ -108,13 +116,6 @@ else
         }
     }
 
-    @if (!string.IsNullOrWhiteSpace(s.Notes))
-    {
-        <section class="card">
-            <h2>Notes</h2>
-            <p>@s.Notes</p>
-        </section>
-    }
 }
 
 </div>
@@ -125,7 +126,6 @@ else
     private Dictionary<Guid, string> _routineNames = new();
     private WorkoutSession? _selected;
     private int _editMinutes;
-    private bool _durationSaved;
 
     protected override async Task OnInitializedAsync() => await Load();
 
@@ -133,22 +133,30 @@ else
     {
         _selected = s;
         _editMinutes = (int)Math.Round((s.TotalSeconds ?? 0) / 60.0);
-        _durationSaved = false;
     }
 
-    /// <summary>Fix a session's recorded time after the fact (e.g. a save that
-    /// captured no duration).</summary>
-    private async Task SaveDuration(WorkoutSession s)
+    /// <summary>Save post-workout edits: total time, notes, and each set's
+    /// reps/duration/completed.</summary>
+    private async Task SaveSession(WorkoutSession s)
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.WorkoutSessions.FindAsync(s.Id);
+        var e = await db.WorkoutSessions.Include(x => x.Sets).FirstOrDefaultAsync(x => x.Id == s.Id);
         if (e is not null)
         {
             e.TotalSeconds = Math.Max(0, _editMinutes) * 60;
+            e.Notes = string.IsNullOrWhiteSpace(s.Notes) ? null : s.Notes.Trim();
+            foreach (var set in e.Sets)
+            {
+                var edited = s.Sets.FirstOrDefault(x => x.Id == set.Id);
+                if (edited is null) continue;
+                set.Reps = edited.Reps;
+                set.DurationSeconds = edited.DurationSeconds;
+                set.Completed = edited.Completed;
+            }
             await db.SaveChangesAsync();
-            s.TotalSeconds = e.TotalSeconds; // reflect in the open detail view
+            s.TotalSeconds = e.TotalSeconds;
         }
-        _durationSaved = true;
+        _ = Toast.Show("Workout updated ✓");
     }
 
     private async Task Load()
@@ -181,11 +189,6 @@ else
 
     private int ExerciseCount(WorkoutSession s) =>
         s.Sets.Select(x => x.ExerciseDefinitionId).Distinct().Count();
-
-    private static string SetValue(ExerciseDefinition? def, ExerciseSet set) =>
-        def?.Measure == ExerciseMeasure.Duration
-            ? (set.DurationSeconds is { } d ? $"{d}s" : "—")
-            : (set.Reps is { } r ? $"{r}" : "—");
 
     private static bool HasFeedback(ExerciseFeedback f) =>
         f.Difficulty != Difficulty.Unset || f.PainOrDiscomfort || f.BreathingDifficulty

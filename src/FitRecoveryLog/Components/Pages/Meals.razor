@@ -94,7 +94,7 @@
             <label>Portion note</label>
             <input @bind="_meal.PortionNote" placeholder="e.g. 2 eggs, 1 cup rice" />
         </div>
-        @TagField(_mealTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealTagBox, _mealTagOptions, _meal.MealType.ToString(), _meal.Description, _meal.PortionNote))
+        @TagField(_mealTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealTagBox, _mealTagOptions, _meal.MealType.ToString(), _meal.Description, _meal.PortionNote), showStars: true)
         @if (!_remindFullness)
         {
             <div class="field">
@@ -173,6 +173,13 @@
             <input type="date" style="width:auto" value="@_viewDate.ToString("yyyy-MM-dd")"
                    @onchange="OnViewDateChanged" />
         </div>
+        @if (AvgStars is { } avg)
+        {
+            <p class="muted" style="margin:0.2rem 0 0" title="Average 'fit with your goals' across rated meals">
+                Goal fit: <span style="color:#f5b301">@avg.ToString("0.0")★</span>
+                <span style="font-size:0.8rem"> · @_ratedMealCount rated meal(s)</span>
+            </p>
+        }
         @if (_todayMeals.Count == 0 && _todayDrinks.Count == 0)
         {
             <p class="muted">Nothing logged on this day.</p>
@@ -199,7 +206,7 @@
                                 </div>
                                 <div class="field"><label>Food</label><input @bind="_mealEdit.Description" /></div>
                                 <div class="field"><label>Portion note</label><input @bind="_mealEdit.PortionNote" /></div>
-                                @TagField(_mealEditTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealEditTagBox, _mealTagOptions, _mealEdit.MealType.ToString(), _mealEdit.Description, _mealEdit.PortionNote))
+                                @TagField(_mealEditTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealEditTagBox, _mealTagOptions, _mealEdit.MealType.ToString(), _mealEdit.Description, _mealEdit.PortionNote), showStars: true)
                                 <div class="field">
                                     <label>How did this meal leave you?</label>
                                     <select @bind="_mealEdit.Satiety">
@@ -214,31 +221,37 @@
                         }
                         else
                         {
-                            <div class="ex-row" style="width:100%">
-                                <div>
-                                    <span class="time">@m.Time.ToString("h:mm tt")</span>
-                                    <span class="entry"><strong>@m.MealType</strong> — @m.Description
-                                        @if (m.TagList.Count > 0)
+                            <div style="width:100%">
+                                <div class="ex-row">
+                                    <div>
+                                        <span class="time">@m.Time.ToString("h:mm tt")</span>
+                                        <span class="entry"><strong>@m.MealType</strong> — @m.Description
+                                            @if (m.TagList.Count > 0)
+                                            {
+                                                <span class="muted"> (@string.Join(", ", m.TagList))</span>
+                                            }
+                                            @if (m.QualityStars is { } q)
+                                            {
+                                                <span title="Fit with your goals" style="color:#f5b301;margin-left:0.3rem">@(new string('★', q))<span class="muted">@(new string('☆', 5 - q))</span></span>
+                                            }
+                                        </span>
+                                    </div>
+                                    <div class="routine-actions">
+                                        <button class="icon-action" title="Edit" aria-label="Edit" @onclick="() => StartEditMeal(m)">✏️</button>
+                                        <button class="icon-action danger" title="Delete" aria-label="Delete" @onclick="() => DeleteMeal(m)">🗑</button>
+                                    </div>
+                                </div>
+                                @if (m.Satiety == Satiety.Unset)
+                                {
+                                    <div class="chip-row" style="margin-top:0.4rem">
+                                        <span class="muted" style="align-self:center;font-size:0.75rem">how did it sit?</span>
+                                        @foreach (var s in SatietyOptions)
                                         {
-                                            <span class="muted"> (@string.Join(", ", m.TagList))</span>
+                                            <button type="button" class="chip" @onclick="() => RateMeal(m, s)">@Pretty(s.ToString())</button>
                                         }
-                                    </span>
-                                </div>
-                                <div class="routine-actions">
-                                    <button class="icon-action" title="Edit" aria-label="Edit" @onclick="() => StartEditMeal(m)">✏️</button>
-                                    <button class="icon-action danger" title="Delete" aria-label="Delete" @onclick="() => DeleteMeal(m)">🗑</button>
-                                </div>
+                                    </div>
+                                }
                             </div>
-                            @if (m.Satiety == Satiety.Unset)
-                            {
-                                <div class="chip-row" style="margin-top:0.4rem">
-                                    <span class="muted" style="align-self:center;font-size:0.75rem">how did it sit?</span>
-                                    @foreach (var s in SatietyOptions)
-                                    {
-                                        <button type="button" class="chip" @onclick="() => RateMeal(m, s)">@Pretty(s.ToString())</button>
-                                    }
-                                </div>
-                            }
                         }
                     }
                     else if (item.Drink is { } d)
@@ -330,6 +343,12 @@
     private List<MealEntry> _todayMeals = new();
     private List<DrinkEntry> _todayDrinks = new();
 
+    // Daily "fit with your goals" average across meals that carry a star rating.
+    private int _ratedMealCount => _todayMeals.Count(m => m.QualityStars is not null);
+    private double? AvgStars => _ratedMealCount == 0
+        ? null
+        : _todayMeals.Where(m => m.QualityStars is not null).Average(m => m.QualityStars!.Value);
+
     // Meals and drinks merged into one chronological list for the Log tab.
     private IEnumerable<(DateTime Time, MealEntry? Meal, DrinkEntry? Drink)> MergedToday() =>
         _todayMeals.Select(m => (m.Time, (MealEntry?)m, (DrinkEntry?)null))
@@ -357,11 +376,14 @@
     private void SelectDrink(string name)
     {
         _drink.Description = name;
-        // Deliberately do NOT prefill ounces/sugar: a stale amount carried forward
-        // silently (e.g. a one-off 16oz sticking to later 8oz teas) corrupts the
-        // data. The amount must be entered each time so it's always correct.
         if (_drinkDefaults.TryGetValue(name, out var d))
-            _drinkTagBox.Load(CsvField.Split(d.Tags)); // tags are visible chips — safe to recall
+        {
+            // Prefill the MOST COMMON amount for this drink (not the last one) so a
+            // one-off outlier can't stick as the default — always visible/editable.
+            _drink.Ounces = d.Oz;
+            _drink.SugarCount = d.Sugar;
+            _drinkTagBox.Load(CsvField.Split(d.Tags));
+        }
     }
 
     private static List<string> Suggest(List<string> lib, string? query)
@@ -392,9 +414,11 @@
         public bool Busy;
         public bool Adding;     // "＋" tapped — inline new-tag input is open
         public string? Draft;   // text in the new-tag input
+        public int? Stars;      // AI "fit with goals" score (1-5)
+        public string? StarReason;
         public void Toggle(string t) { if (!Selected.Add(t)) Selected.Remove(t); }
         public void Accept() { if (Proposed is { } p) { Selected.Add(p); Proposed = null; } }
-        public void Reset() { Selected.Clear(); Proposed = null; Note = null; Busy = false; Adding = false; Draft = null; }
+        public void Reset() { Selected.Clear(); Proposed = null; Note = null; Busy = false; Adding = false; Draft = null; Stars = null; StarReason = null; }
         public void Load(IEnumerable<string> tags) { Reset(); foreach (var t in tags) Selected.Add(t); }
     }
 
@@ -408,13 +432,23 @@
     private List<string> _mealTagOptions = MealStarterTags.ToList();
     private List<string> _drinkTagOptions = DrinkStarterTags.ToList();
 
-    private RenderFragment TagField(TagBox box, List<string> options, Func<Task> suggest) =>
+    private RenderFragment TagField(TagBox box, List<string> options, Func<Task> suggest, bool showStars = false) =>
         @<div class="field">
             <div style="display:flex;justify-content:space-between;align-items:baseline">
                 <label>Tags</label>
                 <button type="button" class="link-btn" disabled="@box.Busy"
                         @onclick="() => suggest()">@(box.Busy ? "Suggesting…" : "✨ Suggest")</button>
             </div>
+            @if (showStars && box.Stars is { } stars)
+            {
+                <p style="margin:0 0 0.4rem;font-size:1.1rem">
+                    <span style="color:#f5b301">@(new string('★', stars))</span><span class="muted">@(new string('☆', 5 - stars))</span>
+                    @if (!string.IsNullOrWhiteSpace(box.StarReason))
+                    {
+                        <span class="muted" style="font-size:0.8rem"> · @box.StarReason</span>
+                    }
+                </p>
+            }
             <div class="chip-row">
                 @* Union so a just-accepted AI tag (not yet in the saved vocabulary) shows as a selected chip. *@
                 @foreach (var tag in options.Union(box.Selected, StringComparer.OrdinalIgnoreCase).ToList())
@@ -467,6 +501,8 @@
                 && !options.Contains(p, StringComparer.OrdinalIgnoreCase)
                 && !box.Selected.Contains(p)
                 ? p : null;
+            box.Stars = s.Stars;
+            box.StarReason = s.StarReason;
             if (s.Known.Count == 0 && box.Proposed is null) box.Note = "No tags suggested.";
         }
         catch
@@ -571,6 +607,7 @@
             PortionNote = m.PortionNote, Satiety = m.Satiety
         };
         _mealEditTagBox.Load(m.TagList);
+        _mealEditTagBox.Stars = m.QualityStars;
     }
 
     private async Task SaveMealEdit()
@@ -585,6 +622,7 @@
             e.PortionNote = _mealEdit.PortionNote;
             e.Satiety = _mealEdit.Satiety;
             e.Tags = CsvField.Join(_mealEditTagBox.Selected);
+            e.QualityStars = _mealEditTagBox.Stars;
             await db.SaveChangesAsync();
             if (_mealEdit.Satiety != Satiety.Unset)
                 ReminderNotifier.Cancel(ReminderNotifier.MealRatingNotificationId);
@@ -653,6 +691,7 @@
         _mealWarn = null;
         _meal.Time = DateTime.Now;
         _meal.Tags = CsvField.Join(_mealTagBox.Selected);
+        _meal.QualityStars = _mealTagBox.Stars;
         // Logging before eating: leave fullness unrated and schedule a reminder.
         if (_remindFullness) _meal.Satiety = Satiety.Unset;
         var remind = _remindFullness;
@@ -733,11 +772,20 @@
         _drinkLib = CommonDrinks.Concat(drinkRows.Select(d => d.Description))
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
-        // Most recent ounces/sugar/tags per drink name (rows are newest-first).
+        // Per drink name: the MOST COMMON ounces/sugar (mode, not last — so a one-off
+        // outlier can't become the sticky default) plus the most recent tags.
+        static double? ModeOz(IEnumerable<double?> xs) => xs.Where(x => x is not null)
+            .GroupBy(x => x).OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key)
+            .Select(g => g.Key).FirstOrDefault();
+        static int? ModeSugar(IEnumerable<int?> xs) => xs.Where(x => x is not null)
+            .GroupBy(x => x).OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key)
+            .Select(g => g.Key).FirstOrDefault();
         _drinkDefaults = drinkRows
             .Where(d => !string.IsNullOrWhiteSpace(d.Description))
             .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => (g.First().Ounces, g.First().SugarCount, g.First().Tags), StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(g => g.Key,
+                g => (ModeOz(g.Select(x => x.Ounces)), ModeSugar(g.Select(x => x.SugarCount)), g.First().Tags),
+                StringComparer.OrdinalIgnoreCase);
 
         // Separate vocabularies: each = its starter tags + custom tags already used
         // on that entry type, so meal and drink chips don't bleed into each other.

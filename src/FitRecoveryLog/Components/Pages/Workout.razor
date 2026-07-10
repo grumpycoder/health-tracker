@@ -139,8 +139,13 @@ else if (_state == WorkoutState.Active)
 
             @if (_timingSet != cur.Set)
             {
-                <button class="link-btn" style="width:100%;margin-top:0.7rem"
-                        @onclick="SkipCurrentExercise">Skip @cur.Ex.Def.Name today</button>
+                <div class="routine-actions" style="margin-top:0.7rem">
+                    @if (_stepIndex > 0)
+                    {
+                        <button class="link-btn" @onclick="PreviousStep">◀ Back</button>
+                    }
+                    <button class="link-btn danger" @onclick="SkipCurrentExercise">Skip @cur.Ex.Def.Name</button>
+                </div>
             }
             @if (NextUpName is { } next)
             {
@@ -149,16 +154,18 @@ else if (_state == WorkoutState.Active)
         </section>
 
         <section class="card">
-            <h2>Progress</h2>
+            <h2>Progress <span class="muted" style="font-weight:400;font-size:0.8rem">· tap to jump/correct</span></h2>
             <ul class="timeline">
                 @foreach (var ex in _exercises)
                 {
                     <li>
-                        <span class="entry @(ex == cur.Ex ? "" : "muted")">
-                            @(ex.Skipped ? "⏭" : ex.Sets.All(s => s.Completed) ? "✅" : ex == cur.Ex ? "▶" : "·")
-                            @ex.Def.Name
-                            <span class="muted"> @(ex.Skipped ? "skipped" : $"{ex.Sets.Count(s => s.Completed)}/{ex.Sets.Count}")</span>
-                        </span>
+                        <button class="link-btn" style="padding:0;text-align:left;width:100%" @onclick="() => JumpTo(ex)">
+                            <span class="entry @(ex == cur.Ex ? "" : "muted")">
+                                @(ex.Skipped ? "⏭" : ex.Sets.All(s => s.Completed) ? "✅" : ex == cur.Ex ? "▶" : "·")
+                                @ex.Def.Name
+                                <span class="muted"> @(ex.Skipped ? "skipped — tap to restore" : $"{ex.Sets.Count(s => s.Completed)}/{ex.Sets.Count}")</span>
+                            </span>
+                        </button>
                     </li>
                 }
             </ul>
@@ -283,6 +290,32 @@ else // Feedback
     {
         while (_stepIndex < _steps.Count && (_steps[_stepIndex].Ex.Skipped || _steps[_stepIndex].Set.Completed))
             _stepIndex++;
+    }
+
+    /// <summary>Step back one to review/correct a prior set (bypasses the auto-skip
+    /// of completed steps that Advance does).</summary>
+    private void PreviousStep()
+    {
+        if (_stepIndex <= 0) return;
+        _stepIndex--;
+        _timingSet = null;
+        _holdDoneSet = null;
+        _rest = 0;
+    }
+
+    /// <summary>Jump to any exercise from the Progress list — to correct it, or to
+    /// restore one that was skipped by mistake.</summary>
+    private void JumpTo(ExVM ex)
+    {
+        if (ex.Skipped) ex.Skipped = false; // tapping a skipped exercise restores it
+        // Prefer its first not-yet-completed set; otherwise its first set (to edit).
+        var idx = _steps.FindIndex(st => st.Ex == ex && !st.Set.Completed);
+        if (idx < 0) idx = _steps.FindIndex(st => st.Ex == ex);
+        if (idx < 0) return;
+        _stepIndex = idx;
+        _timingSet = null;
+        _holdDoneSet = null;
+        _rest = 0;
     }
 
     /// <summary>Rest (if prescribed), advance, and finish automatically after the last set.</summary>
