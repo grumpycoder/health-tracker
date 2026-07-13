@@ -38,6 +38,21 @@
                 <label>Thighs (in)</label>
                 <input type="number" inputmode="decimal" step="0.01" @bind="_entry.ThighsInches" />
             </div>
+
+            <p class="muted" style="margin:0.6rem 0 0.2rem;font-size:0.8rem">Body composition (from Hume)</p>
+            <div class="inline-fields">
+                <div class="field"><label>Body fat %</label><input type="number" inputmode="decimal" step="0.1" @bind="_entry.BodyFatPercent" placeholder="e.g. 18.5" /></div>
+                <div class="field"><label>Muscle mass (lbs)</label><input type="number" inputmode="decimal" step="0.1" @bind="_entry.MuscleMassLbs" /></div>
+            </div>
+            <div class="inline-fields">
+                <div class="field"><label>Visceral fat</label><input type="number" inputmode="decimal" step="0.1" @bind="_entry.VisceralFat" /></div>
+                <div class="field"><label>Body water %</label><input type="number" inputmode="decimal" step="0.1" @bind="_entry.BodyWaterPercent" /></div>
+            </div>
+            <div class="inline-fields">
+                <div class="field"><label>BMR (kcal)</label><input type="number" inputmode="numeric" step="1" @bind="_entry.BasalMetabolicRate" /></div>
+                <div class="field"><label>Metabolic age</label><input type="number" inputmode="numeric" step="1" @bind="_entry.MetabolicAge" /></div>
+            </div>
+
             <div class="field">
                 <label>Clothing fit notes</label>
                 <textarea rows="2" @bind="_entry.ClothingFitNotes"
@@ -129,6 +144,19 @@
                                     <div class="field"><label>Arms</label><input type="number" inputmode="decimal" step="0.01" @bind="_edit.ArmsInches" /></div>
                                     <div class="field"><label>Thighs</label><input type="number" inputmode="decimal" step="0.01" @bind="_edit.ThighsInches" /></div>
                                 </div>
+                                <p class="muted" style="margin:0.4rem 0 0.2rem;font-size:0.8rem">Body composition</p>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Body fat %</label><input type="number" inputmode="decimal" step="0.1" @bind="_edit.BodyFatPercent" /></div>
+                                    <div class="field"><label>Muscle (lbs)</label><input type="number" inputmode="decimal" step="0.1" @bind="_edit.MuscleMassLbs" /></div>
+                                </div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Visceral fat</label><input type="number" inputmode="decimal" step="0.1" @bind="_edit.VisceralFat" /></div>
+                                    <div class="field"><label>Body water %</label><input type="number" inputmode="decimal" step="0.1" @bind="_edit.BodyWaterPercent" /></div>
+                                </div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>BMR (kcal)</label><input type="number" inputmode="numeric" step="1" @bind="_edit.BasalMetabolicRate" /></div>
+                                    <div class="field"><label>Metabolic age</label><input type="number" inputmode="numeric" step="1" @bind="_edit.MetabolicAge" /></div>
+                                </div>
                                 <div class="field"><label>Clothing fit notes</label><textarea rows="2" @bind="_edit.ClothingFitNotes"></textarea></div>
                                 <div class="routine-actions">
                                     <button class="save-btn" @onclick="SaveEdit">Save</button>
@@ -146,6 +174,14 @@
                                         @if (m.WaistInches is not null)
                                         {
                                             <span class="muted"> · waist @m.WaistInches.Value.ToString("0.0#")</span>
+                                        }
+                                        @if (m.BodyFatPercent is not null)
+                                        {
+                                            <span class="muted"> · @m.BodyFatPercent.Value.ToString("0.0")% fat</span>
+                                        }
+                                        @if (m.MuscleMassLbs is not null)
+                                        {
+                                            <span class="muted"> · @m.MuscleMassLbs.Value.ToString("0.0") lbs muscle</span>
                                         }
                                     </span>
                                 </div>
@@ -318,7 +354,9 @@
         _edit = new BodyMeasurement
         {
             WeightLbs = m.WeightLbs, WaistInches = m.WaistInches, ChestInches = m.ChestInches,
-            ArmsInches = m.ArmsInches, ThighsInches = m.ThighsInches, ClothingFitNotes = m.ClothingFitNotes
+            ArmsInches = m.ArmsInches, ThighsInches = m.ThighsInches, ClothingFitNotes = m.ClothingFitNotes,
+            BodyFatPercent = m.BodyFatPercent, MuscleMassLbs = m.MuscleMassLbs, VisceralFat = m.VisceralFat,
+            BodyWaterPercent = m.BodyWaterPercent, BasalMetabolicRate = m.BasalMetabolicRate, MetabolicAge = m.MetabolicAge
         };
         _editDate = m.Date.ToDateTime(TimeOnly.MinValue);
     }
@@ -326,6 +364,7 @@
     private async Task SaveEdit()
     {
         if (_editId is not { } id) return;
+        BodyMeasurement? saved = null;
         await using var db = await DbFactory.CreateDbContextAsync();
         var e = await db.BodyMeasurements.FindAsync(id);
         if (e is not null)
@@ -333,9 +372,24 @@
             e.Date = DateOnly.FromDateTime(_editDate);
             e.WeightLbs = _edit.WeightLbs; e.WaistInches = _edit.WaistInches; e.ChestInches = _edit.ChestInches;
             e.ArmsInches = _edit.ArmsInches; e.ThighsInches = _edit.ThighsInches; e.ClothingFitNotes = _edit.ClothingFitNotes;
+            e.BodyFatPercent = _edit.BodyFatPercent; e.MuscleMassLbs = _edit.MuscleMassLbs; e.VisceralFat = _edit.VisceralFat;
+            e.BodyWaterPercent = _edit.BodyWaterPercent; e.BasalMetabolicRate = _edit.BasalMetabolicRate; e.MetabolicAge = _edit.MetabolicAge;
             await db.SaveChangesAsync();
+            saved = e;
         }
         _editId = null;
+
+        // Mirror to Apple Health on edit too — weight added via an edit (common when
+        // you log measurements first and fill in the scale weight later) must still
+        // reach Health. The write replaces any prior same-day sample this app wrote.
+        if (saved is not null && Health.IsAvailable)
+        {
+            if (saved.WeightLbs is { } lbs)
+                try { await Health.WriteWeightAsync(saved.Date, lbs, saved.Id); } catch { }
+            if (saved.WaistInches is { } waist)
+                try { await Health.WriteWaistAsync(saved.Date, waist, saved.Id); } catch { }
+        }
+
         await LoadHistory();
     }
 
@@ -366,6 +420,8 @@
     {
         if (_entry.WeightLbs is null && _entry.WaistInches is null && _entry.ChestInches is null
             && _entry.ArmsInches is null && _entry.ThighsInches is null
+            && _entry.BodyFatPercent is null && _entry.MuscleMassLbs is null && _entry.VisceralFat is null
+            && _entry.BodyWaterPercent is null && _entry.BasalMetabolicRate is null && _entry.MetabolicAge is null
             && string.IsNullOrWhiteSpace(_entry.ClothingFitNotes))
         {
             _warn = "Enter at least one measurement.";

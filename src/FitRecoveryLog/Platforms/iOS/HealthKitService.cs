@@ -52,14 +52,32 @@ public sealed class HealthKitService : IHealthService
     public Task<IReadOnlyList<(DateOnly, double)>> ReadWaistsAsync(DateTime since) =>
         ReadQuantitiesAsync(_waist, Inch, since);
 
-    private Task WriteQuantityAsync(HKQuantityType type, HKUnit unit, DateOnly date, double value)
+    private async Task WriteQuantityAsync(HKQuantityType type, HKUnit unit, DateOnly date, double value)
     {
-        if (_store is null) return Task.CompletedTask;
+        if (_store is null) return;
+        // Replace any sample this app already wrote for this date, so editing a
+        // measurement updates Health in place instead of adding a duplicate.
+        await DeleteOwnSamplesAsync(type, date);
         var when = (NSDate)date.ToDateTime(new TimeOnly(12, 0)).ToUniversalTime();
         var quantity = HKQuantity.FromQuantity(unit, value);
         var sample = HKQuantitySample.FromType(type, quantity, when, when);
         var tcs = new TaskCompletionSource<bool>();
         _store.SaveObject(sample, (ok, _) => tcs.TrySetResult(ok));
+        await tcs.Task;
+    }
+
+    /// <summary>Delete samples of <paramref name="type"/> that THIS app wrote on
+    /// <paramref name="date"/> (other sources like a scale are left untouched).</summary>
+    private Task DeleteOwnSamplesAsync(HKSampleType type, DateOnly date)
+    {
+        if (_store is null) return Task.CompletedTask;
+        var start = (NSDate)date.ToDateTime(TimeOnly.MinValue).ToUniversalTime();
+        var end = (NSDate)date.AddDays(1).ToDateTime(TimeOnly.MinValue).ToUniversalTime();
+        var datePredicate = HKQuery.GetPredicateForSamples(start, end, HKQueryOptions.None);
+        var sourcePredicate = HKQuery.GetPredicateForObjectsFromSource(HKSource.GetDefaultSource);
+        var predicate = NSCompoundPredicate.CreateAndPredicate(new[] { datePredicate, sourcePredicate });
+        var tcs = new TaskCompletionSource<bool>();
+        _store.DeleteObjects(type, predicate, (ok, _, _) => tcs.TrySetResult(ok));
         return tcs.Task;
     }
 
