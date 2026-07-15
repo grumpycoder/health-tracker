@@ -208,13 +208,15 @@
         await LoadRecent();
     }
 
-    /// <summary>Transparent heuristic when Health has stage data: duration vs 8h
-    /// (60 pts), continuity (25, −5 per awake period), deep+REM share vs ~40% (15).</summary>
+    /// <summary>Transparent heuristic when Health has stage data, retuned to sit
+    /// closer to Apple's Sleep Score range: duration vs a 7.5h goal (70 pts),
+    /// continuity (20, −3 per awake period), deep+REM share vs ~40% (10). A solid
+    /// ~7.5h night with light interruption lands high-80s/90s like Apple's.</summary>
     private static int EstimateScore(double hours, int interruptions, double deepRem)
     {
-        var duration = Math.Min(1.0, hours / 8.0) * 60;
-        var continuity = Math.Max(0, 25 - interruptions * 5);
-        var stages = hours > 0 ? Math.Min(1.0, deepRem / hours / 0.4) * 15 : 0;
+        var duration = Math.Min(1.0, hours / 7.5) * 70;
+        var continuity = Math.Max(0, 20 - interruptions * 3);
+        var stages = hours > 0 ? Math.Min(1.0, deepRem / hours / 0.4) * 10 : 0;
         return (int)Math.Round(duration + continuity + stages);
     }
 
