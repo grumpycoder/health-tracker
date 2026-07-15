@@ -178,7 +178,7 @@ public static class GeminiAnalyzer
         foreach (var s in sleep)
             sb.AppendLine($"{s.Date:yyyy-MM-dd}" +
                           (s.DurationHours is { } h ? $" {h:0.#}h" : "") +
-                          (s.SleepScore is { } sc ? $" score:{sc}" : "") +
+                          (s.SleepScore is { } sc ? $" score:{sc}{(s.ScoreEstimated ? "(rough estimate, not Apple's)" : "")}" : "") +
                           (s.Interruptions is { } i ? $" interruptions:{i}" : "") +
                           (string.IsNullOrWhiteSpace(s.Notes) ? "" : $" note:\"{s.Notes}\""));
 
@@ -242,7 +242,7 @@ public static class GeminiAnalyzer
         var sleep = await db.SleepEntries.FirstOrDefaultAsync(s => s.Date == today);
         sb.AppendLine("SLEEP (last night): " + (sleep is null
             ? "(not logged)"
-            : $"{sleep.DurationHours:0.#}h score:{sleep.SleepScore} interruptions:{sleep.Interruptions}" +
+            : $"{sleep.DurationHours:0.#}h score:{sleep.SleepScore}{(sleep.ScoreEstimated ? "(rough estimate, not Apple's)" : "")} interruptions:{sleep.Interruptions}" +
               (string.IsNullOrWhiteSpace(sleep.Notes) ? "" : $" note:\"{sleep.Notes}\"")));
 
         sb.AppendLine("WORKOUT TODAY:");

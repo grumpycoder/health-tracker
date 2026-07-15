@@ -36,7 +36,7 @@
         </div>
         <div class="field">
             <label>Sleep score</label>
-            <input type="number" inputmode="decimal" step="1" @bind="_sleep.SleepScore" placeholder="0-100" />
+            <input type="number" inputmode="decimal" step="1" @bind="_sleep.SleepScore" placeholder="Apple's Sleep Score, 0-100" />
         </div>
         <div class="field">
             <label>Interruptions</label>
@@ -115,6 +115,10 @@
                                     <div class="field"><label>Score</label><input type="number" inputmode="decimal" @bind="_edit.SleepScore" /></div>
                                     <div class="field"><label>Interruptions</label><input type="number" inputmode="decimal" @bind="_edit.Interruptions" /></div>
                                 </div>
+                                @if (_edit.ScoreEstimated)
+                                {
+                                    <p class="muted" style="margin:0 0 0.5rem;font-size:0.75rem">Score is a Fit Log estimate. Enter Apple's Sleep Score to replace it.</p>
+                                }
                                 <div class="field"><label>Notes</label><textarea rows="2" @bind="_edit.Notes"></textarea></div>
                                 <div class="routine-actions">
                                     <button class="save-btn" @onclick="SaveEdit">Save</button>
@@ -131,7 +135,7 @@
                                         @(s.DurationHours?.ToString("0.0") ?? "—") h
                                         @if (s.SleepScore is not null)
                                         {
-                                            <span class="muted"> · score @s.SleepScore</span>
+                                            <span class="muted"> · score @s.SleepScore@(s.ScoreEstimated ? " (Est.)" : "")</span>
                                         }
                                     </span>
                                 </div>
@@ -190,7 +194,8 @@
                 // a bare "asleep" block isn't enough to estimate from.
                 Interruptions = n.HasDetail ? n.Interruptions : null,
                 SleepScore = n.HasDetail ? EstimateScore(n.Hours, n.Interruptions, n.DeepRemHours) : null,
-                Notes = n.HasDetail ? "Score estimated from Health sleep data" : null
+                ScoreEstimated = n.HasDetail,
+                Notes = n.HasDetail ? "Score estimated by Fit Log — not Apple's Sleep Score" : null
             });
             existing.Add(n.Date);
             added++;
@@ -216,7 +221,7 @@
     private void StartEdit(SleepEntry s)
     {
         _editId = s.Id;
-        _edit = new SleepEntry { DurationHours = s.DurationHours, SleepScore = s.SleepScore, Interruptions = s.Interruptions, Notes = s.Notes };
+        _edit = new SleepEntry { DurationHours = s.DurationHours, SleepScore = s.SleepScore, Interruptions = s.Interruptions, Notes = s.Notes, ScoreEstimated = s.ScoreEstimated };
         _editDate = s.Date.ToDateTime(TimeOnly.MinValue);
     }
 
@@ -228,6 +233,9 @@
         if (e is not null)
         {
             e.Date = DateOnly.FromDateTime(_editDate);
+            // Changing the score means the user put in the real number (Apple's) —
+            // it's no longer our estimate.
+            if (_edit.SleepScore != e.SleepScore) e.ScoreEstimated = false;
             e.DurationHours = _edit.DurationHours; e.SleepScore = _edit.SleepScore;
             e.Interruptions = _edit.Interruptions; e.Notes = _edit.Notes;
             await db.SaveChangesAsync();
