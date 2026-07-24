@@ -211,6 +211,50 @@
             <label>Sugar (cubes / tsp)</label>
             <input type="number" inputmode="decimal" step="1" @bind="_drink.SugarCount" placeholder="e.g. 2" />
         </div>
+
+        <div class="chip-row" style="margin-bottom:0.4rem">
+            @if (_captureSupported)
+            {
+                <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanDrinkLabel(true)">📷 Scan label</button>
+            }
+            <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanDrinkLabel(false)">🖼 Label photo</button>
+            @if (_scanBusy) { <span class="muted" style="align-self:center;font-size:0.8rem">Reading…</span> }
+        </div>
+        @if (_drinkScanMsg is not null)
+        {
+            <span class="muted" style="font-size:0.75rem">@_drinkScanMsg</span>
+        }
+        @if (_drinkScan is not null)
+        {
+            <div class="edit-exercise" style="margin-bottom:0.6rem">
+                <p class="muted" style="margin:0 0 0.4rem;font-size:0.8rem">
+                    Per serving@(string.IsNullOrWhiteSpace(_drinkScan.ServingSize) ? "" : $" ({_drinkScan.ServingSize})") — review, set servings, then apply.
+                </p>
+                <div class="inline-fields">
+                    <div class="field"><label>Servings</label><input type="number" inputmode="decimal" step="0.25" min="0" @bind="_drinkScanServings" /></div>
+                    <div class="field"><label>Calories</label><input type="number" inputmode="numeric" @bind="_drinkScan.Calories" /></div>
+                    <div class="field"><label>Protein (g)</label><input type="number" inputmode="decimal" @bind="_drinkScan.ProteinG" /></div>
+                </div>
+                <div class="inline-fields">
+                    <div class="field"><label>Carbs (g)</label><input type="number" inputmode="decimal" @bind="_drinkScan.CarbsG" /></div>
+                    <div class="field"><label>Sugar (g)</label><input type="number" inputmode="decimal" @bind="_drinkScan.SugarG" /></div>
+                    <div class="field"><label>Fat (g)</label><input type="number" inputmode="decimal" @bind="_drinkScan.FatG" /></div>
+                </div>
+                <div class="inline-fields">
+                    <div class="field"><label>Sodium (mg)</label><input type="number" inputmode="numeric" @bind="_drinkScan.SodiumMg" /></div>
+                    <div class="field"><label>Fiber (g)</label><input type="number" inputmode="decimal" @bind="_drinkScan.FiberG" /></div>
+                </div>
+                <div class="routine-actions">
+                    <button class="save-btn" @onclick="ApplyDrinkScan">Apply to drink</button>
+                    <button class="link-btn" @onclick="() => { _drinkScan = null; _drinkScanMsg = null; }">Discard</button>
+                </div>
+            </div>
+        }
+        else if (_drink.Calories is not null || _drink.ProteinG is not null)
+        {
+            <p class="muted" style="font-size:0.8rem">@DrinkMacroLine(_drink)</p>
+        }
+
         @TagField(_drinkTagBox, _drinkTagOptions, () => SuggestTagsAsync(_drinkTagBox, _drinkTagOptions, "Drink", _drink.Description, DrinkPortion(_drink)))
         <button class="save-btn" disabled="@string.IsNullOrWhiteSpace(_drink.Description)" @onclick="SaveDrink">Save Drink</button>
         @if (_drinkWarn is not null)
@@ -376,6 +420,10 @@
                                             <span class="muted">&nbsp;· @d.Ounces oz</span>
                                         }
                                     </span>
+                                    @if (DrinkMacroLine(d) is { Length: > 0 } dmac)
+                                    {
+                                        <span class="muted" style="display:block;font-size:0.75rem">@dmac</span>
+                                    }
                                 </div>
                                 <div class="routine-actions">
                                     <button class="icon-action" title="Edit" aria-label="Edit" @onclick="() => StartEditDrink(d)">✏️</button>
@@ -441,6 +489,10 @@
     private GeminiAnalyzer.NutritionFacts? _scan;   // values under review
     private double _scanServings = 1;
     private bool _scanIsEstimate;                   // true = plate estimate, false = label read
+    // Drink label-scan state (separate from the meal scan).
+    private GeminiAnalyzer.NutritionFacts? _drinkScan;
+    private double _drinkScanServings = 1;
+    private string? _drinkScanMsg;
 
     private List<MealEntry> _todayMeals = new();
     private List<DrinkEntry> _todayDrinks = new();
@@ -459,12 +511,14 @@
     private int _proteinGoal;
 
     private int MacroMealCount => _todayMeals.Count(m => m.Calories is not null || m.ProteinG is not null);
-    private int DayCalories => _todayMeals.Sum(m => m.Calories ?? 0);
-    private double DayProtein => _todayMeals.Sum(m => m.ProteinG ?? 0);
-    private double DaySodium => _todayMeals.Sum(m => m.SodiumMg ?? 0);
-    // Meal sugar (g) + drink sugar (teaspoons → ~4g each).
-    private double DaySugar => _todayMeals.Sum(m => m.SugarG ?? 0) + _todayDrinks.Sum(d => (d.SugarCount ?? 0) * 4.0);
-    private bool HasNutritionData => MacroMealCount > 0 || _todayDrinks.Any(d => d.SugarCount is > 0);
+    private int DayCalories => _todayMeals.Sum(m => m.Calories ?? 0) + _todayDrinks.Sum(d => d.Calories ?? 0);
+    private double DayProtein => _todayMeals.Sum(m => m.ProteinG ?? 0) + _todayDrinks.Sum(d => d.ProteinG ?? 0);
+    private double DaySodium => _todayMeals.Sum(m => m.SodiumMg ?? 0) + _todayDrinks.Sum(d => d.SodiumMg ?? 0);
+    // Meal sugar (g) + drink sugar: scanned grams when present, else teaspoons (~4g each).
+    private double DaySugar => _todayMeals.Sum(m => m.SugarG ?? 0)
+        + _todayDrinks.Sum(d => d.SugarG ?? (d.SugarCount ?? 0) * 4.0);
+    private bool HasNutritionData => MacroMealCount > 0
+        || _todayDrinks.Any(d => d.Calories is not null || d.ProteinG is not null || d.SugarG is not null || d.SugarCount is > 0);
 
     private int WorkoutKcal   // MET ~5 strength, scaled by body weight
     {
@@ -827,6 +881,60 @@
         return parts.Count == 0 ? "" : "🏷 " + string.Join(" · ", parts);
     }
 
+    /// <summary>Scan a drink's Nutrition Facts label → per-serving macros + tags for review.</summary>
+    private async Task ScanDrinkLabel(bool camera)
+    {
+        _drinkScanMsg = null;
+        if (!_hasAiKey) { _drinkScanMsg = "Set a Gemini API key in Settings to scan labels."; return; }
+        _scanBusy = true;
+        try
+        {
+            var jpeg = await CapturePhotoAsync(camera);
+            if (jpeg is null) { _scanBusy = false; return; } // cancelled
+            var key = await GeminiAnalyzer.KeyStore.GetAsync() ?? throw new InvalidOperationException("No API key");
+            var result = await GeminiAnalyzer.ReadNutritionLabelAsync(key, jpeg, _drinkTagOptions);
+            var facts = result?.Facts;
+            if (facts is null || (facts.Calories is null && facts.SugarG is null && facts.ProteinG is null))
+                _drinkScanMsg = "Couldn't read a nutrition label from that photo — try again or enter by hand.";
+            else
+            {
+                _drinkScan = facts; _drinkScanServings = 1;
+                ApplySuggestionToBox(_drinkTagBox, _drinkTagOptions, result!.Tags); // tags in the same call
+            }
+        }
+        catch (Exception ex) { _drinkScanMsg = $"Scan failed: {ex.Message}"; }
+        _scanBusy = false;
+    }
+
+    /// <summary>Multiply the reviewed per-serving values by servings onto the drink.</summary>
+    private void ApplyDrinkScan()
+    {
+        if (_drinkScan is not { } f) return;
+        var n = _drinkScanServings <= 0 ? 1 : _drinkScanServings;
+        _drink.Calories = f.Calories is { } c ? (int)Math.Round(c * n) : null;
+        _drink.ProteinG = f.ProteinG is { } p ? Math.Round(p * n, 1) : null;
+        _drink.CarbsG = f.CarbsG is { } cb ? Math.Round(cb * n, 1) : null;
+        _drink.SugarG = f.SugarG is { } su ? Math.Round(su * n, 1) : null;
+        _drink.FatG = f.FatG is { } ft ? Math.Round(ft * n, 1) : null;
+        _drink.SodiumMg = f.SodiumMg is { } so ? (int)Math.Round(so * n) : null;
+        _drink.FiberG = f.FiberG is { } fi ? Math.Round(fi * n, 1) : null;
+        _drinkScan = null;
+        _drinkScanMsg = "Macros applied ✓";
+    }
+
+    private static string DrinkMacroLine(DrinkEntry d)
+    {
+        var parts = new List<string>();
+        if (d.Calories is { } c) parts.Add($"{c} cal");
+        if (d.ProteinG is { } p) parts.Add($"{p:0.#}g protein");
+        if (d.CarbsG is { } cb) parts.Add($"{cb:0.#}g carbs");
+        if (d.SugarG is { } su) parts.Add($"{su:0.#}g sugar");
+        if (d.FatG is { } ft) parts.Add($"{ft:0.#}g fat");
+        if (d.SodiumMg is { } so) parts.Add($"{so}mg sodium");
+        if (d.FiberG is { } fi) parts.Add($"{fi:0.#}g fiber");
+        return parts.Count == 0 ? "" : "🏷 " + string.Join(" · ", parts);
+    }
+
     private async Task AskMealAdvice()
     {
         var considering = _considering.Trim();
@@ -991,6 +1099,7 @@
 
         _drink = new DrinkEntry();
         _drinkTagBox.Reset();
+        _drinkScan = null; _drinkScanMsg = null; _drinkScanServings = 1;
         await LoadToday();
         _ = Toast.Show("Drink logged ✓");
     }

@@ -184,6 +184,17 @@ public class DrinkEntry : EntityBase
     public int? SugarCount { get; set; }
     public string? Tags { get; set; }
 
+    // Macros as consumed (from a scanned drink label, × servings); all optional.
+    // Packaged drinks (protein shakes, juice, soda) carry real macros; coffee with
+    // added sugar keeps using SugarCount instead.
+    public int? Calories { get; set; }
+    public double? ProteinG { get; set; }
+    public double? CarbsG { get; set; }
+    public double? SugarG { get; set; }
+    public double? FatG { get; set; }
+    public int? SodiumMg { get; set; }
+    public double? FiberG { get; set; }
+
     [NotMapped]
     public IReadOnlyList<string> TagList => CsvField.Split(Tags);
 }
