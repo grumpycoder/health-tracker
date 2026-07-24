@@ -495,7 +495,11 @@
     // Saved food/drink names (typeahead libraries) — seed list + everything logged.
     private List<string> _foodLib = new();
     // Food name -> most recent (portion, tags), to prefill on selection.
-    private Dictionary<string, (string? Portion, string? Tags)> _foodDefaults = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The last-logged details of a food, so a repeat reuses them without
+    /// re-scanning or a fresh AI call.</summary>
+    private record FoodMemory(string? Portion, string? Tags, int? Calories, double? ProteinG,
+        double? CarbsG, double? SugarG, double? FatG, int? SodiumMg, double? FiberG, int? Stars);
+    private Dictionary<string, FoodMemory> _foodDefaults = new(StringComparer.OrdinalIgnoreCase);
 
     private void SelectFood(string name)
     {
@@ -503,7 +507,15 @@
         if (_foodDefaults.TryGetValue(name, out var d))
         {
             if (string.IsNullOrWhiteSpace(_meal.PortionNote)) _meal.PortionNote = d.Portion;
-            _mealTagBox.Load(CsvField.Split(d.Tags)); // reuse last time's tags
+            _mealTagBox.Load(CsvField.Split(d.Tags)); // reuse last time's tags (Load resets Stars)
+            // Carry macros + star rating forward — a repeat needs no AI call.
+            _meal.Calories = d.Calories; _meal.ProteinG = d.ProteinG; _meal.CarbsG = d.CarbsG;
+            _meal.SugarG = d.SugarG; _meal.FatG = d.FatG; _meal.SodiumMg = d.SodiumMg; _meal.FiberG = d.FiberG;
+            if (d.Stars is not null)
+            {
+                _mealTagBox.Stars = d.Stars;
+                _mealTagBox.StarReason = "from your last log";
+            }
         }
     }
     private List<string> _drinkLib = new();
@@ -1022,13 +1034,20 @@
 
         // Build typeahead libraries: seed list + every distinct food/drink logged.
         var mealRows = await db.MealEntries.OrderByDescending(m => m.Time)
-            .Select(m => new { m.Description, m.PortionNote, m.Tags }).ToListAsync();
+            .Select(m => new { m.Description, m.PortionNote, m.Tags, m.Calories, m.ProteinG,
+                m.CarbsG, m.SugarG, m.FatG, m.SodiumMg, m.FiberG, m.QualityStars }).ToListAsync();
         var loggedFoods = mealRows.Select(m => m.Description).Distinct().ToList();
-        // Most recent portion/tags per food name (rows are newest-first).
+        // Most recent details per food name (rows are newest-first) — portion, tags,
+        // macros, and star rating, so a repeat reuses them without a fresh AI call.
         _foodDefaults = mealRows
             .Where(m => !string.IsNullOrWhiteSpace(m.Description))
             .GroupBy(m => m.Description.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => (g.First().PortionNote, g.First().Tags), StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(g => g.Key, g =>
+            {
+                var f = g.First();
+                return new FoodMemory(f.PortionNote, f.Tags, f.Calories, f.ProteinG,
+                    f.CarbsG, f.SugarG, f.FatG, f.SodiumMg, f.FiberG, f.QualityStars);
+            }, StringComparer.OrdinalIgnoreCase);
         _foodLib = CommonFoods.Concat(loggedFoods)
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
