@@ -35,12 +35,11 @@ public static class NutritionMath
         meals.Sum(m => m.AddedSugarG ?? 0)
         + drinks.Sum(d => (d.AddedSugarG ?? 0) + (d.SugarCount ?? 0) * 4.0);
 
-    /// <summary>Water intake (oz) = ounces of any logged drink whose name mentions
-    /// water (incl. the quick-add "Water" entries).</summary>
-    public static int WaterOz(IEnumerable<DrinkEntry> drinks) =>
-        (int)Math.Round(drinks
-            .Where(d => (d.Description ?? "").Contains("water", StringComparison.OrdinalIgnoreCase))
-            .Sum(d => d.Ounces ?? 0));
+    /// <summary>Fluid intake (oz) = ounces of ALL logged drinks (water, tea, coffee,
+    /// etc. — they all hydrate; alcohol would be the exception but isn't logged here),
+    /// including the quick-add "Water" entries.</summary>
+    public static int FluidOz(IEnumerable<DrinkEntry> drinks) =>
+        (int)Math.Round(drinks.Sum(d => d.Ounces ?? 0));
 
     public static bool HasData(IEnumerable<MealEntry> meals, IEnumerable<DrinkEntry> drinks) =>
         meals.Any(m => m.Calories is not null || m.ProteinG is not null)
