@@ -235,6 +235,41 @@
                 <span style="font-size:0.8rem"> · @_ratedMealCount rated meal(s)</span>
             </p>
         }
+        @if (HasNutritionData)
+        {
+            <div style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--border)">
+                <div style="display:flex;flex-wrap:wrap;gap:0.4rem 1.1rem;font-size:0.95rem">
+                    <span><strong>@DayCalories</strong> <span class="muted">cal</span></span>
+                    <span><strong>@DayProtein.ToString("0")</strong> <span class="muted">g protein</span></span>
+                    <span><strong>@DaySugar.ToString("0")</strong> <span class="muted">g sugar</span></span>
+                    <span><strong>@DaySodium.ToString("0")</strong> <span class="muted">mg sodium</span></span>
+                </div>
+                @if (_proteinGoal > 0)
+                {
+                    var pct = (int)Math.Round(Math.Min(100, DayProtein / _proteinGoal * 100));
+                    <div style="margin-top:0.4rem">
+                        <div style="display:flex;justify-content:space-between;font-size:0.8rem" class="muted">
+                            <span>Protein goal</span><span>@DayProtein.ToString("0") / @_proteinGoal g</span>
+                        </div>
+                        <div style="height:6px;border-radius:3px;background:var(--border);overflow:hidden">
+                            <div style="height:100%;width:@(pct)%;background:@(DayProtein >= _proteinGoal ? "#3fa34d" : "var(--accent)")"></div>
+                        </div>
+                    </div>
+                }
+                @if (EnergyOut is { } outKcal && DayCalories > 0)
+                {
+                    var net = DayCalories - outKcal;
+                    <p class="muted" style="margin:0.4rem 0 0;font-size:0.8rem" title="Rough: assumes every item is logged with calories; resting burn is estimated">
+                        Energy balance ≈ <strong>@DayCalories</strong> in − <strong>@outKcal</strong> out =
+                        <span style="color:@(net > 0 ? "#c47f00" : "#3fa34d")">@(net > 0 ? "+" : "")@net cal</span>
+                        (@(net > 0 ? "surplus" : "deficit")) · rough estimate
+                    </p>
+                }
+                <p class="muted" style="margin:0.3rem 0 0;font-size:0.72rem">
+                    Totals from @MacroMealCount of @_todayMeals.Count meal(s) with macros@(MacroMealCount < _todayMeals.Count ? " — scan/enter the rest for a full picture" : "")
+                </p>
+            </div>
+        }
         @if (_todayMeals.Count == 0 && _todayDrinks.Count == 0)
         {
             <p class="muted">Nothing logged on this day.</p>
@@ -415,6 +450,41 @@
     private double? AvgStars => _ratedMealCount == 0
         ? null
         : _todayMeals.Where(m => m.QualityStars is not null).Average(m => m.QualityStars!.Value);
+
+    // --- Daily nutrition metrics (viewed day). Totals cover only items that carry
+    // macros, so they're labeled with coverage; energy balance is a rough estimate. ---
+    private double? _latestWeightLbs;
+    private int? _latestBmr;
+    private int _dayWorkoutSeconds;
+    private int _proteinGoal;
+
+    private int MacroMealCount => _todayMeals.Count(m => m.Calories is not null || m.ProteinG is not null);
+    private int DayCalories => _todayMeals.Sum(m => m.Calories ?? 0);
+    private double DayProtein => _todayMeals.Sum(m => m.ProteinG ?? 0);
+    private double DaySodium => _todayMeals.Sum(m => m.SodiumMg ?? 0);
+    // Meal sugar (g) + drink sugar (teaspoons → ~4g each).
+    private double DaySugar => _todayMeals.Sum(m => m.SugarG ?? 0) + _todayDrinks.Sum(d => (d.SugarCount ?? 0) * 4.0);
+    private bool HasNutritionData => MacroMealCount > 0 || _todayDrinks.Any(d => d.SugarCount is > 0);
+
+    private int WorkoutKcal   // MET ~5 strength, scaled by body weight
+    {
+        get
+        {
+            var lbs = _latestWeightLbs ?? 0;
+            if (lbs <= 0 || _dayWorkoutSeconds <= 0) return 0;
+            return (int)Math.Round(_dayWorkoutSeconds / 60.0 * 5 * 3.5 * (lbs * 0.453592) / 200.0);
+        }
+    }
+    // Estimated calories out: BMR (Hume, or a rough weight×10 fallback) × light-activity
+    // factor, plus the day's workout burn.
+    private int? EnergyOut
+    {
+        get
+        {
+            var bmr = _latestBmr ?? (_latestWeightLbs is { } w and > 0 ? (int)(w * 10) : (int?)null);
+            return bmr is null ? null : (int)Math.Round(bmr.Value * 1.25) + WorkoutKcal;
+        }
+    }
 
     // Meals and drinks merged into one chronological list for the Log tab.
     private IEnumerable<(DateTime Time, MealEntry? Meal, DrinkEntry? Drink)> MergedToday() =>
@@ -938,6 +1008,17 @@
         _todayDrinks = await db.DrinkEntries
             .Where(d => d.Time >= start && d.Time < end)
             .OrderBy(d => d.Time).ToListAsync();
+
+        // Energy-balance inputs: latest weight + BMR (from Hume) and this day's
+        // workout time. All best-effort — energy balance is a rough estimate.
+        _latestWeightLbs = (await db.BodyMeasurements.Where(m => m.WeightLbs != null)
+            .OrderByDescending(m => m.Date).Select(m => m.WeightLbs).FirstOrDefaultAsync());
+        _latestBmr = (await db.BodyMeasurements.Where(m => m.BasalMetabolicRate != null)
+            .OrderByDescending(m => m.Date).Select(m => m.BasalMetabolicRate).FirstOrDefaultAsync());
+        _dayWorkoutSeconds = await db.WorkoutSessions
+            .Where(w => w.Date == DateOnly.FromDateTime(_viewDate) && w.TotalSeconds != null)
+            .SumAsync(w => w.TotalSeconds!.Value);
+        _proteinGoal = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.ProteinGoalPrefKey, 0);
 
         // Build typeahead libraries: seed list + every distinct food/drink logged.
         var mealRows = await db.MealEntries.OrderByDescending(m => m.Time)

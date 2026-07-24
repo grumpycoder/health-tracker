@@ -55,6 +55,10 @@
         <div class="field">
             <textarea rows="4" @bind="_goals" placeholder="One goal or preference per line"></textarea>
         </div>
+        <div class="field">
+            <label>Daily protein goal (g) <span class="muted">— 0 to disable</span></label>
+            <input type="number" inputmode="numeric" min="0" step="5" @bind="_proteinGoal" placeholder="e.g. 160" />
+        </div>
         <button class="save-btn" @onclick="SaveGoals">Save Goals</button>
         @if (_goalsSaved)
         {
@@ -83,6 +87,7 @@
     private string _key = "";
     private bool _saved, _hasKey;
     private string _goals = "";
+    private int _proteinGoal;
     private bool _goalsSaved;
 
     private static readonly (string Label, int Pct)[] TextSizes =
@@ -95,6 +100,7 @@
         _hasKey = !string.IsNullOrEmpty(existing);
         if (_hasKey) _key = existing!;
         _goals = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.UserGoalsPrefKey, "");
+        _proteinGoal = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.ProteinGoalPrefKey, 0);
         _textScale = Microsoft.Maui.Storage.Preferences.Default.Get("text_scale_pct", 100);
     }
 
@@ -108,6 +114,7 @@
     private void SaveGoals()
     {
         Microsoft.Maui.Storage.Preferences.Default.Set(GeminiAnalyzer.UserGoalsPrefKey, _goals.Trim());
+        Microsoft.Maui.Storage.Preferences.Default.Set(GeminiAnalyzer.ProteinGoalPrefKey, Math.Max(0, _proteinGoal));
         _goalsSaved = true;
     }
 

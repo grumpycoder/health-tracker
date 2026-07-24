@@ -25,6 +25,9 @@ public static class GeminiAnalyzer
     /// zero" when the user is deliberately maintaining 16oz/day).</summary>
     public const string UserGoalsPrefKey = "ai_user_goals";
 
+    /// <summary>Preferences key for the daily protein target in grams (0 = unset).</summary>
+    public const string ProteinGoalPrefKey = "protein_goal_g";
+
     private static void AppendUserGoals(StringBuilder sb)
     {
         var goals = Microsoft.Maui.Storage.Preferences.Default.Get<string?>(UserGoalsPrefKey, null);

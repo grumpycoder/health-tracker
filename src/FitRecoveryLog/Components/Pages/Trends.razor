@@ -42,6 +42,14 @@
         <section class="card"><LineChart Title="Waist" Unit=" in" Points="_waist" /></section>
         <section class="card"><LineChart Title="Sleep score" Points="_sleep" ValueFormat="0" /></section>
         <section class="card"><LineChart Title="Workout duration" Unit=" min" Points="_workoutMin" ValueFormat="0" /></section>
+        @if (_calories.Count >= 2)
+        {
+            <section class="card"><LineChart Title="Calories logged / day" Unit=" cal" Points="_calories" ValueFormat="0" /></section>
+        }
+        @if (_protein.Count >= 2)
+        {
+            <section class="card"><LineChart Title="Protein / day" Unit=" g" Points="_protein" ValueFormat="0" /></section>
+        }
         @if (_steps.Count >= 2)
         {
             <section class="card"><LineChart Title="Steps (Apple Health)" Points="_steps" ValueFormat="0" /></section>
@@ -66,6 +74,8 @@
     private List<(DateOnly Date, double Value)> _waist = new();
     private List<(DateOnly Date, double Value)> _sleep = new();
     private List<(DateOnly Date, double Value)> _workoutMin = new();
+    private List<(DateOnly Date, double Value)> _calories = new();
+    private List<(DateOnly Date, double Value)> _protein = new();
     private List<(DateOnly Date, double Value)> _steps = new();
     private List<(string Name, List<(DateOnly Date, double Value)> Points)> _drinks = new();
 
@@ -97,6 +107,20 @@
             .Where(w => w.TotalSeconds != null).OrderBy(w => w.Date)
             .Select(w => new { w.Date, V = w.TotalSeconds!.Value / 60.0 }).ToListAsync())
             .Select(x => (x.Date, x.V)).ToList();
+
+        // Daily calorie and protein totals from meals that carry macros.
+        var macroMeals = await db.MealEntries
+            .Where(m => m.Calories != null || m.ProteinG != null)
+            .Select(m => new { m.Time, m.Calories, m.ProteinG })
+            .ToListAsync();
+        _calories = macroMeals.Where(m => m.Calories != null)
+            .GroupBy(m => DateOnly.FromDateTime(m.Time.Date))
+            .Select(g => (g.Key, (double)g.Sum(x => x.Calories!.Value)))
+            .OrderBy(p => p.Item1).ToList();
+        _protein = macroMeals.Where(m => m.ProteinG != null)
+            .GroupBy(m => DateOnly.FromDateTime(m.Time.Date))
+            .Select(g => (g.Key, g.Sum(x => x.ProteinG!.Value)))
+            .OrderBy(p => p.Item1).ToList();
 
         // Drinks by type: one series per drink name, summed ounces per day.
         var drinks = await db.DrinkEntries
@@ -135,7 +159,8 @@
         }
 
         _empty = _weight.Count == 0 && _waist.Count == 0 && _sleep.Count == 0
-                 && _workoutMin.Count == 0 && _drinks.Count == 0 && _steps.Count == 0;
+                 && _workoutMin.Count == 0 && _drinks.Count == 0 && _steps.Count == 0
+                 && _calories.Count == 0 && _protein.Count == 0;
         _loaded = true;
     }
 }
