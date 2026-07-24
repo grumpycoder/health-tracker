@@ -344,6 +344,7 @@
                                     </select>
                                 </div>
                                 <div class="field"><label>Food</label><input @bind="_mealEdit.Description" /></div>
+                                <div class="field"><label>Time</label><input type="datetime-local" @bind="_mealEditTime" /></div>
                                 <div class="field"><label>Portion note</label><input @bind="_mealEdit.PortionNote" /></div>
                                 @TagField(_mealEditTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealEditTagBox, _mealTagOptions, _mealEdit.MealType.ToString(), _mealEdit.Description, _mealEdit.PortionNote, _mealEdit), showStars: true)
                                 <div class="field">
@@ -403,6 +404,7 @@
                         {
                             <div class="edit-exercise" style="width:100%">
                                 <div class="field"><label>Drink</label><input @bind="_drinkEdit.Description" /></div>
+                                <div class="field"><label>Time</label><input type="datetime-local" @bind="_drinkEditTime" /></div>
                                 <div class="inline-fields">
                                     <div class="field"><label>Ounces</label><input type="number" inputmode="decimal" @bind="_drinkEdit.Ounces" /></div>
                                     <div class="field"><label>Sugar</label><input type="number" inputmode="decimal" @bind="_drinkEdit.SugarCount" /></div>
@@ -547,7 +549,7 @@
     private IEnumerable<(DateTime Time, MealEntry? Meal, DrinkEntry? Drink)> MergedToday() =>
         _todayMeals.Select(m => (m.Time, (MealEntry?)m, (DrinkEntry?)null))
             .Concat(_todayDrinks.Select(d => (d.Time, (MealEntry?)null, (DrinkEntry?)d)))
-            .OrderBy(x => x.Time);
+            .OrderByDescending(x => x.Time);   // newest first — most recent entries on top
 
     // Saved food/drink names (typeahead libraries) — seed list + everything logged.
     private List<string> _foodLib = new();
@@ -608,11 +610,14 @@
             .Take(10).ToList();
     }
 
-    // Inline edit state for today's entries.
+    // Inline edit state for today's entries. Editable time lets you fix a late-logged
+    // entry (e.g. cereal logged at 10pm that you actually ate at 8am).
     private Guid? _editMealId;
     private MealEntry _mealEdit = new();
+    private DateTime _mealEditTime = DateTime.Now;
     private Guid? _editDrinkId;
     private DrinkEntry _drinkEdit = new();
+    private DateTime _drinkEditTime = DateTime.Now;
 
     // ---- Tag selection + AI suggestions ------------------------------------------
 
@@ -1011,6 +1016,7 @@
         };
         _mealEditTagBox.Load(m.TagList);
         _mealEditTagBox.Stars = m.QualityStars;
+        _mealEditTime = m.Time;
     }
 
     private async Task SaveMealEdit()
@@ -1024,6 +1030,7 @@
             e.MealType = _mealEdit.MealType;
             e.PortionNote = _mealEdit.PortionNote;
             e.Satiety = _mealEdit.Satiety;
+            e.Time = _mealEditTime;
             e.Tags = CsvField.Join(_mealEditTagBox.Selected);
             e.QualityStars = _mealEditTagBox.Stars;
             await db.SaveChangesAsync();
@@ -1049,6 +1056,7 @@
         _editDrinkId = d.Id;
         _drinkEdit = new DrinkEntry { Description = d.Description, Ounces = d.Ounces, SugarCount = d.SugarCount };
         _drinkEditTagBox.Load(d.TagList);
+        _drinkEditTime = d.Time;
     }
 
     private async Task SaveDrinkEdit()
@@ -1061,6 +1069,7 @@
             e.Description = _drinkEdit.Description;
             e.Ounces = _drinkEdit.Ounces;
             e.SugarCount = _drinkEdit.SugarCount;
+            e.Time = _drinkEditTime;
             e.Tags = CsvField.Join(_drinkEditTagBox.Selected);
             await db.SaveChangesAsync();
         }
