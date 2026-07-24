@@ -558,15 +558,7 @@
                       ?? throw new InvalidOperationException("No API key");
             var macros = macroSource is null ? null : MacroLine(macroSource) is { Length: > 0 } ml ? ml.Replace("🏷 ", "") : null;
             var s = await GeminiAnalyzer.SuggestMealTagsAsync(key, mealType, desc, portion, options, macros);
-            foreach (var t in s.Known) box.Selected.Add(Canonical(t, options));
-            // Drop a proposed tag that only differs in case from an existing option
-            // or an already-selected one (would otherwise create a casing duplicate).
-            box.Proposed = s.Proposed is { } p
-                && !options.Contains(p, StringComparer.OrdinalIgnoreCase)
-                && !box.Selected.Contains(p)
-                ? p : null;
-            box.Stars = s.Stars;
-            box.StarReason = s.StarReason;
+            ApplySuggestionToBox(box, options, s);
             if (s.Known.Count == 0 && box.Proposed is null) box.Note = "No tags suggested.";
         }
         catch
@@ -576,6 +568,21 @@
             box.Note = guesses.Count > 0 ? "AI unavailable — keyword guess" : "AI unavailable — pick tags manually";
         }
         box.Busy = false;
+    }
+
+    /// <summary>Pre-select the suggested tags on a box and carry over the star rating.
+    /// Shared by the ✨ suggester and the photo scans.</summary>
+    private void ApplySuggestionToBox(TagBox box, List<string> options, GeminiAnalyzer.TagSuggestion s)
+    {
+        foreach (var t in s.Known) box.Selected.Add(Canonical(t, options));
+        // Drop a proposed tag that only differs in case from an existing option or an
+        // already-selected one (would otherwise create a casing duplicate).
+        box.Proposed = s.Proposed is { } p
+            && !options.Contains(p, StringComparer.OrdinalIgnoreCase)
+            && !box.Selected.Contains(p)
+            ? p : null;
+        box.Stars = s.Stars;
+        box.StarReason = s.StarReason;
     }
 
     /// <summary>Manually add a custom tag: select it and add it to the chip vocabulary
@@ -659,10 +666,16 @@
             var jpeg = await CapturePhotoAsync(camera);
             if (jpeg is null) { _scanBusy = false; return; } // cancelled
             var key = await GeminiAnalyzer.KeyStore.GetAsync() ?? throw new InvalidOperationException("No API key");
-            var facts = await GeminiAnalyzer.ReadNutritionLabelAsync(key, jpeg);
+            var result = await GeminiAnalyzer.ReadNutritionLabelAsync(key, jpeg, _mealTagOptions);
+            var facts = result?.Facts;
             if (facts is null || (facts.Calories is null && facts.SugarG is null && facts.ProteinG is null))
                 _scanMsg = "Couldn't read a nutrition label from that photo — try again or enter macros by hand.";
-            else { _scan = facts; _scanServings = 1; _scanIsEstimate = false; }
+            else
+            {
+                _scan = facts; _scanServings = 1; _scanIsEstimate = false;
+                // Tags + stars came back in the same call — no separate ✨ needed.
+                ApplySuggestionToBox(_mealTagBox, _mealTagOptions, result!.Tags);
+            }
         }
         catch (Exception ex) { _scanMsg = $"Scan failed: {ex.Message}"; }
         _scanBusy = false;
@@ -679,7 +692,8 @@
             var jpeg = await CapturePhotoAsync(camera);
             if (jpeg is null) { _scanBusy = false; return; } // cancelled
             var key = await GeminiAnalyzer.KeyStore.GetAsync() ?? throw new InvalidOperationException("No API key");
-            var facts = await GeminiAnalyzer.EstimateMealFromPhotoAsync(key, jpeg);
+            var result = await GeminiAnalyzer.EstimateMealFromPhotoAsync(key, jpeg, _mealTagOptions);
+            var facts = result?.Facts;
             if (facts is null || (facts.Calories is null && facts.ProteinG is null && facts.CarbsG is null))
             {
                 _scanMsg = "Couldn't estimate macros from that photo — try a clearer shot or enter by hand.";
@@ -690,6 +704,8 @@
                 // Prefill the food name from what the AI saw, if not already typed.
                 if (string.IsNullOrWhiteSpace(_meal.Description) && !string.IsNullOrWhiteSpace(facts.FoodDescription))
                     _meal.Description = facts.FoodDescription;
+                // Tags + stars came back in the same call — no separate ✨ needed.
+                ApplySuggestionToBox(_mealTagBox, _mealTagOptions, result!.Tags);
             }
         }
         catch (Exception ex) { _scanMsg = $"Estimate failed: {ex.Message}"; }

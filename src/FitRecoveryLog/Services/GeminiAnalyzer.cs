@@ -633,8 +633,36 @@ public static class GeminiAnalyzer
         sb.AppendLine("Tag one logged meal for a personal nutrition tracker, and rate how well it fits the user's goals.");
         sb.AppendLine("Respond with ONLY a JSON object:");
         sb.AppendLine("""{ "tags": ["<existing tags that clearly apply>"], "newTag": "<one new tag ONLY if something important has no existing tag, else null>", "stars": <1-5 how well this meal fits the user's goals below>, "starReason": "<≤8 words, encouraging>" }""");
+        AppendMealTaggingRules(sb, vocabulary);
+        sb.AppendLine();
+        sb.AppendLine($"MEAL: {mealType} \"{description}\"" +
+                      (string.IsNullOrWhiteSpace(portionNote) ? "" : $" portion:\"{portionNote}\""));
+        if (!string.IsNullOrWhiteSpace(macros))
+        {
+            sb.AppendLine($"MACROS (actual, as eaten, from the nutrition label): {macros}");
+            sb.AppendLine("These are real measured numbers — base sugar/sodium/protein tags and the star rating on " +
+                          "them, not on guesses from the name. Apply the ≤15g-sugar proportion rule to the real sugar figure.");
+        }
+
+        var text = await GenerateAsync(apiKey, sb.ToString());
+        if (string.IsNullOrWhiteSpace(text)) return new(new(), null, null, null);
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            return ParseTagSuggestion(doc.RootElement, vocabulary);
+        }
+        catch (JsonException)
+        {
+            return new(new(), null, null, null);
+        }
+    }
+
+    /// <summary>Shared tagging + star-rating rules appended to both the text tag
+    /// suggester and the photo scans, so all three judge tags/stars identically.</summary>
+    private static void AppendMealTaggingRules(StringBuilder sb, IReadOnlyList<string> vocabulary)
+    {
         sb.AppendLine($"Existing tags (use these exact strings, strongly prefer them): {string.Join(" | ", vocabulary)}");
-        sb.AppendLine("Only include tags well supported by the text; when unsure, leave a tag out. Most meals need " +
+        sb.AppendLine("Only include tags well supported by the meal; when unsure, leave a tag out. Most meals need " +
                       "just 0-2 tags. Do NOT apply a tag by default — each must clearly fit.");
         sb.AppendLine("'High sodium' specifically: reserve it for foods genuinely high in salt — cured/processed " +
                       "meats (bacon, deli, sausage), canned/instant foods, pizza, chips, or fast-food/restaurant " +
@@ -656,55 +684,36 @@ public static class GeminiAnalyzer
                       "sugar is a normal 3-4, not a 1-2. Do not dock stars or write a cautionary reason for modest sugar/sodium; " +
                       "reserve low scores for genuinely large portions or truly indulgent items. If no goals are set, rate general balance/protein.");
         AppendUserGoals(sb);
-        sb.AppendLine();
-        sb.AppendLine($"MEAL: {mealType} \"{description}\"" +
-                      (string.IsNullOrWhiteSpace(portionNote) ? "" : $" portion:\"{portionNote}\""));
-        if (!string.IsNullOrWhiteSpace(macros))
-        {
-            sb.AppendLine($"MACROS (actual, as eaten, from the nutrition label): {macros}");
-            sb.AppendLine("These are real measured numbers — base sugar/sodium/protein tags and the star rating on " +
-                          "them, not on guesses from the name. Apply the ≤15g-sugar proportion rule to the real sugar figure.");
-        }
+    }
 
-        var text = await GenerateAsync(apiKey, sb.ToString());
-        if (string.IsNullOrWhiteSpace(text)) return new(new(), null, null, null);
-        try
+    /// <summary>Parse the tags/newTag/stars/starReason fields from a response and map
+    /// tags back onto the canonical vocabulary casing.</summary>
+    private static TagSuggestion ParseTagSuggestion(JsonElement root, IReadOnlyList<string> vocabulary)
+    {
+        int? stars = root.TryGetProperty("stars", out var st) && st.ValueKind == JsonValueKind.Number
+            && st.TryGetInt32(out var sv) ? Math.Clamp(sv, 1, 5) : null;
+        var starReason = root.TryGetProperty("starReason", out var sr) ? sr.GetString() : null;
+        var canon = vocabulary.ToDictionary(v => v, v => v, StringComparer.OrdinalIgnoreCase);
+        var known = new List<string>();
+        if (root.TryGetProperty("tags", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            foreach (var t in arr.EnumerateArray())
+                if (t.GetString() is { } s && canon.TryGetValue(s.Trim(), out var c) && !known.Contains(c))
+                    known.Add(c);
+        var proposed = root.TryGetProperty("newTag", out var nt) ? nt.GetString()?.Trim() : null;
+        if (!string.IsNullOrWhiteSpace(proposed))
         {
-            using var doc = JsonDocument.Parse(text);
-            var root = doc.RootElement;
-            int? stars = root.TryGetProperty("stars", out var st) && st.ValueKind == JsonValueKind.Number
-                && st.TryGetInt32(out var sv) ? Math.Clamp(sv, 1, 5) : null;
-            var starReason = root.TryGetProperty("starReason", out var sr) ? sr.GetString() : null;
-            // Map results back onto canonical vocabulary casing; drop anything else.
-            var canon = vocabulary.ToDictionary(v => v, v => v, StringComparer.OrdinalIgnoreCase);
-            var known = new List<string>();
-            if (root.TryGetProperty("tags", out var arr) && arr.ValueKind == JsonValueKind.Array)
-                foreach (var t in arr.EnumerateArray())
-                    if (t.GetString() is { } s && canon.TryGetValue(s.Trim(), out var c) && !known.Contains(c))
-                        known.Add(c);
-            var proposed = root.TryGetProperty("newTag", out var nt) ? nt.GetString()?.Trim() : null;
-            if (!string.IsNullOrWhiteSpace(proposed))
+            // Near-duplicate of an existing tag (typo, plural, etc.) → select the real tag.
+            var close = vocabulary.FirstOrDefault(v => Levenshtein(v, proposed) <= 2);
+            if (close is not null)
             {
-                // Near-duplicate of an existing tag (typo, plural, etc.) → select the
-                // real tag instead of proposing a misspelled twin.
-                var close = vocabulary.FirstOrDefault(v => Levenshtein(v, proposed) <= 2);
-                if (close is not null)
-                {
-                    if (!known.Contains(close)) known.Add(close);
-                    proposed = null;
-                }
-                else if (canon.ContainsKey(proposed) || IsRedundantTag(proposed))
-                {
-                    proposed = null;
-                }
+                if (!known.Contains(close)) known.Add(close);
+                proposed = null;
             }
-            else proposed = null;
-            return new(known, proposed, stars, starReason);
+            else if (canon.ContainsKey(proposed) || IsRedundantTag(proposed))
+                proposed = null;
         }
-        catch (JsonException)
-        {
-            return new(new(), null, null, null);
-        }
+        else proposed = null;
+        return new(known, proposed, stars, starReason);
     }
 
     /// <summary>Case-insensitive edit distance, for catching typo'd near-duplicate tags.</summary>
@@ -749,65 +758,71 @@ public static class GeminiAnalyzer
         public string? FoodDescription { get; set; }
     }
 
-    /// <summary>Read a Nutrition Facts label from a photo (Gemini vision). Returns
-    /// PER-SERVING values; the caller multiplies by servings eaten. Null on failure.</summary>
-    public static async Task<NutritionFacts?> ReadNutritionLabelAsync(string apiKey, byte[] imageJpeg)
-    {
-        var prompt =
-            "You are reading a packaged-food Nutrition Facts label from a photo. Extract the values " +
-            "for ONE serving as printed. Respond with ONLY this JSON object (use null for anything not " +
-            "legible on the label):\n" +
-            """{ "servingSize": "<as printed, e.g. '2 crackers (28g)'>", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num> }""" +
-            "\nUse 'Total Sugars' for sugarG and 'Total Fat' for fatG. Numbers only — strip units. " +
-            "If the image is not a nutrition label, return all nulls.";
+    /// <summary>Macros plus tags/star rating from one photo scan — a single AI call
+    /// instead of scan-then-suggest.</summary>
+    public sealed record MealScan(NutritionFacts Facts, TagSuggestion Tags);
 
-        var text = await GenerateAsync(apiKey, prompt, imageJpeg);
+    private static NutritionFacts ParseFacts(JsonElement r)
+    {
+        int? I(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : null;
+        double? D(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
+        string? S(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        return new NutritionFacts
+        {
+            ServingSize = S("servingSize"), FoodDescription = S("foodDescription"),
+            Calories = I("calories"), ProteinG = D("proteinG"), CarbsG = D("carbsG"),
+            SugarG = D("sugarG"), FatG = D("fatG"), SodiumMg = I("sodiumMg"), FiberG = D("fiberG")
+        };
+    }
+
+    /// <summary>Read a Nutrition Facts label from a photo (Gemini vision) AND tag/rate
+    /// the food in the same call. Macros are PER SERVING; caller multiplies by servings.
+    /// Null on failure.</summary>
+    public static async Task<MealScan?> ReadNutritionLabelAsync(string apiKey, byte[] imageJpeg, IReadOnlyList<string> vocabulary)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Read a packaged-food Nutrition Facts label from this photo AND tag/rate the food. " +
+                      "Extract the values for ONE serving as printed. Respond with ONLY this JSON object " +
+                      "(null for anything not legible):");
+        sb.AppendLine("""{ "servingSize": "<as printed>", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num>, "tags": ["<existing tags that apply>"], "newTag": "<one new tag or null>", "stars": <1-5>, "starReason": "<≤8 words, encouraging>" }""");
+        sb.AppendLine("Use 'Total Sugars' for sugarG and 'Total Fat' for fatG. Numbers only — strip units. " +
+                      "If the image is not a nutrition label, return all nulls. " +
+                      "Base tags and the star rating on the ACTUAL macros you read (per serving), not guesses.");
+        AppendMealTaggingRules(sb, vocabulary);
+
+        var text = await GenerateAsync(apiKey, sb.ToString(), imageJpeg);
         if (string.IsNullOrWhiteSpace(text)) return null;
         try
         {
             using var doc = JsonDocument.Parse(text);
-            var r = doc.RootElement;
-            int? I(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : null;
-            double? D(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
-            string? S(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-            return new NutritionFacts
-            {
-                ServingSize = S("servingSize"), Calories = I("calories"), ProteinG = D("proteinG"),
-                CarbsG = D("carbsG"), SugarG = D("sugarG"), FatG = D("fatG"),
-                SodiumMg = I("sodiumMg"), FiberG = D("fiberG")
-            };
+            return new MealScan(ParseFacts(doc.RootElement), ParseTagSuggestion(doc.RootElement, vocabulary));
         }
         catch (JsonException) { return null; }
     }
 
-    /// <summary>Estimate macros for a plate of food from a photo (Gemini vision).
-    /// Rough estimate for the WHOLE plate as shown; the user reviews/edits. Also
-    /// returns a short description of the identified foods. Null on failure.</summary>
-    public static async Task<NutritionFacts?> EstimateMealFromPhotoAsync(string apiKey, byte[] imageJpeg)
+    /// <summary>Estimate macros for a plate of food from a photo (Gemini vision) AND
+    /// tag/rate it, in one call. Rough estimate for the WHOLE plate as shown; the user
+    /// reviews/edits. Also returns a short description of the identified foods.</summary>
+    public static async Task<MealScan?> EstimateMealFromPhotoAsync(string apiKey, byte[] imageJpeg, IReadOnlyList<string> vocabulary)
     {
-        var prompt =
-            "Estimate the nutrition of the meal in this photo. Identify the foods and their approximate " +
-            "portions, then estimate the TOTAL macros for everything visible on the plate/bowl as shown. " +
-            "These are visual estimates, not exact — be reasonable, not precise. Respond with ONLY this JSON " +
-            "object (null for anything you truly can't estimate):\n" +
-            """{ "foodDescription": "<short, e.g. 'grilled chicken, rice, broccoli'>", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num> }""" +
-            "\nNumbers are for the whole plate, units stripped. If it isn't a photo of food, return all nulls.";
+        var sb = new StringBuilder();
+        sb.AppendLine("Estimate the nutrition of the meal in this photo AND tag/rate it. Identify the foods " +
+                      "and approximate portions, then estimate the TOTAL macros for everything on the plate/bowl " +
+                      "as shown. These are visual estimates, not exact — be reasonable, not precise. Respond with " +
+                      "ONLY this JSON object (null for anything you truly can't estimate):");
+        sb.AppendLine("""{ "foodDescription": "<short, e.g. 'grilled chicken, rice, broccoli'>", "servingSize": "whole plate (estimate)", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num>, "tags": ["<existing tags that apply>"], "newTag": "<one new tag or null>", "stars": <1-5>, "starReason": "<≤8 words, encouraging>" }""");
+        sb.AppendLine("Numbers are for the whole plate, units stripped. If it isn't a photo of food, return all nulls. " +
+                      "Base tags and the star rating on the estimated macros for the whole plate.");
+        AppendMealTaggingRules(sb, vocabulary);
 
-        var text = await GenerateAsync(apiKey, prompt, imageJpeg);
+        var text = await GenerateAsync(apiKey, sb.ToString(), imageJpeg);
         if (string.IsNullOrWhiteSpace(text)) return null;
         try
         {
             using var doc = JsonDocument.Parse(text);
-            var r = doc.RootElement;
-            int? I(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : null;
-            double? D(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
-            string? S(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-            return new NutritionFacts
-            {
-                ServingSize = "whole plate (estimate)", FoodDescription = S("foodDescription"),
-                Calories = I("calories"), ProteinG = D("proteinG"), CarbsG = D("carbsG"),
-                SugarG = D("sugarG"), FatG = D("fatG"), SodiumMg = I("sodiumMg"), FiberG = D("fiberG")
-            };
+            var facts = ParseFacts(doc.RootElement);
+            facts.ServingSize = "whole plate (estimate)";
+            return new MealScan(facts, ParseTagSuggestion(doc.RootElement, vocabulary));
         }
         catch (JsonException) { return null; }
     }
