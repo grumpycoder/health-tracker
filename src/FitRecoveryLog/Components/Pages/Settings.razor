@@ -61,10 +61,6 @@
             <div class="field"><label>Protein max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_pMax" /></div>
         </div>
         <div class="inline-fields">
-            <div class="field"><label>Carbs min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_cMin" /></div>
-            <div class="field"><label>Carbs max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_cMax" /></div>
-        </div>
-        <div class="inline-fields">
             <div class="field"><label>Fat min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_fMin" /></div>
             <div class="field"><label>Fat max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_fMax" /></div>
         </div>
@@ -76,9 +72,33 @@
             <label>Added sugar ceiling (g) <span class="muted">— stay under</span></label>
             <input type="number" inputmode="numeric" min="0" step="1" @bind="_sugarMax" />
         </div>
+
+        <p class="muted" style="margin:0.7rem 0 0.3rem;font-weight:600">Rest-day targets <span style="font-weight:400">— vary with activity</span></p>
         <div class="inline-fields">
-            <div class="field"><label>Water min (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_wMin" /></div>
-            <div class="field"><label>Water max (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_wMax" /></div>
+            <div class="field"><label>Calories min</label><input type="number" inputmode="numeric" min="0" step="50" @bind="_calRestMin" /></div>
+            <div class="field"><label>Calories max</label><input type="number" inputmode="numeric" min="0" step="50" @bind="_calRestMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Carbs min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_cRestMin" /></div>
+            <div class="field"><label>Carbs max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_cRestMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Water min (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_wRestMin" /></div>
+            <div class="field"><label>Water max (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_wRestMax" /></div>
+        </div>
+
+        <p class="muted" style="margin:0.7rem 0 0.3rem;font-weight:600">Workout-day targets</p>
+        <div class="inline-fields">
+            <div class="field"><label>Calories min</label><input type="number" inputmode="numeric" min="0" step="50" @bind="_calActMin" /></div>
+            <div class="field"><label>Calories max</label><input type="number" inputmode="numeric" min="0" step="50" @bind="_calActMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Carbs min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_cActMin" /></div>
+            <div class="field"><label>Carbs max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_cActMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Water min (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_wActMin" /></div>
+            <div class="field"><label>Water max (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_wActMax" /></div>
         </div>
         <button class="save-btn" @onclick="SaveGoals">Save Goals</button>
         @if (_goalsSaved)
@@ -109,8 +129,12 @@
     private bool _saved, _hasKey;
     private string _goals = "";
     private bool _goalsSaved;
-    // Macro/hydration goal ranges (seeded from NutritionGoals defaults).
-    private int _pMin, _pMax, _cMin, _cMax, _fMin, _fMax, _fibMin, _fibMax, _wMin, _wMax, _sugarMax;
+    // Single-range goals + added-sugar ceiling.
+    private int _pMin, _pMax, _fMin, _fMax, _fibMin, _fibMax, _sugarMax;
+    // Day-type-split goals: rest and active (workout) ranges.
+    private int _calRestMin, _calRestMax, _calActMin, _calActMax;
+    private int _cRestMin, _cRestMax, _cActMin, _cActMax;
+    private int _wRestMin, _wRestMax, _wActMin, _wActMax;
 
     private static readonly (string Label, int Pct)[] TextSizes =
         { ("Normal", 100), ("Large", 120), ("Larger", 140), ("Largest", 160) };
@@ -123,11 +147,15 @@
         if (_hasKey) _key = existing!;
         _goals = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.UserGoalsPrefKey, "");
         var p = NutritionGoals.Get(NutritionGoals.Protein); _pMin = p.Min; _pMax = p.Max;
-        var c = NutritionGoals.Get(NutritionGoals.Carbs); _cMin = c.Min; _cMax = c.Max;
         var f = NutritionGoals.Get(NutritionGoals.Fat); _fMin = f.Min; _fMax = f.Max;
         var fib = NutritionGoals.Get(NutritionGoals.Fiber); _fibMin = fib.Min; _fibMax = fib.Max;
-        var w = NutritionGoals.Get(NutritionGoals.Water); _wMin = w.Min; _wMax = w.Max;
         _sugarMax = NutritionGoals.AddedSugarMax;
+        var calR = NutritionGoals.GetDay(NutritionGoals.Calories, false); _calRestMin = calR.Min; _calRestMax = calR.Max;
+        var calA = NutritionGoals.GetDay(NutritionGoals.Calories, true); _calActMin = calA.Min; _calActMax = calA.Max;
+        var cR = NutritionGoals.GetDay(NutritionGoals.Carbs, false); _cRestMin = cR.Min; _cRestMax = cR.Max;
+        var cA = NutritionGoals.GetDay(NutritionGoals.Carbs, true); _cActMin = cA.Min; _cActMax = cA.Max;
+        var wR = NutritionGoals.GetDay(NutritionGoals.Water, false); _wRestMin = wR.Min; _wRestMax = wR.Max;
+        var wA = NutritionGoals.GetDay(NutritionGoals.Water, true); _wActMin = wA.Min; _wActMax = wA.Max;
         _textScale = Microsoft.Maui.Storage.Preferences.Default.Get("text_scale_pct", 100);
     }
 
@@ -142,11 +170,15 @@
     {
         Microsoft.Maui.Storage.Preferences.Default.Set(GeminiAnalyzer.UserGoalsPrefKey, _goals.Trim());
         NutritionGoals.Set(NutritionGoals.Protein, _pMin, _pMax);
-        NutritionGoals.Set(NutritionGoals.Carbs, _cMin, _cMax);
         NutritionGoals.Set(NutritionGoals.Fat, _fMin, _fMax);
         NutritionGoals.Set(NutritionGoals.Fiber, _fibMin, _fibMax);
-        NutritionGoals.Set(NutritionGoals.Water, _wMin, _wMax);
         NutritionGoals.SetAddedSugarMax(_sugarMax);
+        NutritionGoals.SetDay(NutritionGoals.Calories, false, _calRestMin, _calRestMax);
+        NutritionGoals.SetDay(NutritionGoals.Calories, true, _calActMin, _calActMax);
+        NutritionGoals.SetDay(NutritionGoals.Carbs, false, _cRestMin, _cRestMax);
+        NutritionGoals.SetDay(NutritionGoals.Carbs, true, _cActMin, _cActMax);
+        NutritionGoals.SetDay(NutritionGoals.Water, false, _wRestMin, _wRestMax);
+        NutritionGoals.SetDay(NutritionGoals.Water, true, _wActMin, _wActMax);
         _goalsSaved = true;
     }
 

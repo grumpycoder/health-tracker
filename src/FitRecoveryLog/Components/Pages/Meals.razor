@@ -304,7 +304,7 @@
                     <span><strong>@DaySugar.ToString("0")</strong> <span class="muted">g total sugar</span></span>
                     <span><strong>@DaySodium.ToString("0")</strong> <span class="muted">mg sodium</span></span>
                 </div>
-                <NutritionGoalsCard Meals="_todayMeals" Drinks="_todayDrinks" />
+                <NutritionGoalsCard Meals="_todayMeals" Drinks="_todayDrinks" ActiveDay="_viewDayActive" />
                 @if (EnergyOut is { } outKcal && DayCalories > 0)
                 {
                     var net = DayCalories - outKcal;
@@ -514,6 +514,7 @@
     private double? _latestWeightLbs;
     private int? _latestBmr;
     private int _dayWorkoutSeconds;
+    private bool _viewDayActive;   // viewed day is Workout/High Workload → active-day ranges
 
     private int MacroMealCount => _todayMeals.Count(m => m.Calories is not null || m.ProteinG is not null);
     private int DayCalories => NutritionMath.Calories(_todayMeals, _todayDrinks);
@@ -1157,9 +1158,12 @@
             .OrderByDescending(m => m.Date).Select(m => m.WeightLbs).FirstOrDefaultAsync());
         _latestBmr = (await db.BodyMeasurements.Where(m => m.BasalMetabolicRate != null)
             .OrderByDescending(m => m.Date).Select(m => m.BasalMetabolicRate).FirstOrDefaultAsync());
+        var viewDate = DateOnly.FromDateTime(_viewDate);
         _dayWorkoutSeconds = await db.WorkoutSessions
-            .Where(w => w.Date == DateOnly.FromDateTime(_viewDate) && w.TotalSeconds != null)
+            .Where(w => w.Date == viewDate && w.TotalSeconds != null)
             .SumAsync(w => w.TotalSeconds!.Value);
+        var dayType = (await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == viewDate))?.DayType ?? DayType.Unset;
+        _viewDayActive = dayType is DayType.Workout or DayType.HighWorkload;
 
         // Build typeahead libraries: seed list + every distinct food/drink logged.
         var mealRows = await db.MealEntries.OrderByDescending(m => m.Time)

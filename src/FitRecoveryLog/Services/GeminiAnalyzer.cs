@@ -47,18 +47,26 @@ public static class GeminiAnalyzer
     private static void AppendMacroGoalTargets(StringBuilder sb)
     {
         var p = NutritionGoals.Get(NutritionGoals.Protein);
-        var c = NutritionGoals.Get(NutritionGoals.Carbs);
         var f = NutritionGoals.Get(NutritionGoals.Fat);
         var fib = NutritionGoals.Get(NutritionGoals.Fiber);
-        var w = NutritionGoals.Get(NutritionGoals.Water);
         sb.AppendLine("DAILY MACRO/HYDRATION TARGETS (ranges are goals, not hard limits — a day slightly " +
-                      "under/over is fine; flag only consistent misses):");
+                      "under/over is fine; flag only consistent misses). Calories, carbs, and water have " +
+                      "separate rest-day and workout-day ranges — use the one matching today's day type:");
         if (p.IsSet) sb.AppendLine($"  - Protein: {p.Min}-{p.Max} g");
-        if (c.IsSet) sb.AppendLine($"  - Carbohydrates: {c.Min}-{c.Max} g");
         if (f.IsSet) sb.AppendLine($"  - Fat: {f.Min}-{f.Max} g");
         if (fib.IsSet) sb.AppendLine($"  - Fiber: {fib.Min}-{fib.Max} g");
         sb.AppendLine($"  - Added sugar: stay under {NutritionGoals.AddedSugarMax} g (less is better)");
-        if (w.IsSet) sb.AppendLine($"  - Water: {w.Min}-{w.Max} oz (aim high on workout days)");
+        Split("Calories", NutritionGoals.Calories, "");
+        Split("Carbohydrates", NutritionGoals.Carbs, " g");
+        Split("Water", NutritionGoals.Water, " oz");
+
+        void Split(string label, string key, string unit)
+        {
+            var rest = NutritionGoals.GetDay(key, false);
+            var act = NutritionGoals.GetDay(key, true);
+            if (rest.IsSet || act.IsSet)
+                sb.AppendLine($"  - {label}: rest-day {rest.Min}-{rest.Max}{unit}, workout-day {act.Min}-{act.Max}{unit}");
+        }
     }
     private const string Model = "gemini-2.5-flash";
     private const int WindowDays = 56; // 8 weeks

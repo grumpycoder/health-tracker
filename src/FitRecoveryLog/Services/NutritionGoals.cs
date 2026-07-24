@@ -11,24 +11,33 @@ public sealed record MacroGoal(int Min, int Max)
 }
 
 /// <summary>Preference-backed daily nutrition goals (ranges), seeded with the user's
-/// stated targets and editable in Settings. Added sugar is a ceiling, not a range.</summary>
+/// stated targets and editable in Settings. Calories, water, and carbs vary by day
+/// type (active vs rest); protein/fat/fiber are single ranges; added sugar is a ceiling.</summary>
 public static class NutritionGoals
 {
+    // Single-range goals.
     public const string Protein = "goal_protein";
-    public const string Carbs = "goal_carbs";
     public const string Fat = "goal_fat";
     public const string Fiber = "goal_fiber";
-    public const string Water = "goal_water";                 // ounces
     public const string AddedSugarMaxKey = "goal_addedsugar_max";
+    // Day-type-split goals (active vs rest).
+    public const string Calories = "goal_calories";
+    public const string Carbs = "goal_carbs";
+    public const string Water = "goal_water";                 // ounces
 
-    // Defaults = the user's stated ranges.
     private static readonly Dictionary<string, MacroGoal> Defaults = new()
     {
         [Protein] = new(150, 170),
-        [Carbs] = new(175, 225),
         [Fat] = new(55, 70),
         [Fiber] = new(30, 40),
-        [Water] = new(100, 120),
+    };
+
+    // Split defaults: (rest, active). Seeded so active ≥ rest; all editable.
+    private static readonly Dictionary<string, (MacroGoal RestGoal, MacroGoal ActiveGoal)> SplitDefaults = new()
+    {
+        [Calories] = (new(0, 0), new(0, 0)),          // unset until the user sets them
+        [Carbs] = (new(175, 225), new(175, 225)),
+        [Water] = (new(100, 120), new(100, 120)),     // user raises the active side
     };
 
     public static MacroGoal Get(string key)
@@ -45,10 +54,27 @@ public static class NutritionGoals
         Preferences.Default.Set($"{key}_max", Math.Max(0, max));
     }
 
+    /// <summary>Day-type-specific range (active vs rest) for calories/carbs/water.</summary>
+    public static MacroGoal GetDay(string key, bool active)
+    {
+        var suffix = active ? "active" : "rest";
+        var d = SplitDefaults.TryGetValue(key, out var def)
+            ? (active ? def.ActiveGoal : def.RestGoal) : new MacroGoal(0, 0);
+        return new MacroGoal(
+            Preferences.Default.Get($"{key}_{suffix}_min", d.Min),
+            Preferences.Default.Get($"{key}_{suffix}_max", d.Max));
+    }
+
+    public static void SetDay(string key, bool active, int min, int max)
+    {
+        var suffix = active ? "active" : "rest";
+        Preferences.Default.Set($"{key}_{suffix}_min", Math.Max(0, min));
+        Preferences.Default.Set($"{key}_{suffix}_max", Math.Max(0, max));
+    }
+
     public static int AddedSugarMax => Preferences.Default.Get(AddedSugarMaxKey, 30);
     public static void SetAddedSugarMax(int max) => Preferences.Default.Set(AddedSugarMaxKey, Math.Max(0, max));
 
-    /// <summary>Range status for a value. Under min, in range, or over max.</summary>
     public static GoalStatus Status(double value, MacroGoal g) =>
         !g.IsSet ? GoalStatus.Unset
         : value < g.Min ? GoalStatus.Under

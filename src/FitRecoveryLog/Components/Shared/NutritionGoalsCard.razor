@@ -4,8 +4,12 @@
 @if (NutritionMath.HasData(Meals, Drinks) || NutritionMath.WaterOz(Drinks) > 0 || OnAddWater.HasDelegate)
 {
     <div>
+        <p class="muted" style="margin:0 0 0.2rem;font-size:0.72rem">
+            @(ActiveDay ? "🏋️ Active-day targets" : "🛌 Rest-day targets") <span style="opacity:0.7">(calories/carbs/water)</span>
+        </p>
+        @Macro("Calories", NutritionMath.Calories(Meals, Drinks), "", NutritionGoals.GetDay(NutritionGoals.Calories, ActiveDay))
         @Macro("Protein", NutritionMath.Protein(Meals, Drinks), "g", NutritionGoals.Get(NutritionGoals.Protein))
-        @Macro("Carbs", NutritionMath.Carbs(Meals, Drinks), "g", NutritionGoals.Get(NutritionGoals.Carbs))
+        @Macro("Carbs", NutritionMath.Carbs(Meals, Drinks), "g", NutritionGoals.GetDay(NutritionGoals.Carbs, ActiveDay))
         @Macro("Fat", NutritionMath.Fat(Meals, Drinks), "g", NutritionGoals.Get(NutritionGoals.Fat))
         @Macro("Fiber", NutritionMath.Fiber(Meals, Drinks), "g", NutritionGoals.Get(NutritionGoals.Fiber))
         @Ceiling("Added sugar", NutritionMath.AddedSugar(Meals, Drinks), "g", NutritionGoals.AddedSugarMax)
@@ -21,7 +25,9 @@
 @code {
     [Parameter] public List<MealEntry> Meals { get; set; } = new();
     [Parameter] public List<DrinkEntry> Drinks { get; set; } = new();
-    [Parameter] public bool WorkoutDay { get; set; }
+    /// <summary>True on training days (Workout/High Workload) — selects the active-day
+    /// ranges for calories/carbs/water instead of the rest-day ranges.</summary>
+    [Parameter] public bool ActiveDay { get; set; }
     /// <summary>When set, water quick-add buttons show; the arg is ounces to log as a
     /// Water drink (negative = undo the most recent water entry).</summary>
     [Parameter] public EventCallback<int> OnAddWater { get; set; }
@@ -48,14 +54,13 @@
 
     private RenderFragment WaterRow()
     {
-        var g = NutritionGoals.Get(NutritionGoals.Water);
+        var g = NutritionGoals.GetDay(NutritionGoals.Water, ActiveDay);
         var waterOz = NutritionMath.WaterOz(Drinks);
         // Only relevant where water is actionable (Home) or already logged.
         if (!OnAddWater.HasDelegate && waterOz <= 0) return @<text></text>;
         if (!g.IsSet) return @<text></text>;
-        var target = WorkoutDay ? g.Max : g.Min;                  // ounces needed to "hit" it
-        var met = waterOz >= target;
-        var goalText = WorkoutDay ? $"{g.Max} (workout day)" : $"{g.Min}–{g.Max}";
+        var met = waterOz >= g.Min;                               // "hit" once at/above the low end
+        var goalText = $"{g.Min}–{g.Max}";
         return @<div style="padding:0.2rem 0">
             <div style="display:flex;justify-content:space-between;align-items:center">
                 <span>💧 Water</span>

@@ -52,7 +52,7 @@
             </span>
         </div>
         <NutritionGoalsCard Meals="_todayMeals" Drinks="_todayDrinks"
-                            WorkoutDay="_workoutToday" OnAddWater="AddWater" />
+                            ActiveDay="@(_log.DayType is DayType.Workout or DayType.HighWorkload)" OnAddWater="AddWater" />
         <button class="link-btn" style="padding:0;margin-top:0.3rem" @onclick="@(() => Nav.NavigateTo("meals"))">Open full log →</button>
     </section>
 
@@ -227,11 +227,9 @@
     private double? _goalFitAvg;
     private int _goalFitCount;
 
-    // Today's meals/drinks for the goals card, and whether a workout was logged today
-    // (raises the water target to the top of its range).
+    // Today's meals/drinks for the goals card (active vs rest ranges follow _log.DayType).
     private List<MealEntry> _todayMeals = new();
     private List<DrinkEntry> _todayDrinks = new();
-    private bool _workoutToday;
 
     // Timestamped notes, addable any time through the day.
     private string _noteText = "";
@@ -323,8 +321,6 @@
         var end = start.AddDays(1);
         _todayMeals = await db.MealEntries.Where(m => m.Time >= start && m.Time < end).ToListAsync();
         _todayDrinks = await db.DrinkEntries.Where(d => d.Time >= start && d.Time < end).ToListAsync();
-        _workoutToday = await db.WorkoutSessions.AnyAsync(w => w.Date == _today)
-            || _log.DayType == DayType.Workout;
         var stars = _todayMeals.Where(m => m.QualityStars != null).Select(m => m.QualityStars!.Value).ToList();
         _goalFitCount = stars.Count;
         _goalFitAvg = stars.Count == 0 ? null : stars.Average();
