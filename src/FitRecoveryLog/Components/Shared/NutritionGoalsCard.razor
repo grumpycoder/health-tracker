@@ -4,21 +4,22 @@
 @if (NutritionMath.HasData(Meals, Drinks) || NutritionMath.FluidOz(Drinks) > 0 || OnAddWater.HasDelegate)
 {
     <div>
-        <p class="muted" style="margin:0 0 0.2rem;font-size:0.72rem">
+        <p class="muted" style="margin:0 0 0.3rem;font-size:0.72rem">
             @(ActiveDay ? "🏋️ Active-day targets" : "🛌 Rest-day targets") <span style="opacity:0.7">(calories/carbs/water)</span>
+            · tap a bar for exact numbers
         </p>
-        @Macro("Calories", NutritionMath.Calories(Meals, Drinks), "", NutritionGoals.GetDay(NutritionGoals.Calories, ActiveDay))
-        @Macro("Protein", NutritionMath.Protein(Meals, Drinks), "g", NutritionGoals.Get(NutritionGoals.Protein))
-        @Macro("Carbs", NutritionMath.Carbs(Meals, Drinks), "g", NutritionGoals.GetDay(NutritionGoals.Carbs, ActiveDay))
-        @Macro("Fat", NutritionMath.Fat(Meals, Drinks), "g", NutritionGoals.Get(NutritionGoals.Fat))
-        @Macro("Fiber", NutritionMath.Fiber(Meals, Drinks), "g", NutritionGoals.Get(NutritionGoals.Fiber))
-        @Ceiling("Added sugar", NutritionMath.AddedSugar(Meals, Drinks), "g", NutritionGoals.AddedSugarMax)
-        @WaterRow()
-        <div class="muted" style="margin-top:0.4rem;font-size:0.72rem;display:flex;gap:0.8rem;flex-wrap:wrap">
-            <span><span style="color:@NutritionGoals.Color(GoalStatus.Under)">●</span> under</span>
-            <span><span style="color:@NutritionGoals.Color(GoalStatus.InRange)">●</span> in range</span>
-            <span><span style="color:@NutritionGoals.Color(GoalStatus.Over)">●</span> over</span>
-        </div>
+        @{ var cal = NutritionGoals.GetDay(NutritionGoals.Calories, ActiveDay); }
+        @Bar("Calories", NutritionMath.Calories(Meals, Drinks), "", cal.Min, cal.Max, false)
+        @{ var pro = NutritionGoals.Get(NutritionGoals.Protein); }
+        @Bar("Protein", NutritionMath.Protein(Meals, Drinks), " g", pro.Min, pro.Max, false)
+        @{ var carb = NutritionGoals.GetDay(NutritionGoals.Carbs, ActiveDay); }
+        @Bar("Carbs", NutritionMath.Carbs(Meals, Drinks), " g", carb.Min, carb.Max, false)
+        @{ var fat = NutritionGoals.Get(NutritionGoals.Fat); }
+        @Bar("Fat", NutritionMath.Fat(Meals, Drinks), " g", fat.Min, fat.Max, false)
+        @{ var fib = NutritionGoals.Get(NutritionGoals.Fiber); }
+        @Bar("Fiber", NutritionMath.Fiber(Meals, Drinks), " g", fib.Min, fib.Max, false)
+        @Bar("Added sugar", NutritionMath.AddedSugar(Meals, Drinks), " g", 0, NutritionGoals.AddedSugarMax, true)
+        @FluidRow()
     </div>
 }
 
@@ -32,46 +33,46 @@
     /// Water drink (negative = undo the most recent water entry).</summary>
     [Parameter] public EventCallback<int> OnAddWater { get; set; }
 
-    private static RenderFragment Line(string label, string value, GoalStatus status) => @<div style="display:flex;justify-content:space-between;align-items:center;padding:0.2rem 0">
-        <span>@label</span>
-        <span style="display:flex;align-items:center;gap:0.4rem">
-            <span>@value</span>
-            <span style="color:@NutritionGoals.Color(status);font-size:0.7rem" title="@status">●</span>
-        </span>
-    </div>;
+    // Bars whose exact numbers are currently revealed (toggled by tapping).
+    private readonly HashSet<string> _show = new();
+    private void Toggle(string label) { if (!_show.Add(label)) _show.Remove(label); }
 
-    private RenderFragment Macro(string label, double val, string unit, MacroGoal g)
+    /// <summary>One goal as a blue→orange gradient bar (fill = progress toward the top
+    /// of the range); a tick marks the low end of the range. Tap to reveal the numbers.
+    /// For a ceiling (added sugar), low is 0 and high is the cap.</summary>
+    private RenderFragment Bar(string label, double value, string unit, int low, int high, bool ceiling)
     {
-        if (!g.IsSet) return @<text></text>;
-        return Line(label, $"{val:0} / {g.Min}–{g.Max} {unit}", NutritionGoals.Status(val, g));
+        if (high <= 0) return @<text></text>;
+        var fillPct = (int)Math.Clamp(value / high * 100, 0, 100);
+        var lowPct = ceiling ? -1 : (int)Math.Clamp((double)low / high * 100, 0, 100);
+        var text = ceiling ? $"{value:0} / ≤{high}{unit}" : $"{value:0} / {low}–{high}{unit}";
+        var expanded = _show.Contains(label);
+        return @<div style="padding:0.25rem 0;cursor:pointer" @onclick="() => Toggle(label)">
+            <div style="display:flex;justify-content:space-between;font-size:0.85rem">
+                <span>@label</span>
+                <span class="muted" style="font-size:0.78rem">@(expanded ? text : "")</span>
+            </div>
+            <div style="position:relative;height:9px;border-radius:5px;overflow:hidden;margin-top:0.2rem;background:linear-gradient(to right,#4a72d0,#c47f00)">
+                <div style="position:absolute;top:0;bottom:0;left:@(fillPct)%;right:0;background:var(--border)"></div>
+                @if (lowPct >= 0)
+                {
+                    <div style="position:absolute;top:0;bottom:0;left:@(lowPct)%;width:2px;background:rgba(120,120,120,0.85)" title="range start"></div>
+                }
+            </div>
+        </div>;
     }
 
-    private RenderFragment Ceiling(string label, double val, string unit, int max)
-    {
-        if (max <= 0) return @<text></text>;
-        return Line(label, $"{val:0} / ≤{max} {unit}", NutritionGoals.CeilingStatus(val, max));
-    }
-
-    private RenderFragment WaterRow()
+    private RenderFragment FluidRow()
     {
         var g = NutritionGoals.GetDay(NutritionGoals.Water, ActiveDay);
         var fluidOz = NutritionMath.FluidOz(Drinks);
-        // Only relevant where water is actionable (Home) or already logged.
         if (!OnAddWater.HasDelegate && fluidOz <= 0) return @<text></text>;
         if (!g.IsSet) return @<text></text>;
-        var met = fluidOz >= g.Min;                               // "hit" once at/above the low end
-        var goalText = $"{g.Min}–{g.Max}";
-        return @<div style="padding:0.2rem 0">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-                <span>💧 Fluids <span class="muted" style="font-size:0.72rem">all drinks</span></span>
-                <span style="display:flex;align-items:center;gap:0.4rem">
-                    <span><strong>@fluidOz</strong> / @goalText oz</span>
-                    <span style="color:@NutritionGoals.Color(met ? GoalStatus.InRange : GoalStatus.Under);font-size:0.7rem">●</span>
-                </span>
-            </div>
+        return @<div>
+            @Bar("💧 Fluids (all drinks)", fluidOz, " oz", g.Min, g.Max, false)
             @if (OnAddWater.HasDelegate)
             {
-                <div class="chip-row" style="margin-top:0.3rem">
+                <div class="chip-row" style="margin-top:0.1rem">
                     @foreach (var oz in new[] { 8, 12, 16, 24 })
                     {
                         <button type="button" class="chip" @onclick="() => OnAddWater.InvokeAsync(oz)">+@oz</button>
