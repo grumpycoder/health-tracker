@@ -228,10 +228,23 @@
         {
             <div class="edit-exercise" style="margin-bottom:0.6rem">
                 <p class="muted" style="margin:0 0 0.4rem;font-size:0.8rem">
-                    Per serving@(string.IsNullOrWhiteSpace(_drinkScan.ServingSize) ? "" : $" ({_drinkScan.ServingSize})") — review, set servings, then apply.
+                    Per serving@(string.IsNullOrWhiteSpace(_drinkScan.ServingSize) ? "" : $" ({_drinkScan.ServingSize})") — the macros scale to the ounces you drank.
                 </p>
                 <div class="inline-fields">
-                    <div class="field"><label>Servings</label><input type="number" inputmode="decimal" step="0.25" min="0" @bind="_drinkScanServings" /></div>
+                    <div class="field"><label>Label serving (oz)</label><input type="number" inputmode="decimal" step="0.5" min="0" @bind="_drinkScanServingOz" placeholder="e.g. 12" /></div>
+                    <div class="field"><label>You drank (oz)</label><input type="number" inputmode="decimal" step="0.5" min="0" @bind="_drink.Ounces" placeholder="e.g. 8" /></div>
+                </div>
+                <p class="muted" style="margin:0 0 0.4rem;font-size:0.75rem">
+                    @if (_drink.Ounces is { } oz and > 0 && _drinkScanServingOz is { } so and > 0)
+                    {
+                        <text>Scaling ×@((oz / so).ToString("0.##")) → applies @((int)Math.Round((_drinkScan.Calories ?? 0) * oz / so)) cal.</text>
+                    }
+                    else
+                    {
+                        <text>Set both ounce values to scale; otherwise 1 full serving is used.</text>
+                    }
+                </p>
+                <div class="inline-fields">
                     <div class="field"><label>Calories</label><input type="number" inputmode="numeric" @bind="_drinkScan.Calories" /></div>
                     <div class="field"><label>Protein (g)</label><input type="number" inputmode="decimal" @bind="_drinkScan.ProteinG" /></div>
                 </div>
@@ -489,9 +502,10 @@
     private GeminiAnalyzer.NutritionFacts? _scan;   // values under review
     private double _scanServings = 1;
     private bool _scanIsEstimate;                   // true = plate estimate, false = label read
-    // Drink label-scan state (separate from the meal scan).
+    // Drink label-scan state (separate from the meal scan). Drinks scale by ounces
+    // drunk ÷ label serving-size ounces, not a manual serving count.
     private GeminiAnalyzer.NutritionFacts? _drinkScan;
-    private double _drinkScanServings = 1;
+    private double? _drinkScanServingOz;
     private string? _drinkScanMsg;
 
     private List<MealEntry> _todayMeals = new();
@@ -898,7 +912,8 @@
                 _drinkScanMsg = "Couldn't read a nutrition label from that photo — try again or enter by hand.";
             else
             {
-                _drinkScan = facts; _drinkScanServings = 1;
+                _drinkScan = facts;
+                _drinkScanServingOz = ParseServingOunces(facts.ServingSize);
                 ApplySuggestionToBox(_drinkTagBox, _drinkTagOptions, result!.Tags); // tags in the same call
             }
         }
@@ -906,11 +921,27 @@
         _scanBusy = false;
     }
 
-    /// <summary>Multiply the reviewed per-serving values by servings onto the drink.</summary>
+    /// <summary>Pull the serving size in fluid ounces out of a label's serving string
+    /// (e.g. "12 fl oz (355 mL)" → 12); converts from mL if that's all that's given.</summary>
+    private static double? ParseServingOunces(string? serving)
+    {
+        if (string.IsNullOrWhiteSpace(serving)) return null;
+        var oz = System.Text.RegularExpressions.Regex.Match(serving, @"(\d+(?:\.\d+)?)\s*fl\s*oz", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!oz.Success) oz = System.Text.RegularExpressions.Regex.Match(serving, @"(\d+(?:\.\d+)?)\s*oz", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (oz.Success && double.TryParse(oz.Groups[1].Value, out var v)) return v;
+        var ml = System.Text.RegularExpressions.Regex.Match(serving, @"(\d+(?:\.\d+)?)\s*ml", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (ml.Success && double.TryParse(ml.Groups[1].Value, out var mlv) && mlv > 0) return Math.Round(mlv / 29.5735, 1);
+        return null;
+    }
+
+    /// <summary>Apply the reviewed macros to the drink, scaled by ounces drunk ÷ label
+    /// serving oz (falls back to one full serving when the ounces aren't both known).</summary>
     private void ApplyDrinkScan()
     {
         if (_drinkScan is not { } f) return;
-        var n = _drinkScanServings <= 0 ? 1 : _drinkScanServings;
+        var n = _drink.Ounces is { } drank and > 0 && _drinkScanServingOz is { } serv and > 0
+            ? drank / serv
+            : 1.0;
         _drink.Calories = f.Calories is { } c ? (int)Math.Round(c * n) : null;
         _drink.ProteinG = f.ProteinG is { } p ? Math.Round(p * n, 1) : null;
         _drink.CarbsG = f.CarbsG is { } cb ? Math.Round(cb * n, 1) : null;
@@ -1099,7 +1130,7 @@
 
         _drink = new DrinkEntry();
         _drinkTagBox.Reset();
-        _drinkScan = null; _drinkScanMsg = null; _drinkScanServings = 1;
+        _drinkScan = null; _drinkScanMsg = null; _drinkScanServingOz = null;
         await LoadToday();
         _ = Toast.Show("Drink logged ✓");
     }
