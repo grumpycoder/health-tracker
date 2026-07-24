@@ -306,7 +306,7 @@ public static class GeminiAnalyzer
         sb.AppendLine($"  Fat: {NutritionMath.Fat(meals, drinks):0} g");
         sb.AppendLine($"  Fiber: {NutritionMath.Fiber(meals, drinks):0} g");
         sb.AppendLine($"  Added sugar: {NutritionMath.AddedSugar(meals, drinks):0} g");
-        sb.AppendLine($"  Water: {day?.WaterOz ?? 0} oz");
+        sb.AppendLine($"  Water: {NutritionMath.WaterOz(drinks)} oz");
         sb.AppendLine("Compare these to the DAILY MACRO/HYDRATION TARGETS above and note where the day is " +
                       "tracking under/in/over range — but remember totals may be incomplete if not everything " +
                       "was logged with macros, so don't scold a low number that's just unlogged food.");
