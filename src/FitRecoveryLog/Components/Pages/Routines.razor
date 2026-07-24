@@ -165,7 +165,9 @@
                                             <div class="field"><label>Reps</label><input type="number" inputmode="decimal" min="1" @bind="_editDraft.Reps" /></div>
                                         }
                                         <div class="field"><label>Rest (s)</label><input type="number" inputmode="decimal" min="0" @bind="_editDraft.Rest" /></div>
+                                        <div class="field"><label>Weight (lb)</label><input type="number" inputmode="decimal" min="0" step="0.5" @bind="_editDraft.Weight" placeholder="bodyweight" /></div>
                                     </div>
+                                    <div class="field"><label>Note</label><input @bind="_editDraft.Note" placeholder='e.g. "10-12 reps", "each arm", "AMRAP"' /></div>
                                     <div class="routine-actions">
                                         <button class="save-btn" @onclick="@(() => SaveEdit(ex))">Save</button>
                                         <button class="link-btn" @onclick="CancelEdit">Cancel</button>
@@ -187,6 +189,10 @@
                                         <span class="ex-target">@FormatTarget(ex, def)</span>
                                     </div>
                                     <div class="routine-actions">
+                                        @if (def is not null)
+                                        {
+                                            <button class="icon-action" title="How-to video" aria-label="How-to video" @onclick="@(() => Exercises.OpenDemo(def))">🎬</button>
+                                        }
                                         <button class="icon-action" title="Edit" aria-label="Edit" @onclick="@(() => StartEdit(ex))">✏️</button>
                                         <button class="icon-action danger" title="Remove" aria-label="Remove" @onclick="@(() => RemoveExercise(ex))">🗑</button>
                                     </div>
@@ -271,6 +277,14 @@
                         <label>Rest (s)</label>
                         <input type="number" inputmode="decimal" min="0" @bind="d.Rest" />
                     </div>
+                    <div class="field">
+                        <label>Weight (lb)</label>
+                        <input type="number" inputmode="decimal" min="0" step="0.5" @bind="d.Weight" placeholder="bodyweight" />
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Note <span class="muted">(e.g. "10-12 reps", "each arm", "AMRAP")</span></label>
+                    <input @bind="d.Note" placeholder="rep range / per-side / progression cue" />
                 </div>
                 <button class="save-btn" @onclick="@(() => AddExercise(r))">Add Exercise</button>
             </div>
@@ -377,6 +391,8 @@
         public int Reps { get; set; } = 10;
         public int Duration { get; set; } = 30;
         public int Rest { get; set; } = 60;
+        public double? Weight { get; set; }
+        public string? Note { get; set; }
     }
 
     // Latest AI per-exercise suggestions (empty until an analysis is run).
@@ -600,7 +616,9 @@
             TargetSets = d.Sets,
             TargetReps = measure == ExerciseMeasure.Reps ? d.Reps : null,
             TargetDurationSeconds = measure == ExerciseMeasure.Duration ? d.Duration : null,
-            RestSeconds = d.Rest
+            RestSeconds = d.Rest,
+            TargetWeight = d.Weight,
+            TargetNote = string.IsNullOrWhiteSpace(d.Note) ? null : d.Note.Trim()
         });
         await db.SaveChangesAsync();
 
@@ -616,7 +634,9 @@
             Sets = ex.TargetSets ?? 1,
             Reps = ex.TargetReps ?? 10,
             Duration = ex.TargetDurationSeconds ?? 30,
-            Rest = ex.RestSeconds ?? 60
+            Rest = ex.RestSeconds ?? 60,
+            Weight = ex.TargetWeight,
+            Note = ex.TargetNote
         };
     }
 
@@ -633,6 +653,8 @@
             entity.TargetReps = isTime ? null : _editDraft.Reps;
             entity.TargetDurationSeconds = isTime ? _editDraft.Duration : null;
             entity.RestSeconds = _editDraft.Rest;
+            entity.TargetWeight = _editDraft.Weight;
+            entity.TargetNote = string.IsNullOrWhiteSpace(_editDraft.Note) ? null : _editDraft.Note.Trim();
             await db.SaveChangesAsync();
         }
         _editId = null;
@@ -658,8 +680,12 @@
             parts.Add($"{ex.TargetDurationSeconds}s × {ex.TargetSets}");
         else if (ex.TargetReps is not null)
             parts.Add($"{ex.TargetReps} reps × {ex.TargetSets}");
+        if (ex.TargetWeight is { } w and > 0)
+            parts.Add($"{w:0.#} lb");
         if (ex.RestSeconds is > 0)
             parts.Add($"{ex.RestSeconds}s rest");
+        if (!string.IsNullOrWhiteSpace(ex.TargetNote))
+            parts.Add(ex.TargetNote);
         return string.Join(" · ", parts);
     }
 }

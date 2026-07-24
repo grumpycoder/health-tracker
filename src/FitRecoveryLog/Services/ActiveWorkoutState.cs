@@ -4,12 +4,13 @@ namespace FitRecoveryLog.Services;
 
 public enum WorkoutState { Choosing, Active, Feedback }
 
-public sealed class SetVM { public int SetNumber; public int? Reps; public int? DurationSeconds; public bool Completed; }
+public sealed class SetVM { public int SetNumber; public int? Reps; public double? Weight; public int? DurationSeconds; public bool Completed; }
 
 public sealed class ExVM
 {
     public ExerciseDefinition Def = null!;
     public int? Rest;    // this routine's rest prescription
+    public string? TargetNote; // this routine's rep-range / per-side / progression cue
     public bool Skipped; // skipped for this session (injury etc.)
     public List<SetVM> Sets = new();
     public ExerciseFeedback Feedback = new();

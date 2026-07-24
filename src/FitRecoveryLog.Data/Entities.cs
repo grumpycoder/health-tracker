@@ -86,6 +86,11 @@ public class RoutineExercise : EntityBase
     public int? TargetReps { get; set; }
     public int? TargetDurationSeconds { get; set; }
     public int? RestSeconds { get; set; }
+    /// <summary>Target working weight in lb (per hand for dumbbell moves); null = bodyweight.</summary>
+    public double? TargetWeight { get; set; }
+    /// <summary>Free-text prescription nuance the numeric targets can't hold —
+    /// rep ranges ("10-12"), "each arm/side/leg", "AMRAP", progression cues.</summary>
+    public string? TargetNote { get; set; }
 }
 
 /// <summary>A performed workout, from start tap to finish.</summary>
@@ -154,6 +159,16 @@ public class MealEntry : EntityBase
     public Satiety Satiety { get; set; } = Satiety.Unset;
     /// <summary>Optional 1-5 "fit with your goals" score from the ✨ tag suggester.</summary>
     public int? QualityStars { get; set; }
+
+    // Macros for the whole meal as eaten (label per-serving × servings eaten).
+    // Populated by the nutrition-label scan or entered by hand; all optional.
+    public int? Calories { get; set; }
+    public double? ProteinG { get; set; }
+    public double? CarbsG { get; set; }
+    public double? SugarG { get; set; }
+    public double? FatG { get; set; }
+    public int? SodiumMg { get; set; }
+    public double? FiberG { get; set; }
 
     [NotMapped]
     public IReadOnlyList<string> TagList => CsvField.Split(Tags);

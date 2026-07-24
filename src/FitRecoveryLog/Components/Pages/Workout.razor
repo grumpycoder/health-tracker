@@ -47,13 +47,37 @@
                     <h2>@r.Name</h2>
                     <button class="save-btn" @onclick="@(() => StartWorkout(r))">Start ▶</button>
                 </div>
-                <p class="muted" style="margin:0.2rem 0 0">
+                <button class="link-btn" style="padding:0;margin:0.2rem 0 0" @onclick="@(() => ToggleExpanded(r.Id))">
+                    @(_expandedRoutines.Contains(r.Id) ? "▾" : "▸")
                     @r.Exercises.Count exercise(s)@(age is { } a ? $" · running {a.Text} · {a.Count} workout(s)" : "")
-                    @if (age is { Stale: true })
-                    {
-                        <span class="badge warn" style="margin-left:0.4rem">time to progress</span>
-                    }
-                </p>
+                </button>
+                @if (age is { Stale: true })
+                {
+                    <span class="badge warn" style="margin-left:0.4rem">time to progress</span>
+                }
+                @if (_expandedRoutines.Contains(r.Id))
+                {
+                    <ul class="timeline" style="margin-top:0.5rem">
+                        @foreach (var re in r.Exercises.OrderBy(e => e.Order))
+                        {
+                            var def = re.ExerciseDefinition;
+                            <li>
+                                <div class="ex-row" style="width:100%">
+                                    <div>
+                                        <span class="ex-name">@(def?.Name ?? "?")</span>
+                                        <span class="ex-target">@RoutinePrescription(re, def)</span>
+                                    </div>
+                                    @if (def is not null)
+                                    {
+                                        <div class="routine-actions">
+                                            <button class="icon-action" title="How-to video" aria-label="How-to video" @onclick="@(() => Exercises.OpenDemo(def))">🎬</button>
+                                        </div>
+                                    }
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                }
                 @if (age is { Stale: true })
                 {
                     <button class="link-btn" style="padding:0;margin-top:0.4rem"
@@ -99,6 +123,10 @@ else if (_state == WorkoutState.Active)
                     🤖 AI suggests: <span class="badge @AiAdviceStore.BadgeClass(adv.Action)">@AiAdviceStore.Glyph(adv.Action) @(adv.Target ?? adv.Action)</span>
                 </p>
             }
+            @if (!string.IsNullOrWhiteSpace(cur.Ex.TargetNote))
+            {
+                <p class="muted" style="margin:-0.4rem 0 0.7rem">🎯 @cur.Ex.TargetNote</p>
+            }
 
             @if (isTime)
             {
@@ -122,6 +150,9 @@ else if (_state == WorkoutState.Active)
                         <div class="field"><label>Hold (s)</label>
                             <input type="number" inputmode="decimal" min="0" @bind="cur.Set.DurationSeconds" />
                         </div>
+                        <div class="field"><label>Weight (lb)</label>
+                            <input type="number" inputmode="decimal" min="0" step="0.5" @bind="cur.Set.Weight" placeholder="—" />
+                        </div>
                     </div>
                     <button class="save-btn" @onclick="() => StartSetTimer(cur.Set)">▶ Start Hold</button>
                     <button class="save-btn" style="margin-top:0.6rem" @onclick="CompleteCurrentSet">Complete Set ✓</button>
@@ -132,6 +163,9 @@ else if (_state == WorkoutState.Active)
                 <div class="inline-fields">
                     <div class="field"><label>Reps</label>
                         <input type="number" inputmode="decimal" min="0" @bind="cur.Set.Reps" />
+                    </div>
+                    <div class="field"><label>Weight (lb)</label>
+                        <input type="number" inputmode="decimal" min="0" step="0.5" @bind="cur.Set.Weight" placeholder="—" />
                     </div>
                 </div>
                 <button class="save-btn" @onclick="CompleteCurrentSet">Complete Set ✓</button>
@@ -253,6 +287,29 @@ else // Feedback
     private int _holdTarget { get => _run.HoldTarget; set => _run.HoldTarget = value; }
 
     private List<WorkoutRoutine> _routines = new();
+    private readonly HashSet<Guid> _expandedRoutines = new();
+
+    private void ToggleExpanded(Guid id)
+    {
+        if (!_expandedRoutines.Add(id)) _expandedRoutines.Remove(id);
+    }
+
+    /// <summary>Compact one-line prescription for the expanded routine preview.</summary>
+    private static string RoutinePrescription(RoutineExercise re, ExerciseDefinition? def)
+    {
+        var parts = new List<string>();
+        if (def?.Measure == ExerciseMeasure.Duration && re.TargetDurationSeconds is not null)
+            parts.Add($"{re.TargetDurationSeconds}s × {re.TargetSets}");
+        else if (re.TargetReps is not null)
+            parts.Add($"{re.TargetReps} reps × {re.TargetSets}");
+        else if (re.TargetSets is not null)
+            parts.Add($"{re.TargetSets} sets");
+        if (re.TargetWeight is { } w and > 0)
+            parts.Add($"{w:0.#} lb");
+        if (!string.IsNullOrWhiteSpace(re.TargetNote))
+            parts.Add(re.TargetNote);
+        return string.Join(" · ", parts);
+    }
     private System.Threading.Timer? _timer;
     private string? _saveError;
     private bool _saving;   // in-flight guard against double-tap
@@ -401,13 +458,14 @@ else // Feedback
         {
             if (re.ExerciseDefinition is null) continue;
             var def = re.ExerciseDefinition;
-            var vm = new ExVM { Def = def, Rest = re.RestSeconds };
+            var vm = new ExVM { Def = def, Rest = re.RestSeconds, TargetNote = re.TargetNote };
             var sets = re.TargetSets ?? 1;
             for (var i = 1; i <= sets; i++)
                 vm.Sets.Add(new SetVM
                 {
                     SetNumber = i,
                     Reps = def.Measure == ExerciseMeasure.Reps ? re.TargetReps : null,
+                    Weight = re.TargetWeight,
                     DurationSeconds = def.Measure == ExerciseMeasure.Duration ? re.TargetDurationSeconds : null
                 });
             vm.Feedback.ExerciseDefinitionId = re.ExerciseDefinition.Id;
@@ -553,6 +611,7 @@ else // Feedback
                     ExerciseDefinitionId = ex.Def.Id,
                     SetNumber = s.SetNumber,
                     Reps = s.Reps,
+                    Weight = s.Weight,
                     DurationSeconds = s.DurationSeconds,
                     Completed = s.Completed
                 });

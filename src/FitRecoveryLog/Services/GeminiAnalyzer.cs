@@ -627,7 +627,7 @@ public static class GeminiAnalyzer
     /// already part of the analysis payloads, so this sends no new data category).
     /// Returns matches from <paramref name="vocabulary"/> plus at most one proposed new tag.</summary>
     public static async Task<TagSuggestion> SuggestMealTagsAsync(string apiKey, string mealType,
-        string description, string? portionNote, IReadOnlyList<string> vocabulary)
+        string description, string? portionNote, IReadOnlyList<string> vocabulary, string? macros = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine("Tag one logged meal for a personal nutrition tracker, and rate how well it fits the user's goals.");
@@ -643,16 +643,28 @@ public static class GeminiAnalyzer
         sb.AppendLine("Judge the meal AS A WHOLE for sodium — a lean/grilled main (e.g. grilled chicken sandwich) " +
                       "is NOT 'high sodium' just because a side like fries is salty. Only tag High sodium when the " +
                       "meal is PREDOMINANTLY salt-heavy, not when one minor side is.");
+        sb.AppendLine("'High sugar' specifically: keep sugar in PROPORTION. A snack or treat with a modest amount " +
+                      "(roughly ≤15g sugar — a banana is ~14g, a few graham crackers/cookies are single-digit grams) " +
+                      "is NORMAL — do NOT tag 'High sugar' and do NOT lower stars for it. Reserve 'High sugar' for " +
+                      "items genuinely loaded with sugar (candy, soda, dessert-sized sweets, ~25g+). When unsure, leave it off.");
         sb.AppendLine("A newTag must be short (1-3 words, e.g. 'High sugar'), broadly reusable, and not a synonym of an existing tag. " +
                       "Tags describe nutritional quality or food source. The entry already records its type " +
                       "(breakfast/lunch/dinner/snack/drink), time, and portion — NEVER suggest those as tags.");
         sb.AppendLine("STARS (1-5) = how well this meal fits the user's goals below, encouraging and moderation-minded: " +
                       "a sensible everyday meal is 3-4; a great goal-aligned choice is 5; a clear off-plan splurge is 1-2. " +
-                      "A reasonable treat is not a failure — don't be harsh. If no goals are set, rate general balance/protein.");
+                      "A reasonable treat or modest snack is NOT a failure — a graham-cracker-sized snack with single-digit " +
+                      "sugar is a normal 3-4, not a 1-2. Do not dock stars or write a cautionary reason for modest sugar/sodium; " +
+                      "reserve low scores for genuinely large portions or truly indulgent items. If no goals are set, rate general balance/protein.");
         AppendUserGoals(sb);
         sb.AppendLine();
         sb.AppendLine($"MEAL: {mealType} \"{description}\"" +
                       (string.IsNullOrWhiteSpace(portionNote) ? "" : $" portion:\"{portionNote}\""));
+        if (!string.IsNullOrWhiteSpace(macros))
+        {
+            sb.AppendLine($"MACROS (actual, as eaten, from the nutrition label): {macros}");
+            sb.AppendLine("These are real measured numbers — base sugar/sodium/protein tags and the star rating on " +
+                          "them, not on guesses from the name. Apply the ≤15g-sugar proportion rule to the real sugar figure.");
+        }
 
         var text = await GenerateAsync(apiKey, sb.ToString());
         if (string.IsNullOrWhiteSpace(text)) return new(new(), null, null, null);
@@ -720,15 +732,68 @@ public static class GeminiAnalyzer
     public sealed record AiOutcome(string Analysis, List<ExerciseAdvice> Exercises, List<string> TopActions,
         List<string> MealFlags, string? BodyTrendStatus, string? BodyTrendNote);
 
-    /// <summary>Raw JSON-mode generateContent call; returns the response text.</summary>
-    private static async Task<string?> GenerateAsync(string apiKey, string prompt)
+    /// <summary>Per-serving macros read off a Nutrition Facts label photo. Mutable
+    /// so the UI can bind an editable review form to it.</summary>
+    public sealed class NutritionFacts
+    {
+        public string? ServingSize { get; set; }
+        public int? Calories { get; set; }
+        public double? ProteinG { get; set; }
+        public double? CarbsG { get; set; }
+        public double? SugarG { get; set; }
+        public double? FatG { get; set; }
+        public int? SodiumMg { get; set; }
+        public double? FiberG { get; set; }
+    }
+
+    /// <summary>Read a Nutrition Facts label from a photo (Gemini vision). Returns
+    /// PER-SERVING values; the caller multiplies by servings eaten. Null on failure.</summary>
+    public static async Task<NutritionFacts?> ReadNutritionLabelAsync(string apiKey, byte[] imageJpeg)
+    {
+        var prompt =
+            "You are reading a packaged-food Nutrition Facts label from a photo. Extract the values " +
+            "for ONE serving as printed. Respond with ONLY this JSON object (use null for anything not " +
+            "legible on the label):\n" +
+            """{ "servingSize": "<as printed, e.g. '2 crackers (28g)'>", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num> }""" +
+            "\nUse 'Total Sugars' for sugarG and 'Total Fat' for fatG. Numbers only — strip units. " +
+            "If the image is not a nutrition label, return all nulls.";
+
+        var text = await GenerateAsync(apiKey, prompt, imageJpeg);
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var r = doc.RootElement;
+            int? I(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : null;
+            double? D(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
+            string? S(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            return new NutritionFacts
+            {
+                ServingSize = S("servingSize"), Calories = I("calories"), ProteinG = D("proteinG"),
+                CarbsG = D("carbsG"), SugarG = D("sugarG"), FatG = D("fatG"),
+                SodiumMg = I("sodiumMg"), FiberG = D("fiberG")
+            };
+        }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>Raw JSON-mode generateContent call; returns the response text.
+    /// Pass <paramref name="imageJpeg"/> to include an image part (vision).</summary>
+    private static async Task<string?> GenerateAsync(string apiKey, string prompt, byte[]? imageJpeg = null)
     {
         var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Model}:generateContent";
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Headers.Add("x-goog-api-key", apiKey);
+        object parts = imageJpeg is null
+            ? new object[] { new { text = prompt } }
+            : new object[]
+            {
+                new { text = prompt },
+                new { inline_data = new { mime_type = "image/jpeg", data = Convert.ToBase64String(imageJpeg) } }
+            };
         req.Content = new StringContent(JsonSerializer.Serialize(new
         {
-            contents = new[] { new { parts = new[] { new { text = prompt } } } },
+            contents = new[] { new { parts } },
             generationConfig = new { response_mime_type = "application/json" }
         }), Encoding.UTF8, "application/json");
 

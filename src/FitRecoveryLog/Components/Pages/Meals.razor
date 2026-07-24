@@ -94,7 +94,51 @@
             <label>Portion note</label>
             <input @bind="_meal.PortionNote" placeholder="e.g. 2 eggs, 1 cup rice" />
         </div>
-        @TagField(_mealTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealTagBox, _mealTagOptions, _meal.MealType.ToString(), _meal.Description, _meal.PortionNote), showStars: true)
+
+        <div class="chip-row" style="margin-bottom:0.4rem">
+            @if (_captureSupported)
+            {
+                <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanLabel(true)">📷 Scan label</button>
+            }
+            <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanLabel(false)">🖼 Pick label photo</button>
+            @if (_scanBusy) { <span class="muted" style="align-self:center;font-size:0.8rem">Reading label…</span> }
+        </div>
+        @if (_scanMsg is not null)
+        {
+            <span class="muted" style="font-size:0.75rem">@_scanMsg</span>
+        }
+        @if (_scan is not null)
+        {
+            <div class="edit-exercise" style="margin-bottom:0.6rem">
+                <p class="muted" style="margin:0 0 0.4rem;font-size:0.8rem">
+                    Per serving@(string.IsNullOrWhiteSpace(_scan.ServingSize) ? "" : $" ({_scan.ServingSize})") — review, set servings eaten, then apply.
+                </p>
+                <div class="inline-fields">
+                    <div class="field"><label>Servings eaten</label><input type="number" inputmode="decimal" step="0.25" min="0" @bind="_scanServings" /></div>
+                    <div class="field"><label>Calories</label><input type="number" inputmode="numeric" @bind="_scan.Calories" /></div>
+                </div>
+                <div class="inline-fields">
+                    <div class="field"><label>Protein (g)</label><input type="number" inputmode="decimal" @bind="_scan.ProteinG" /></div>
+                    <div class="field"><label>Carbs (g)</label><input type="number" inputmode="decimal" @bind="_scan.CarbsG" /></div>
+                    <div class="field"><label>Sugar (g)</label><input type="number" inputmode="decimal" @bind="_scan.SugarG" /></div>
+                </div>
+                <div class="inline-fields">
+                    <div class="field"><label>Fat (g)</label><input type="number" inputmode="decimal" @bind="_scan.FatG" /></div>
+                    <div class="field"><label>Sodium (mg)</label><input type="number" inputmode="numeric" @bind="_scan.SodiumMg" /></div>
+                    <div class="field"><label>Fiber (g)</label><input type="number" inputmode="decimal" @bind="_scan.FiberG" /></div>
+                </div>
+                <div class="routine-actions">
+                    <button class="save-btn" @onclick="ApplyScan">Apply to meal</button>
+                    <button class="link-btn" @onclick="() => { _scan = null; _scanMsg = null; }">Discard</button>
+                </div>
+            </div>
+        }
+        else if (_meal.Calories is not null || _meal.SugarG is not null || _meal.ProteinG is not null)
+        {
+            <p class="muted" style="font-size:0.8rem">@MacroLine(_meal)</p>
+        }
+
+        @TagField(_mealTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealTagBox, _mealTagOptions, _meal.MealType.ToString(), _meal.Description, _meal.PortionNote, _meal), showStars: true)
         @if (!_remindFullness)
         {
             <div class="field">
@@ -206,7 +250,7 @@
                                 </div>
                                 <div class="field"><label>Food</label><input @bind="_mealEdit.Description" /></div>
                                 <div class="field"><label>Portion note</label><input @bind="_mealEdit.PortionNote" /></div>
-                                @TagField(_mealEditTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealEditTagBox, _mealTagOptions, _mealEdit.MealType.ToString(), _mealEdit.Description, _mealEdit.PortionNote), showStars: true)
+                                @TagField(_mealEditTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealEditTagBox, _mealTagOptions, _mealEdit.MealType.ToString(), _mealEdit.Description, _mealEdit.PortionNote, _mealEdit), showStars: true)
                                 <div class="field">
                                     <label>How did this meal leave you?</label>
                                     <select @bind="_mealEdit.Satiety">
@@ -339,6 +383,13 @@
     private MealEntry _meal = NewMeal();
     private DrinkEntry _drink = new();
     private string? _mealWarn, _drinkWarn;
+
+    // Nutrition-label scan state.
+    private bool _captureSupported;
+    private bool _scanBusy;
+    private string? _scanMsg;
+    private GeminiAnalyzer.NutritionFacts? _scan;   // per-serving values under review
+    private double _scanServings = 1;
 
     private List<MealEntry> _todayMeals = new();
     private List<DrinkEntry> _todayDrinks = new();
@@ -483,7 +534,7 @@
     /// <summary>AI tag suggestions for one entry; falls back to keyword matching when
     /// the Gemini call can't happen (no key, offline, error). Only pre-selects chips —
     /// nothing is saved until the user saves the form.</summary>
-    private async Task SuggestTagsAsync(TagBox box, List<string> options, string mealType, string? description, string? portion)
+    private async Task SuggestTagsAsync(TagBox box, List<string> options, string mealType, string? description, string? portion, MealEntry? macroSource = null)
     {
         var desc = description?.Trim();
         if (string.IsNullOrWhiteSpace(desc)) { box.Note = "Enter a description first."; return; }
@@ -493,7 +544,8 @@
         {
             var key = await GeminiAnalyzer.KeyStore.GetAsync()
                       ?? throw new InvalidOperationException("No API key");
-            var s = await GeminiAnalyzer.SuggestMealTagsAsync(key, mealType, desc, portion, options);
+            var macros = macroSource is null ? null : MacroLine(macroSource) is { Length: > 0 } ml ? ml.Replace("🏷 ", "") : null;
+            var s = await GeminiAnalyzer.SuggestMealTagsAsync(key, mealType, desc, portion, options, macros);
             foreach (var t in s.Known) box.Selected.Add(Canonical(t, options));
             // Drop a proposed tag that only differs in case from an existing option
             // or an already-selected one (would otherwise create a casing duplicate).
@@ -559,8 +611,78 @@
     {
         _mealFlags = AiAdviceStore.LoadMealFlags();
         _hasAiKey = !string.IsNullOrEmpty(await GeminiAnalyzer.KeyStore.GetAsync());
+        try { _captureSupported = Microsoft.Maui.Media.MediaPicker.Default.IsCaptureSupported; } catch { }
         if (string.Equals(Tab, "log", StringComparison.OrdinalIgnoreCase)) _tab = "today";
         await LoadToday();
+    }
+
+    /// <summary>Capture/pick a Nutrition Facts photo and read per-serving macros via AI.</summary>
+    private async Task ScanLabel(bool camera)
+    {
+        _scanMsg = null;
+        if (!_hasAiKey) { _scanMsg = "Set a Gemini API key in Settings to scan labels."; return; }
+        _scanBusy = true;
+        try
+        {
+            var picked = camera
+                ? await Microsoft.Maui.Media.MediaPicker.Default.CapturePhotoAsync()
+                : await Microsoft.Maui.Media.MediaPicker.Default.PickPhotoAsync();
+            if (picked is null) { _scanBusy = false; return; } // cancelled
+
+            byte[] jpeg;
+            using (var src = await picked.OpenReadAsync())
+            {
+                var img = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(src);
+                using var resized = img.Downsize(1280, disposeOriginal: true);
+                jpeg = resized.AsBytes(Microsoft.Maui.Graphics.ImageFormat.Jpeg, quality: 0.8f);
+            }
+            // One-time use: the capture lives only in a private temp file (never the
+            // camera roll). Delete it now so nothing accumulates in the app cache.
+            try { if (File.Exists(picked.FullPath)) File.Delete(picked.FullPath); } catch { }
+
+            var key = await GeminiAnalyzer.KeyStore.GetAsync() ?? throw new InvalidOperationException("No API key");
+            var facts = await GeminiAnalyzer.ReadNutritionLabelAsync(key, jpeg);
+            if (facts is null || (facts.Calories is null && facts.SugarG is null && facts.ProteinG is null))
+            {
+                _scanMsg = "Couldn't read a nutrition label from that photo — try again or enter macros by hand.";
+            }
+            else
+            {
+                _scan = facts;
+                _scanServings = 1;
+            }
+        }
+        catch (Exception ex) { _scanMsg = $"Scan failed: {ex.Message}"; }
+        _scanBusy = false;
+    }
+
+    /// <summary>Multiply the reviewed per-serving values by servings eaten onto the meal.</summary>
+    private void ApplyScan()
+    {
+        if (_scan is not { } f) return;
+        var n = _scanServings <= 0 ? 1 : _scanServings;
+        _meal.Calories = f.Calories is { } c ? (int)Math.Round(c * n) : null;
+        _meal.ProteinG = f.ProteinG is { } p ? Math.Round(p * n, 1) : null;
+        _meal.CarbsG = f.CarbsG is { } cb ? Math.Round(cb * n, 1) : null;
+        _meal.SugarG = f.SugarG is { } su ? Math.Round(su * n, 1) : null;
+        _meal.FatG = f.FatG is { } ft ? Math.Round(ft * n, 1) : null;
+        _meal.SodiumMg = f.SodiumMg is { } so ? (int)Math.Round(so * n) : null;
+        _meal.FiberG = f.FiberG is { } fi ? Math.Round(fi * n, 1) : null;
+        _scan = null;
+        _scanMsg = "Macros applied ✓";
+    }
+
+    private static string MacroLine(MealEntry m)
+    {
+        var parts = new List<string>();
+        if (m.Calories is { } c) parts.Add($"{c} cal");
+        if (m.ProteinG is { } p) parts.Add($"{p:0.#}g protein");
+        if (m.CarbsG is { } cb) parts.Add($"{cb:0.#}g carbs");
+        if (m.SugarG is { } su) parts.Add($"{su:0.#}g sugar");
+        if (m.FatG is { } ft) parts.Add($"{ft:0.#}g fat");
+        if (m.SodiumMg is { } so) parts.Add($"{so}mg sodium");
+        if (m.FiberG is { } fi) parts.Add($"{fi:0.#}g fiber");
+        return parts.Count == 0 ? "" : "🏷 " + string.Join(" · ", parts);
     }
 
     private async Task AskMealAdvice()
@@ -604,7 +726,9 @@
         _mealEdit = new MealEntry
         {
             Description = m.Description, MealType = m.MealType,
-            PortionNote = m.PortionNote, Satiety = m.Satiety
+            PortionNote = m.PortionNote, Satiety = m.Satiety,
+            Calories = m.Calories, ProteinG = m.ProteinG, CarbsG = m.CarbsG,
+            SugarG = m.SugarG, FatG = m.FatG, SodiumMg = m.SodiumMg, FiberG = m.FiberG
         };
         _mealEditTagBox.Load(m.TagList);
         _mealEditTagBox.Stars = m.QualityStars;
@@ -708,6 +832,7 @@
         _meal = NewMeal();
         _mealTagBox.Reset();
         _remindFullness = false;
+        _scan = null; _scanMsg = null; _scanServings = 1;
         await LoadToday();
         _ = Toast.Show(remind ? "Meal logged ✓ — I'll remind you to rate it" : "Meal logged ✓");
     }
@@ -772,19 +897,26 @@
         _drinkLib = CommonDrinks.Concat(drinkRows.Select(d => d.Description))
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
-        // Per drink name: the MOST COMMON ounces/sugar (mode, not last — so a one-off
-        // outlier can't become the sticky default) plus the most recent tags.
-        static double? ModeOz(IEnumerable<double?> xs) => xs.Where(x => x is not null)
-            .GroupBy(x => x).OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key)
-            .Select(g => g.Key).FirstOrDefault();
-        static int? ModeSugar(IEnumerable<int?> xs) => xs.Where(x => x is not null)
-            .GroupBy(x => x).OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key)
-            .Select(g => g.Key).FirstOrDefault();
+        // Per drink name: the MOST COMMON ounces/sugar among the RECENT window (not
+        // all-time, not last). Mode over a window resists a one-off outlier while
+        // still adapting when the usual amount changes (e.g. 8oz → 12oz coffee). Ties
+        // break toward the most recent value. drinkRows is newest-first, so Take(N)
+        // is the last N entries for that drink.
+        const int RecentWindow = 10;
+        static T? RecentMode<T>(IEnumerable<T?> newestFirst) where T : struct
+        {
+            var list = newestFirst.Where(x => x is not null).Take(RecentWindow).ToList();
+            return list
+                .GroupBy(x => x)
+                .OrderByDescending(g => g.Count())
+                .ThenBy(g => list.IndexOf(g.First())) // tie → most recent (lowest index)
+                .Select(g => g.Key).FirstOrDefault();
+        }
         _drinkDefaults = drinkRows
             .Where(d => !string.IsNullOrWhiteSpace(d.Description))
             .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key,
-                g => (ModeOz(g.Select(x => x.Ounces)), ModeSugar(g.Select(x => x.SugarCount)), g.First().Tags),
+                g => (RecentMode(g.Select(x => x.Ounces)), RecentMode(g.Select(x => x.SugarCount)), g.First().Tags),
                 StringComparer.OrdinalIgnoreCase);
 
         // Separate vocabularies: each = its starter tags + custom tags already used

@@ -3,6 +3,7 @@ using System;
 using FitRecoveryLog.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FitRecoveryLog.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260719235901_RoutineExerciseWeight")]
+    partial class RoutineExerciseWeight
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.9");
@@ -406,12 +409,6 @@ namespace FitRecoveryLog.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<int?>("Calories")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<double?>("CarbsG")
-                        .HasColumnType("REAL");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -419,32 +416,17 @@ namespace FitRecoveryLog.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<double?>("FatG")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("FiberG")
-                        .HasColumnType("REAL");
-
                     b.Property<int>("MealType")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("PortionNote")
                         .HasColumnType("TEXT");
 
-                    b.Property<double?>("ProteinG")
-                        .HasColumnType("REAL");
-
                     b.Property<int?>("QualityStars")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("Satiety")
                         .HasColumnType("INTEGER");
-
-                    b.Property<int?>("SodiumMg")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<double?>("SugarG")
-                        .HasColumnType("REAL");
 
                     b.Property<string>("Tags")
                         .HasColumnType("TEXT");
