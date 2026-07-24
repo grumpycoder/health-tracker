@@ -10,6 +10,11 @@
         @Macro("Fiber", NutritionMath.Fiber(Meals, Drinks), "g", NutritionGoals.Get(NutritionGoals.Fiber))
         @Ceiling("Added sugar", NutritionMath.AddedSugar(Meals, Drinks), "g", NutritionGoals.AddedSugarMax)
         @WaterRow()
+        <div class="muted" style="margin-top:0.4rem;font-size:0.72rem;display:flex;gap:0.8rem;flex-wrap:wrap">
+            <span><span style="color:@NutritionGoals.Color(GoalStatus.Under)">●</span> under</span>
+            <span><span style="color:@NutritionGoals.Color(GoalStatus.InRange)">●</span> in range</span>
+            <span><span style="color:@NutritionGoals.Color(GoalStatus.Over)">●</span> over</span>
+        </div>
     </div>
 }
 
