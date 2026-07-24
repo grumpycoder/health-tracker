@@ -44,6 +44,33 @@
         </section>
     }
 
+    @if (NutritionMath.HasData(_todayMeals, _todayDrinks))
+    {
+        <section class="card" style="cursor:pointer" @onclick="@(() => Nav.NavigateTo("meals"))">
+            <h2>Today's nutrition</h2>
+            <div style="display:flex;flex-wrap:wrap;gap:0.4rem 1.1rem;font-size:0.95rem">
+                <span><strong>@NutritionMath.Calories(_todayMeals, _todayDrinks)</strong> <span class="muted">cal</span></span>
+                <span><strong>@NutritionMath.Protein(_todayMeals, _todayDrinks).ToString("0")</strong> <span class="muted">g protein</span></span>
+                <span><strong>@NutritionMath.Sugar(_todayMeals, _todayDrinks).ToString("0")</strong> <span class="muted">g sugar</span></span>
+                <span><strong>@NutritionMath.Sodium(_todayMeals, _todayDrinks).ToString("0")</strong> <span class="muted">mg sodium</span></span>
+            </div>
+            @if (_proteinGoal > 0)
+            {
+                var protein = NutritionMath.Protein(_todayMeals, _todayDrinks);
+                var pct = (int)Math.Round(Math.Min(100, protein / _proteinGoal * 100));
+                <div style="margin-top:0.5rem">
+                    <div style="display:flex;justify-content:space-between;font-size:0.8rem" class="muted">
+                        <span>Protein goal</span><span>@protein.ToString("0") / @_proteinGoal g</span>
+                    </div>
+                    <div style="height:6px;border-radius:3px;background:var(--border);overflow:hidden">
+                        <div style="height:100%;width:@(pct)%;background:@(protein >= _proteinGoal ? "#3fa34d" : "var(--accent)")"></div>
+                    </div>
+                </div>
+            }
+            <p class="muted" style="margin:0.4rem 0 0;font-size:0.72rem">Tap for the full log</p>
+        </section>
+    }
+
     <section class="card">
         <h2>Today's plan</h2>
         <div class="daytype-grid">
@@ -215,6 +242,11 @@
     private double? _goalFitAvg;
     private int _goalFitCount;
 
+    // Today's meals/drinks for the nutrition-totals card, plus the protein goal.
+    private List<MealEntry> _todayMeals = new();
+    private List<DrinkEntry> _todayDrinks = new();
+    private int _proteinGoal;
+
     // Timestamped notes, addable any time through the day.
     private string _noteText = "";
     private List<NoteEntry> _todayNotes = new();
@@ -303,10 +335,10 @@
     {
         var start = _today.ToDateTime(TimeOnly.MinValue);
         var end = start.AddDays(1);
-        var stars = await db.MealEntries
-            .Where(m => m.Time >= start && m.Time < end && m.QualityStars != null)
-            .Select(m => m.QualityStars!.Value)
-            .ToListAsync();
+        _todayMeals = await db.MealEntries.Where(m => m.Time >= start && m.Time < end).ToListAsync();
+        _todayDrinks = await db.DrinkEntries.Where(d => d.Time >= start && d.Time < end).ToListAsync();
+        _proteinGoal = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.ProteinGoalPrefKey, 0);
+        var stars = _todayMeals.Where(m => m.QualityStars != null).Select(m => m.QualityStars!.Value).ToList();
         _goalFitCount = stars.Count;
         _goalFitAvg = stars.Count == 0 ? null : stars.Average();
     }

@@ -525,14 +525,11 @@
     private int _proteinGoal;
 
     private int MacroMealCount => _todayMeals.Count(m => m.Calories is not null || m.ProteinG is not null);
-    private int DayCalories => _todayMeals.Sum(m => m.Calories ?? 0) + _todayDrinks.Sum(d => d.Calories ?? 0);
-    private double DayProtein => _todayMeals.Sum(m => m.ProteinG ?? 0) + _todayDrinks.Sum(d => d.ProteinG ?? 0);
-    private double DaySodium => _todayMeals.Sum(m => m.SodiumMg ?? 0) + _todayDrinks.Sum(d => d.SodiumMg ?? 0);
-    // Meal sugar (g) + drink sugar: scanned grams when present, else teaspoons (~4g each).
-    private double DaySugar => _todayMeals.Sum(m => m.SugarG ?? 0)
-        + _todayDrinks.Sum(d => d.SugarG ?? (d.SugarCount ?? 0) * 4.0);
-    private bool HasNutritionData => MacroMealCount > 0
-        || _todayDrinks.Any(d => d.Calories is not null || d.ProteinG is not null || d.SugarG is not null || d.SugarCount is > 0);
+    private int DayCalories => NutritionMath.Calories(_todayMeals, _todayDrinks);
+    private double DayProtein => NutritionMath.Protein(_todayMeals, _todayDrinks);
+    private double DaySodium => NutritionMath.Sodium(_todayMeals, _todayDrinks);
+    private double DaySugar => NutritionMath.Sugar(_todayMeals, _todayDrinks);
+    private bool HasNutritionData => NutritionMath.HasData(_todayMeals, _todayDrinks);
 
     private int WorkoutKcal   // MET ~5 strength, scaled by body weight
     {
