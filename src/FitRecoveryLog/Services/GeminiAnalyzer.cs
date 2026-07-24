@@ -732,8 +732,9 @@ public static class GeminiAnalyzer
     public sealed record AiOutcome(string Analysis, List<ExerciseAdvice> Exercises, List<string> TopActions,
         List<string> MealFlags, string? BodyTrendStatus, string? BodyTrendNote);
 
-    /// <summary>Per-serving macros read off a Nutrition Facts label photo. Mutable
-    /// so the UI can bind an editable review form to it.</summary>
+    /// <summary>Macros from a photo — either read off a Nutrition Facts label
+    /// (per serving, exact) or estimated from a plate of food (whole plate, rough).
+    /// Mutable so the UI can bind an editable review form to it.</summary>
     public sealed class NutritionFacts
     {
         public string? ServingSize { get; set; }
@@ -744,6 +745,8 @@ public static class GeminiAnalyzer
         public double? FatG { get; set; }
         public int? SodiumMg { get; set; }
         public double? FiberG { get; set; }
+        /// <summary>Foods the AI identified on the plate (plate-estimate mode only).</summary>
+        public string? FoodDescription { get; set; }
     }
 
     /// <summary>Read a Nutrition Facts label from a photo (Gemini vision). Returns
@@ -772,6 +775,38 @@ public static class GeminiAnalyzer
                 ServingSize = S("servingSize"), Calories = I("calories"), ProteinG = D("proteinG"),
                 CarbsG = D("carbsG"), SugarG = D("sugarG"), FatG = D("fatG"),
                 SodiumMg = I("sodiumMg"), FiberG = D("fiberG")
+            };
+        }
+        catch (JsonException) { return null; }
+    }
+
+    /// <summary>Estimate macros for a plate of food from a photo (Gemini vision).
+    /// Rough estimate for the WHOLE plate as shown; the user reviews/edits. Also
+    /// returns a short description of the identified foods. Null on failure.</summary>
+    public static async Task<NutritionFacts?> EstimateMealFromPhotoAsync(string apiKey, byte[] imageJpeg)
+    {
+        var prompt =
+            "Estimate the nutrition of the meal in this photo. Identify the foods and their approximate " +
+            "portions, then estimate the TOTAL macros for everything visible on the plate/bowl as shown. " +
+            "These are visual estimates, not exact — be reasonable, not precise. Respond with ONLY this JSON " +
+            "object (null for anything you truly can't estimate):\n" +
+            """{ "foodDescription": "<short, e.g. 'grilled chicken, rice, broccoli'>", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num> }""" +
+            "\nNumbers are for the whole plate, units stripped. If it isn't a photo of food, return all nulls.";
+
+        var text = await GenerateAsync(apiKey, prompt, imageJpeg);
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var r = doc.RootElement;
+            int? I(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : null;
+            double? D(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
+            string? S(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            return new NutritionFacts
+            {
+                ServingSize = "whole plate (estimate)", FoodDescription = S("foodDescription"),
+                Calories = I("calories"), ProteinG = D("proteinG"), CarbsG = D("carbsG"),
+                SugarG = D("sugarG"), FatG = D("fatG"), SodiumMg = I("sodiumMg"), FiberG = D("fiberG")
             };
         }
         catch (JsonException) { return null; }

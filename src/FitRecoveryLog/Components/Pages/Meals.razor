@@ -99,9 +99,11 @@
             @if (_captureSupported)
             {
                 <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanLabel(true)">📷 Scan label</button>
+                <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => EstimatePlate(true)">🍽 Estimate plate</button>
             }
-            <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanLabel(false)">🖼 Pick label photo</button>
-            @if (_scanBusy) { <span class="muted" style="align-self:center;font-size:0.8rem">Reading label…</span> }
+            <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanLabel(false)">🖼 Label photo</button>
+            <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => EstimatePlate(false)">🖼 Plate photo</button>
+            @if (_scanBusy) { <span class="muted" style="align-self:center;font-size:0.8rem">Reading…</span> }
         </div>
         @if (_scanMsg is not null)
         {
@@ -110,9 +112,18 @@
         @if (_scan is not null)
         {
             <div class="edit-exercise" style="margin-bottom:0.6rem">
-                <p class="muted" style="margin:0 0 0.4rem;font-size:0.8rem">
-                    Per serving@(string.IsNullOrWhiteSpace(_scan.ServingSize) ? "" : $" ({_scan.ServingSize})") — review, set servings eaten, then apply.
-                </p>
+                @if (_scanIsEstimate)
+                {
+                    <p class="muted" style="margin:0 0 0.4rem;font-size:0.8rem">
+                        📷 Rough estimate from the photo@(string.IsNullOrWhiteSpace(_scan.FoodDescription) ? "" : $": {_scan.FoodDescription}") — <strong>double-check the numbers</strong> before applying. "Servings" = how many plates this size you ate.
+                    </p>
+                }
+                else
+                {
+                    <p class="muted" style="margin:0 0 0.4rem;font-size:0.8rem">
+                        Per serving@(string.IsNullOrWhiteSpace(_scan.ServingSize) ? "" : $" ({_scan.ServingSize})") — review, set servings eaten, then apply.
+                    </p>
+                }
                 <div class="inline-fields">
                     <div class="field"><label>Servings eaten</label><input type="number" inputmode="decimal" step="0.25" min="0" @bind="_scanServings" /></div>
                     <div class="field"><label>Calories</label><input type="number" inputmode="numeric" @bind="_scan.Calories" /></div>
@@ -388,8 +399,9 @@
     private bool _captureSupported;
     private bool _scanBusy;
     private string? _scanMsg;
-    private GeminiAnalyzer.NutritionFacts? _scan;   // per-serving values under review
+    private GeminiAnalyzer.NutritionFacts? _scan;   // values under review
     private double _scanServings = 1;
+    private bool _scanIsEstimate;                   // true = plate estimate, false = label read
 
     private List<MealEntry> _todayMeals = new();
     private List<DrinkEntry> _todayDrinks = new();
@@ -616,7 +628,27 @@
         await LoadToday();
     }
 
-    /// <summary>Capture/pick a Nutrition Facts photo and read per-serving macros via AI.</summary>
+    /// <summary>Capture or pick a photo, downscale to JPEG bytes, and delete the temp
+    /// file. One-time use: the capture only ever lives in a private temp file (never
+    /// the camera roll), and it's removed the moment we've read it. Null if cancelled.</summary>
+    private static async Task<byte[]?> CapturePhotoAsync(bool camera)
+    {
+        var picked = camera
+            ? await Microsoft.Maui.Media.MediaPicker.Default.CapturePhotoAsync()
+            : await Microsoft.Maui.Media.MediaPicker.Default.PickPhotoAsync();
+        if (picked is null) return null;
+        byte[] jpeg;
+        using (var src = await picked.OpenReadAsync())
+        {
+            var img = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(src);
+            using var resized = img.Downsize(1280, disposeOriginal: true);
+            jpeg = resized.AsBytes(Microsoft.Maui.Graphics.ImageFormat.Jpeg, quality: 0.8f);
+        }
+        try { if (File.Exists(picked.FullPath)) File.Delete(picked.FullPath); } catch { }
+        return jpeg;
+    }
+
+    /// <summary>Read a Nutrition Facts label photo → per-serving macros for review.</summary>
     private async Task ScanLabel(bool camera)
     {
         _scanMsg = null;
@@ -624,35 +656,43 @@
         _scanBusy = true;
         try
         {
-            var picked = camera
-                ? await Microsoft.Maui.Media.MediaPicker.Default.CapturePhotoAsync()
-                : await Microsoft.Maui.Media.MediaPicker.Default.PickPhotoAsync();
-            if (picked is null) { _scanBusy = false; return; } // cancelled
-
-            byte[] jpeg;
-            using (var src = await picked.OpenReadAsync())
-            {
-                var img = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(src);
-                using var resized = img.Downsize(1280, disposeOriginal: true);
-                jpeg = resized.AsBytes(Microsoft.Maui.Graphics.ImageFormat.Jpeg, quality: 0.8f);
-            }
-            // One-time use: the capture lives only in a private temp file (never the
-            // camera roll). Delete it now so nothing accumulates in the app cache.
-            try { if (File.Exists(picked.FullPath)) File.Delete(picked.FullPath); } catch { }
-
+            var jpeg = await CapturePhotoAsync(camera);
+            if (jpeg is null) { _scanBusy = false; return; } // cancelled
             var key = await GeminiAnalyzer.KeyStore.GetAsync() ?? throw new InvalidOperationException("No API key");
             var facts = await GeminiAnalyzer.ReadNutritionLabelAsync(key, jpeg);
             if (facts is null || (facts.Calories is null && facts.SugarG is null && facts.ProteinG is null))
-            {
                 _scanMsg = "Couldn't read a nutrition label from that photo — try again or enter macros by hand.";
+            else { _scan = facts; _scanServings = 1; _scanIsEstimate = false; }
+        }
+        catch (Exception ex) { _scanMsg = $"Scan failed: {ex.Message}"; }
+        _scanBusy = false;
+    }
+
+    /// <summary>Estimate macros for a plate of food (home-cooked / no label) → review.</summary>
+    private async Task EstimatePlate(bool camera)
+    {
+        _scanMsg = null;
+        if (!_hasAiKey) { _scanMsg = "Set a Gemini API key in Settings to estimate from a photo."; return; }
+        _scanBusy = true;
+        try
+        {
+            var jpeg = await CapturePhotoAsync(camera);
+            if (jpeg is null) { _scanBusy = false; return; } // cancelled
+            var key = await GeminiAnalyzer.KeyStore.GetAsync() ?? throw new InvalidOperationException("No API key");
+            var facts = await GeminiAnalyzer.EstimateMealFromPhotoAsync(key, jpeg);
+            if (facts is null || (facts.Calories is null && facts.ProteinG is null && facts.CarbsG is null))
+            {
+                _scanMsg = "Couldn't estimate macros from that photo — try a clearer shot or enter by hand.";
             }
             else
             {
-                _scan = facts;
-                _scanServings = 1;
+                _scan = facts; _scanServings = 1; _scanIsEstimate = true;
+                // Prefill the food name from what the AI saw, if not already typed.
+                if (string.IsNullOrWhiteSpace(_meal.Description) && !string.IsNullOrWhiteSpace(facts.FoodDescription))
+                    _meal.Description = facts.FoodDescription;
             }
         }
-        catch (Exception ex) { _scanMsg = $"Scan failed: {ex.Message}"; }
+        catch (Exception ex) { _scanMsg = $"Estimate failed: {ex.Message}"; }
         _scanBusy = false;
     }
 
@@ -832,7 +872,7 @@
         _meal = NewMeal();
         _mealTagBox.Reset();
         _remindFullness = false;
-        _scan = null; _scanMsg = null; _scanServings = 1;
+        _scan = null; _scanMsg = null; _scanServings = 1; _scanIsEstimate = false;
         await LoadToday();
         _ = Toast.Show(remind ? "Meal logged ✓ — I'll remind you to rate it" : "Meal logged ✓");
     }
