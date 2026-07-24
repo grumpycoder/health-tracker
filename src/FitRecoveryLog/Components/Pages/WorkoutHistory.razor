@@ -74,7 +74,7 @@ else
             <section class="card">
                 <h2>@(def?.Name ?? "Unknown exercise")</h2>
                 <table class="set-table">
-                    <thead><tr><th>Set</th><th>@(def?.Measure == ExerciseMeasure.Duration ? "Time (s)" : "Reps")</th><th>Done</th></tr></thead>
+                    <thead><tr><th>Set</th><th>@(def?.Measure == ExerciseMeasure.Duration ? "Time (s)" : "Reps")</th><th>Weight (lb)</th><th>Done</th></tr></thead>
                     <tbody>
                         @foreach (var set in grp.OrderBy(x => x.SetNumber))
                         {
@@ -90,6 +90,7 @@ else
                                         <input type="number" inputmode="decimal" min="0" style="width:5rem" @bind="set.Reps" />
                                     }
                                 </td>
+                                <td><input type="number" inputmode="decimal" min="0" step="0.5" style="width:5rem" @bind="set.Weight" placeholder="—" /></td>
                                 <td><input type="checkbox" @bind="set.Completed" /></td>
                             </tr>
                         }
@@ -150,6 +151,7 @@ else
                 var edited = s.Sets.FirstOrDefault(x => x.Id == set.Id);
                 if (edited is null) continue;
                 set.Reps = edited.Reps;
+                set.Weight = edited.Weight;
                 set.DurationSeconds = edited.DurationSeconds;
                 set.Completed = edited.Completed;
             }
