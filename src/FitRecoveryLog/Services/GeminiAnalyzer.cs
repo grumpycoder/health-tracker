@@ -40,6 +40,26 @@ public static class GeminiAnalyzer
         foreach (var line in goals.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             sb.AppendLine($"  - {line}");
     }
+
+    /// <summary>The user's numeric daily macro/hydration targets (ranges), so the AI
+    /// can judge intake against them. Ranges are targets, not hard rules — being a bit
+    /// under or over on a given day is normal; coach the pattern, not one number.</summary>
+    private static void AppendMacroGoalTargets(StringBuilder sb)
+    {
+        var p = NutritionGoals.Get(NutritionGoals.Protein);
+        var c = NutritionGoals.Get(NutritionGoals.Carbs);
+        var f = NutritionGoals.Get(NutritionGoals.Fat);
+        var fib = NutritionGoals.Get(NutritionGoals.Fiber);
+        var w = NutritionGoals.Get(NutritionGoals.Water);
+        sb.AppendLine("DAILY MACRO/HYDRATION TARGETS (ranges are goals, not hard limits — a day slightly " +
+                      "under/over is fine; flag only consistent misses):");
+        if (p.IsSet) sb.AppendLine($"  - Protein: {p.Min}-{p.Max} g");
+        if (c.IsSet) sb.AppendLine($"  - Carbohydrates: {c.Min}-{c.Max} g");
+        if (f.IsSet) sb.AppendLine($"  - Fat: {f.Min}-{f.Max} g");
+        if (fib.IsSet) sb.AppendLine($"  - Fiber: {fib.Min}-{fib.Max} g");
+        sb.AppendLine($"  - Added sugar: stay under {NutritionGoals.AddedSugarMax} g (less is better)");
+        if (w.IsSet) sb.AppendLine($"  - Water: {w.Min}-{w.Max} oz (aim high on workout days)");
+    }
     private const string Model = "gemini-2.5-flash";
     private const int WindowDays = 56; // 8 weeks
 
@@ -102,6 +122,7 @@ public static class GeminiAnalyzer
         sb.AppendLine("- HIGH BAR for any sugar/sodium concern: never call ordinary eating — a treat, cereal, or a restaurant meal — a concerning 'pattern'. Raise sugar or sodium ONLY if you can cite a specific, genuinely excessive quantity from the data. If you can't cite a real number, don't raise it. Do not bundle unrelated items into a vague pattern.");
         sb.AppendLine("- Against a stated goal, small overages (within ~25%, e.g. 20oz vs a 16oz goal) are ON-TRACK — mention neutrally at most; reserve 'significantly above' for large, sustained excess.");
         AppendUserGoals(sb);
+        AppendMacroGoalTargets(sb);
         sb.AppendLine();
 
         sb.AppendLine("WORKOUTS:");
@@ -212,6 +233,7 @@ public static class GeminiAnalyzer
         sb.AppendLine("- Zero-sugar drinks (Coke Zero, diet soda, sugar-free) are NOT sugary drinks — taste variety, not a concern.");
         sb.AppendLine("- Keep sugar in PROPORTION: a single small treat/dessert (roughly ≤15g sugar) in an otherwise fine day is normal — don't flag it or suggest 'less sugar'. A banana has ~14g. Only raise sugar when a day's total is genuinely high or it's a daily pattern.");
         AppendUserGoals(sb);
+        AppendMacroGoalTargets(sb);
         sb.AppendLine("If little is logged yet, say so and suggest what to log.");
         sb.AppendLine();
         await AppendTodayContextAsync(sb, db);
@@ -274,6 +296,20 @@ public static class GeminiAnalyzer
             sb.AppendLine($"  {d.Time:HH:mm} \"{d.Description}\"" +
                           (d.Ounces is { } oz ? $" {oz:0.#}oz" : "") +
                           (d.SugarCount is { } su ? $" sugar:{su}" : ""));
+
+        // Explicit running totals vs the goal ranges — so the AI judges against real
+        // numbers instead of summing the log itself (which it does unreliably).
+        sb.AppendLine("TODAY'S TOTALS SO FAR (only counts items logged with macros — may be incomplete):");
+        sb.AppendLine($"  Calories: {NutritionMath.Calories(meals, drinks)}");
+        sb.AppendLine($"  Protein: {NutritionMath.Protein(meals, drinks):0} g");
+        sb.AppendLine($"  Carbs: {NutritionMath.Carbs(meals, drinks):0} g");
+        sb.AppendLine($"  Fat: {NutritionMath.Fat(meals, drinks):0} g");
+        sb.AppendLine($"  Fiber: {NutritionMath.Fiber(meals, drinks):0} g");
+        sb.AppendLine($"  Added sugar: {NutritionMath.AddedSugar(meals, drinks):0} g");
+        sb.AppendLine($"  Water: {day?.WaterOz ?? 0} oz");
+        sb.AppendLine("Compare these to the DAILY MACRO/HYDRATION TARGETS above and note where the day is " +
+                      "tracking under/in/over range — but remember totals may be incomplete if not everything " +
+                      "was logged with macros, so don't scold a low number that's just unlogged food.");
 
         sb.AppendLine("PHYSICAL WORKLOAD TODAY:");
         var work = await db.PhysicalWorkloadEntries.Where(w => w.Date == today).ToListAsync();
