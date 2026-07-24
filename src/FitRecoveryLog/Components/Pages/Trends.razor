@@ -55,14 +55,6 @@
             <section class="card"><LineChart Title="Steps (Apple Health)" Points="_steps" ValueFormat="0" /></section>
         }
 
-        @if (_drinks.Count > 0)
-        {
-            <div class="section-label">Drinks per day (oz)</div>
-            @foreach (var series in _drinks)
-            {
-                <section class="card"><LineChart Title="@series.Name" Unit=" oz" Points="series.Points" ValueFormat="0" /></section>
-            }
-        }
     }
 </div>
 
@@ -77,7 +69,6 @@
     private List<(DateOnly Date, double Value)> _calories = new();
     private List<(DateOnly Date, double Value)> _protein = new();
     private List<(DateOnly Date, double Value)> _steps = new();
-    private List<(string Name, List<(DateOnly Date, double Value)> Points)> _drinks = new();
 
     // Body-trend verdict from the latest AI analysis (null until one is run).
     private string? _bodyStatus, _bodyNote;
@@ -122,23 +113,6 @@
             .Select(g => (g.Key, g.Sum(x => x.ProteinG!.Value)))
             .OrderBy(p => p.Item1).ToList();
 
-        // Drinks by type: one series per drink name, summed ounces per day.
-        var drinks = await db.DrinkEntries
-            .Where(d => d.Ounces != null)
-            .Select(d => new { d.Time, d.Description, Oz = d.Ounces!.Value })
-            .ToListAsync();
-        _drinks = drinks
-            .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Select(g => (
-                Name: g.First().Description.Trim(),
-                Points: g.GroupBy(x => DateOnly.FromDateTime(x.Time.Date))
-                         .Select(day => (day.Key, day.Sum(x => x.Oz)))
-                         .OrderBy(p => p.Item1)
-                         .ToList()))
-            .Where(s => s.Points.Count >= 2)              // need 2+ days to chart
-            .OrderByDescending(s => s.Points.Sum(p => p.Item2))
-            .ToList();
-
         // Steps from Apple Health (iOS only) — last 14 days, read per day.
         if (Health.IsAvailable)
         {
@@ -159,7 +133,7 @@
         }
 
         _empty = _weight.Count == 0 && _waist.Count == 0 && _sleep.Count == 0
-                 && _workoutMin.Count == 0 && _drinks.Count == 0 && _steps.Count == 0
+                 && _workoutMin.Count == 0 && _steps.Count == 0
                  && _calories.Count == 0 && _protein.Count == 0;
         _loaded = true;
     }
