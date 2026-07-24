@@ -20,6 +20,8 @@ public class DailyLog : EntityBase
     public DateOnly Date { get; set; }
     public DayType DayType { get; set; } = DayType.Unset;
     public string? Note { get; set; }
+    /// <summary>Water/fluids logged for the day, in fluid ounces (quick-add taps).</summary>
+    public int WaterOz { get; set; }
 }
 
 /// <summary>A timestamped freeform note, logged any time of day
@@ -169,6 +171,8 @@ public class MealEntry : EntityBase
     public double? FatG { get; set; }
     public int? SodiumMg { get; set; }
     public double? FiberG { get; set; }
+    /// <summary>Added sugars (label line), distinct from total SugarG.</summary>
+    public double? AddedSugarG { get; set; }
 
     [NotMapped]
     public IReadOnlyList<string> TagList => CsvField.Split(Tags);
@@ -194,6 +198,8 @@ public class DrinkEntry : EntityBase
     public double? FatG { get; set; }
     public int? SodiumMg { get; set; }
     public double? FiberG { get; set; }
+    /// <summary>Added sugars (label line); coffee's SugarCount also counts as added sugar.</summary>
+    public double? AddedSugarG { get; set; }
 
     [NotMapped]
     public IReadOnlyList<string> TagList => CsvField.Split(Tags);

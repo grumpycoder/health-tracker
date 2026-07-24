@@ -44,32 +44,17 @@
         </section>
     }
 
-    @if (NutritionMath.HasData(_todayMeals, _todayDrinks))
-    {
-        <section class="card" style="cursor:pointer" @onclick="@(() => Nav.NavigateTo("meals"))">
-            <h2>Today's nutrition</h2>
-            <div style="display:flex;flex-wrap:wrap;gap:0.4rem 1.1rem;font-size:0.95rem">
-                <span><strong>@NutritionMath.Calories(_todayMeals, _todayDrinks)</strong> <span class="muted">cal</span></span>
-                <span><strong>@NutritionMath.Protein(_todayMeals, _todayDrinks).ToString("0")</strong> <span class="muted">g protein</span></span>
-                <span><strong>@NutritionMath.Sugar(_todayMeals, _todayDrinks).ToString("0")</strong> <span class="muted">g sugar</span></span>
-                <span><strong>@NutritionMath.Sodium(_todayMeals, _todayDrinks).ToString("0")</strong> <span class="muted">mg sodium</span></span>
-            </div>
-            @if (_proteinGoal > 0)
-            {
-                var protein = NutritionMath.Protein(_todayMeals, _todayDrinks);
-                var pct = (int)Math.Round(Math.Min(100, protein / _proteinGoal * 100));
-                <div style="margin-top:0.5rem">
-                    <div style="display:flex;justify-content:space-between;font-size:0.8rem" class="muted">
-                        <span>Protein goal</span><span>@protein.ToString("0") / @_proteinGoal g</span>
-                    </div>
-                    <div style="height:6px;border-radius:3px;background:var(--border);overflow:hidden">
-                        <div style="height:100%;width:@(pct)%;background:@(protein >= _proteinGoal ? "#3fa34d" : "var(--accent)")"></div>
-                    </div>
-                </div>
-            }
-            <p class="muted" style="margin:0.4rem 0 0;font-size:0.72rem">Tap for the full log</p>
-        </section>
-    }
+    <section class="card">
+        <div class="routine-head">
+            <h2>Today's goals</h2>
+            <span style="display:flex;gap:0.9rem;font-size:0.9rem" class="muted">
+                <span><strong style="color:var(--text)">@NutritionMath.Calories(_todayMeals, _todayDrinks)</strong> cal</span>
+            </span>
+        </div>
+        <NutritionGoalsCard Meals="_todayMeals" Drinks="_todayDrinks" WaterOz="_log.WaterOz"
+                            WorkoutDay="_workoutToday" OnAddWater="AddWater" />
+        <button class="link-btn" style="padding:0;margin-top:0.3rem" @onclick="@(() => Nav.NavigateTo("meals"))">Open full log →</button>
+    </section>
 
     <section class="card">
         <h2>Today's plan</h2>
@@ -242,10 +227,11 @@
     private double? _goalFitAvg;
     private int _goalFitCount;
 
-    // Today's meals/drinks for the nutrition-totals card, plus the protein goal.
+    // Today's meals/drinks for the goals card, and whether a workout was logged today
+    // (raises the water target to the top of its range).
     private List<MealEntry> _todayMeals = new();
     private List<DrinkEntry> _todayDrinks = new();
-    private int _proteinGoal;
+    private bool _workoutToday;
 
     // Timestamped notes, addable any time through the day.
     private string _noteText = "";
@@ -337,7 +323,8 @@
         var end = start.AddDays(1);
         _todayMeals = await db.MealEntries.Where(m => m.Time >= start && m.Time < end).ToListAsync();
         _todayDrinks = await db.DrinkEntries.Where(d => d.Time >= start && d.Time < end).ToListAsync();
-        _proteinGoal = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.ProteinGoalPrefKey, 0);
+        _workoutToday = await db.WorkoutSessions.AnyAsync(w => w.Date == _today)
+            || _log.DayType == DayType.Workout;
         var stars = _todayMeals.Where(m => m.QualityStars != null).Select(m => m.QualityStars!.Value).ToList();
         _goalFitCount = stars.Count;
         _goalFitAvg = stars.Count == 0 ? null : stars.Average();
@@ -447,8 +434,18 @@
         if (existing is null)
             db.DailyLogs.Add(_log);
         else
+        {
             existing.DayType = _log.DayType;
+            existing.WaterOz = _log.WaterOz;
+        }
         await db.SaveChangesAsync();
+    }
+
+    /// <summary>Quick-add (or undo) water in ounces toward the daily goal.</summary>
+    private async Task AddWater(int oz)
+    {
+        _log.WaterOz = Math.Max(0, _log.WaterOz + oz);
+        await SaveLog();
     }
 
     private static string Label(DayType dt) => dt switch

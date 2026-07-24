@@ -757,6 +757,7 @@ public static class GeminiAnalyzer
         public double? FatG { get; set; }
         public int? SodiumMg { get; set; }
         public double? FiberG { get; set; }
+        public double? AddedSugarG { get; set; }
         /// <summary>Foods the AI identified on the plate (plate-estimate mode only).</summary>
         public string? FoodDescription { get; set; }
     }
@@ -774,7 +775,8 @@ public static class GeminiAnalyzer
         {
             ServingSize = S("servingSize"), FoodDescription = S("foodDescription"),
             Calories = I("calories"), ProteinG = D("proteinG"), CarbsG = D("carbsG"),
-            SugarG = D("sugarG"), FatG = D("fatG"), SodiumMg = I("sodiumMg"), FiberG = D("fiberG")
+            SugarG = D("sugarG"), FatG = D("fatG"), SodiumMg = I("sodiumMg"), FiberG = D("fiberG"),
+            AddedSugarG = D("addedSugarG")
         };
     }
 
@@ -787,8 +789,8 @@ public static class GeminiAnalyzer
         sb.AppendLine("Read a packaged-food Nutrition Facts label from this photo AND tag/rate the food. " +
                       "Extract the values for ONE serving as printed. Respond with ONLY this JSON object " +
                       "(null for anything not legible):");
-        sb.AppendLine("""{ "servingSize": "<as printed>", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num>, "tags": ["<existing tags that apply>"], "newTag": "<one new tag or null>", "stars": <1-5>, "starReason": "<≤8 words, encouraging>" }""");
-        sb.AppendLine("Use 'Total Sugars' for sugarG and 'Total Fat' for fatG. Numbers only — strip units. " +
+        sb.AppendLine("""{ "servingSize": "<as printed>", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "addedSugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num>, "tags": ["<existing tags that apply>"], "newTag": "<one new tag or null>", "stars": <1-5>, "starReason": "<≤8 words, encouraging>" }""");
+        sb.AppendLine("Use 'Total Sugars' for sugarG, 'Includes Xg Added Sugars' for addedSugarG (null if not listed), and 'Total Fat' for fatG. Numbers only — strip units. " +
                       "If the image is not a nutrition label, return all nulls. " +
                       "Base tags and the star rating on the ACTUAL macros you read (per serving), not guesses.");
         AppendMealTaggingRules(sb, vocabulary);
@@ -813,7 +815,7 @@ public static class GeminiAnalyzer
                       "and approximate portions, then estimate the TOTAL macros for everything on the plate/bowl " +
                       "as shown. These are visual estimates, not exact — be reasonable, not precise. Respond with " +
                       "ONLY this JSON object (null for anything you truly can't estimate):");
-        sb.AppendLine("""{ "foodDescription": "<short, e.g. 'grilled chicken, rice, broccoli'>", "servingSize": "whole plate (estimate)", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num>, "tags": ["<existing tags that apply>"], "newTag": "<one new tag or null>", "stars": <1-5>, "starReason": "<≤8 words, encouraging>" }""");
+        sb.AppendLine("""{ "foodDescription": "<short, e.g. 'grilled chicken, rice, broccoli'>", "servingSize": "whole plate (estimate)", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "addedSugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num>, "tags": ["<existing tags that apply>"], "newTag": "<one new tag or null>", "stars": <1-5>, "starReason": "<≤8 words, encouraging>" }""");
         sb.AppendLine("Numbers are for the whole plate, units stripped. If it isn't a photo of food, return all nulls. " +
                       "Base tags and the star rating on the estimated macros for the whole plate.");
         AppendMealTaggingRules(sb, vocabulary);

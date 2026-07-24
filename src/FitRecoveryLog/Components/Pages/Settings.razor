@@ -55,9 +55,30 @@
         <div class="field">
             <textarea rows="4" @bind="_goals" placeholder="One goal or preference per line"></textarea>
         </div>
+        <p class="muted" style="margin:0.6rem 0 0.3rem;font-weight:600">Daily macro goals <span style="font-weight:400">(min–max; 0 to disable a row)</span></p>
+        <div class="inline-fields">
+            <div class="field"><label>Protein min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_pMin" /></div>
+            <div class="field"><label>Protein max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_pMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Carbs min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_cMin" /></div>
+            <div class="field"><label>Carbs max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_cMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Fat min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_fMin" /></div>
+            <div class="field"><label>Fat max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_fMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Fiber min</label><input type="number" inputmode="numeric" min="0" step="1" @bind="_fibMin" /></div>
+            <div class="field"><label>Fiber max</label><input type="number" inputmode="numeric" min="0" step="1" @bind="_fibMax" /></div>
+        </div>
         <div class="field">
-            <label>Daily protein goal (g) <span class="muted">— 0 to disable</span></label>
-            <input type="number" inputmode="numeric" min="0" step="5" @bind="_proteinGoal" placeholder="e.g. 160" />
+            <label>Added sugar ceiling (g) <span class="muted">— stay under</span></label>
+            <input type="number" inputmode="numeric" min="0" step="1" @bind="_sugarMax" />
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Water min (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_wMin" /></div>
+            <div class="field"><label>Water max (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_wMax" /></div>
         </div>
         <button class="save-btn" @onclick="SaveGoals">Save Goals</button>
         @if (_goalsSaved)
@@ -87,8 +108,9 @@
     private string _key = "";
     private bool _saved, _hasKey;
     private string _goals = "";
-    private int _proteinGoal;
     private bool _goalsSaved;
+    // Macro/hydration goal ranges (seeded from NutritionGoals defaults).
+    private int _pMin, _pMax, _cMin, _cMax, _fMin, _fMax, _fibMin, _fibMax, _wMin, _wMax, _sugarMax;
 
     private static readonly (string Label, int Pct)[] TextSizes =
         { ("Normal", 100), ("Large", 120), ("Larger", 140), ("Largest", 160) };
@@ -100,7 +122,12 @@
         _hasKey = !string.IsNullOrEmpty(existing);
         if (_hasKey) _key = existing!;
         _goals = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.UserGoalsPrefKey, "");
-        _proteinGoal = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.ProteinGoalPrefKey, 0);
+        var p = NutritionGoals.Get(NutritionGoals.Protein); _pMin = p.Min; _pMax = p.Max;
+        var c = NutritionGoals.Get(NutritionGoals.Carbs); _cMin = c.Min; _cMax = c.Max;
+        var f = NutritionGoals.Get(NutritionGoals.Fat); _fMin = f.Min; _fMax = f.Max;
+        var fib = NutritionGoals.Get(NutritionGoals.Fiber); _fibMin = fib.Min; _fibMax = fib.Max;
+        var w = NutritionGoals.Get(NutritionGoals.Water); _wMin = w.Min; _wMax = w.Max;
+        _sugarMax = NutritionGoals.AddedSugarMax;
         _textScale = Microsoft.Maui.Storage.Preferences.Default.Get("text_scale_pct", 100);
     }
 
@@ -114,7 +141,12 @@
     private void SaveGoals()
     {
         Microsoft.Maui.Storage.Preferences.Default.Set(GeminiAnalyzer.UserGoalsPrefKey, _goals.Trim());
-        Microsoft.Maui.Storage.Preferences.Default.Set(GeminiAnalyzer.ProteinGoalPrefKey, Math.Max(0, _proteinGoal));
+        NutritionGoals.Set(NutritionGoals.Protein, _pMin, _pMax);
+        NutritionGoals.Set(NutritionGoals.Carbs, _cMin, _cMax);
+        NutritionGoals.Set(NutritionGoals.Fat, _fMin, _fMax);
+        NutritionGoals.Set(NutritionGoals.Fiber, _fibMin, _fibMax);
+        NutritionGoals.Set(NutritionGoals.Water, _wMin, _wMax);
+        NutritionGoals.SetAddedSugarMax(_sugarMax);
         _goalsSaved = true;
     }
 

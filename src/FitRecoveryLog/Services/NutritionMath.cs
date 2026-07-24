@@ -21,6 +21,20 @@ public static class NutritionMath
         meals.Sum(m => m.SugarG ?? 0)
         + drinks.Sum(d => d.SugarG ?? (d.SugarCount ?? 0) * 4.0);
 
+    public static double Carbs(IEnumerable<MealEntry> meals, IEnumerable<DrinkEntry> drinks) =>
+        meals.Sum(m => m.CarbsG ?? 0) + drinks.Sum(d => d.CarbsG ?? 0);
+
+    public static double Fat(IEnumerable<MealEntry> meals, IEnumerable<DrinkEntry> drinks) =>
+        meals.Sum(m => m.FatG ?? 0) + drinks.Sum(d => d.FatG ?? 0);
+
+    public static double Fiber(IEnumerable<MealEntry> meals, IEnumerable<DrinkEntry> drinks) =>
+        meals.Sum(m => m.FiberG ?? 0) + drinks.Sum(d => d.FiberG ?? 0);
+
+    // Added sugar: label "Added Sugars" on meals/drinks, plus coffee's teaspoons (~4g each).
+    public static double AddedSugar(IEnumerable<MealEntry> meals, IEnumerable<DrinkEntry> drinks) =>
+        meals.Sum(m => m.AddedSugarG ?? 0)
+        + drinks.Sum(d => (d.AddedSugarG ?? 0) + (d.SugarCount ?? 0) * 4.0);
+
     public static bool HasData(IEnumerable<MealEntry> meals, IEnumerable<DrinkEntry> drinks) =>
         meals.Any(m => m.Calories is not null || m.ProteinG is not null)
         || drinks.Any(d => d.Calories is not null || d.ProteinG is not null

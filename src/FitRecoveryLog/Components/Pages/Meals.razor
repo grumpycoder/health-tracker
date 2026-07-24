@@ -134,8 +134,11 @@
                     <div class="field"><label>Sugar (g)</label><input type="number" inputmode="decimal" @bind="_scan.SugarG" /></div>
                 </div>
                 <div class="inline-fields">
+                    <div class="field"><label>Added sugar (g)</label><input type="number" inputmode="decimal" @bind="_scan.AddedSugarG" /></div>
                     <div class="field"><label>Fat (g)</label><input type="number" inputmode="decimal" @bind="_scan.FatG" /></div>
                     <div class="field"><label>Sodium (mg)</label><input type="number" inputmode="numeric" @bind="_scan.SodiumMg" /></div>
+                </div>
+                <div class="inline-fields">
                     <div class="field"><label>Fiber (g)</label><input type="number" inputmode="decimal" @bind="_scan.FiberG" /></div>
                 </div>
                 <div class="routine-actions">
@@ -254,6 +257,7 @@
                     <div class="field"><label>Fat (g)</label><input type="number" inputmode="decimal" @bind="_drinkScan.FatG" /></div>
                 </div>
                 <div class="inline-fields">
+                    <div class="field"><label>Added sugar (g)</label><input type="number" inputmode="decimal" @bind="_drinkScan.AddedSugarG" /></div>
                     <div class="field"><label>Sodium (mg)</label><input type="number" inputmode="numeric" @bind="_drinkScan.SodiumMg" /></div>
                     <div class="field"><label>Fiber (g)</label><input type="number" inputmode="decimal" @bind="_drinkScan.FiberG" /></div>
                 </div>
@@ -295,24 +299,12 @@
         @if (HasNutritionData)
         {
             <div style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--border)">
-                <div style="display:flex;flex-wrap:wrap;gap:0.4rem 1.1rem;font-size:0.95rem">
+                <div style="display:flex;flex-wrap:wrap;gap:0.4rem 1.1rem;font-size:0.95rem;margin-bottom:0.4rem">
                     <span><strong>@DayCalories</strong> <span class="muted">cal</span></span>
-                    <span><strong>@DayProtein.ToString("0")</strong> <span class="muted">g protein</span></span>
-                    <span><strong>@DaySugar.ToString("0")</strong> <span class="muted">g sugar</span></span>
+                    <span><strong>@DaySugar.ToString("0")</strong> <span class="muted">g total sugar</span></span>
                     <span><strong>@DaySodium.ToString("0")</strong> <span class="muted">mg sodium</span></span>
                 </div>
-                @if (_proteinGoal > 0)
-                {
-                    var pct = (int)Math.Round(Math.Min(100, DayProtein / _proteinGoal * 100));
-                    <div style="margin-top:0.4rem">
-                        <div style="display:flex;justify-content:space-between;font-size:0.8rem" class="muted">
-                            <span>Protein goal</span><span>@DayProtein.ToString("0") / @_proteinGoal g</span>
-                        </div>
-                        <div style="height:6px;border-radius:3px;background:var(--border);overflow:hidden">
-                            <div style="height:100%;width:@(pct)%;background:@(DayProtein >= _proteinGoal ? "#3fa34d" : "var(--accent)")"></div>
-                        </div>
-                    </div>
-                }
+                <NutritionGoalsCard Meals="_todayMeals" Drinks="_todayDrinks" />
                 @if (EnergyOut is { } outKcal && DayCalories > 0)
                 {
                     var net = DayCalories - outKcal;
@@ -522,7 +514,6 @@
     private double? _latestWeightLbs;
     private int? _latestBmr;
     private int _dayWorkoutSeconds;
-    private int _proteinGoal;
 
     private int MacroMealCount => _todayMeals.Count(m => m.Calories is not null || m.ProteinG is not null);
     private int DayCalories => NutritionMath.Calories(_todayMeals, _todayDrinks);
@@ -875,6 +866,7 @@
         _meal.FatG = f.FatG is { } ft ? Math.Round(ft * n, 1) : null;
         _meal.SodiumMg = f.SodiumMg is { } so ? (int)Math.Round(so * n) : null;
         _meal.FiberG = f.FiberG is { } fi ? Math.Round(fi * n, 1) : null;
+        _meal.AddedSugarG = f.AddedSugarG is { } asu ? Math.Round(asu * n, 1) : null;
         _scan = null;
         _scanMsg = "Macros applied ✓";
     }
@@ -946,6 +938,7 @@
         _drink.FatG = f.FatG is { } ft ? Math.Round(ft * n, 1) : null;
         _drink.SodiumMg = f.SodiumMg is { } so ? (int)Math.Round(so * n) : null;
         _drink.FiberG = f.FiberG is { } fi ? Math.Round(fi * n, 1) : null;
+        _drink.AddedSugarG = f.AddedSugarG is { } asu ? Math.Round(asu * n, 1) : null;
         _drinkScan = null;
         _drinkScanMsg = "Macros applied ✓";
     }
@@ -1167,7 +1160,6 @@
         _dayWorkoutSeconds = await db.WorkoutSessions
             .Where(w => w.Date == DateOnly.FromDateTime(_viewDate) && w.TotalSeconds != null)
             .SumAsync(w => w.TotalSeconds!.Value);
-        _proteinGoal = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.ProteinGoalPrefKey, 0);
 
         // Build typeahead libraries: seed list + every distinct food/drink logged.
         var mealRows = await db.MealEntries.OrderByDescending(m => m.Time)
