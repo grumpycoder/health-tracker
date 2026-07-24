@@ -290,6 +290,10 @@
                                                 <span title="Fit with your goals" style="color:#f5b301;margin-left:0.3rem">@(new string('★', q))<span class="muted">@(new string('☆', 5 - q))</span></span>
                                             }
                                         </span>
+                                        @if (MacroLine(m) is { Length: > 0 } macros)
+                                        {
+                                            <span class="muted" style="display:block;font-size:0.75rem">@macros</span>
+                                        }
                                     </div>
                                     <div class="routine-actions">
                                         <button class="icon-action" title="Edit" aria-label="Edit" @onclick="() => StartEditMeal(m)">✏️</button>
