@@ -1,7 +1,7 @@
 @using FitRecoveryLog.Data
 @using FitRecoveryLog.Services
 
-@if (NutritionMath.HasData(Meals, Drinks) || WaterOz > 0 || OnAddWater.HasDelegate)
+@if (NutritionMath.HasData(Meals, Drinks) || NutritionMath.WaterOz(Drinks) > 0 || OnAddWater.HasDelegate)
 {
     <div>
         @Macro("Protein", NutritionMath.Protein(Meals, Drinks), "g", NutritionGoals.Get(NutritionGoals.Protein))
@@ -16,9 +16,9 @@
 @code {
     [Parameter] public List<MealEntry> Meals { get; set; } = new();
     [Parameter] public List<DrinkEntry> Drinks { get; set; } = new();
-    [Parameter] public int WaterOz { get; set; }
     [Parameter] public bool WorkoutDay { get; set; }
-    /// <summary>When set, water quick-add buttons show and raise the added ounces.</summary>
+    /// <summary>When set, water quick-add buttons show; the arg is ounces to log as a
+    /// Water drink (negative = undo the most recent water entry).</summary>
     [Parameter] public EventCallback<int> OnAddWater { get; set; }
 
     private static RenderFragment Line(string label, string value, GoalStatus status) => @<div style="display:flex;justify-content:space-between;align-items:center;padding:0.2rem 0">
@@ -44,17 +44,18 @@
     private RenderFragment WaterRow()
     {
         var g = NutritionGoals.Get(NutritionGoals.Water);
+        var waterOz = NutritionMath.WaterOz(Drinks);
         // Only relevant where water is actionable (Home) or already logged.
-        if (!OnAddWater.HasDelegate && WaterOz <= 0) return @<text></text>;
+        if (!OnAddWater.HasDelegate && waterOz <= 0) return @<text></text>;
         if (!g.IsSet) return @<text></text>;
         var target = WorkoutDay ? g.Max : g.Min;                  // ounces needed to "hit" it
-        var met = WaterOz >= target;
+        var met = waterOz >= target;
         var goalText = WorkoutDay ? $"{g.Max} (workout day)" : $"{g.Min}–{g.Max}";
         return @<div style="padding:0.2rem 0">
             <div style="display:flex;justify-content:space-between;align-items:center">
                 <span>💧 Water</span>
                 <span style="display:flex;align-items:center;gap:0.4rem">
-                    <span><strong>@WaterOz</strong> / @goalText oz</span>
+                    <span><strong>@waterOz</strong> / @goalText oz</span>
                     <span style="color:@NutritionGoals.Color(met ? GoalStatus.InRange : GoalStatus.Under);font-size:0.7rem">●</span>
                 </span>
             </div>
@@ -65,9 +66,9 @@
                     {
                         <button type="button" class="chip" @onclick="() => OnAddWater.InvokeAsync(oz)">+@oz</button>
                     }
-                    @if (WaterOz > 0)
+                    @if (waterOz > 0)
                     {
-                        <button type="button" class="chip" title="Undo last add" @onclick="() => OnAddWater.InvokeAsync(-8)">↺</button>
+                        <button type="button" class="chip" title="Undo last water" @onclick="() => OnAddWater.InvokeAsync(-1)">↺</button>
                     }
                 </div>
             }

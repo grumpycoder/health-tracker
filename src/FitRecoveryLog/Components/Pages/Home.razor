@@ -51,7 +51,7 @@
                 <span><strong style="color:var(--text)">@NutritionMath.Calories(_todayMeals, _todayDrinks)</strong> cal</span>
             </span>
         </div>
-        <NutritionGoalsCard Meals="_todayMeals" Drinks="_todayDrinks" WaterOz="_log.WaterOz"
+        <NutritionGoalsCard Meals="_todayMeals" Drinks="_todayDrinks"
                             WorkoutDay="_workoutToday" OnAddWater="AddWater" />
         <button class="link-btn" style="padding:0;margin-top:0.3rem" @onclick="@(() => Nav.NavigateTo("meals"))">Open full log →</button>
     </section>
@@ -434,18 +434,30 @@
         if (existing is null)
             db.DailyLogs.Add(_log);
         else
-        {
             existing.DayType = _log.DayType;
-            existing.WaterOz = _log.WaterOz;
-        }
         await db.SaveChangesAsync();
     }
 
-    /// <summary>Quick-add (or undo) water in ounces toward the daily goal.</summary>
+    /// <summary>Quick-add water as a Water drink entry (positive oz), or undo the most
+    /// recent water entry today (negative). Water totals then just read from the log.</summary>
     private async Task AddWater(int oz)
     {
-        _log.WaterOz = Math.Max(0, _log.WaterOz + oz);
-        await SaveLog();
+        var start = _today.ToDateTime(TimeOnly.MinValue);
+        var end = start.AddDays(1);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        if (oz > 0)
+        {
+            db.DrinkEntries.Add(new DrinkEntry { Description = "Water", Ounces = oz, Time = DateTime.Now });
+        }
+        else
+        {
+            var last = await db.DrinkEntries
+                .Where(d => d.Time >= start && d.Time < end && d.Description == "Water")
+                .OrderByDescending(d => d.Time).FirstOrDefaultAsync();
+            if (last is not null) db.DrinkEntries.Remove(last);
+        }
+        await db.SaveChangesAsync();
+        _todayDrinks = await db.DrinkEntries.Where(d => d.Time >= start && d.Time < end).ToListAsync();
     }
 
     private static string Label(DayType dt) => dt switch
