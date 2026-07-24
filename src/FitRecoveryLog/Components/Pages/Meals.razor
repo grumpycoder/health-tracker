@@ -576,8 +576,11 @@
         }
     }
     private List<string> _drinkLib = new();
-    // Drink name -> most recent (ounces, sugar, tags), to prefill on selection.
-    private Dictionary<string, (double? Oz, int? Sugar, string? Tags)> _drinkDefaults = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Last-logged details of a drink so a repeat reuses them. Amount/sugar use
+    /// the recent-window mode; macros come from the most recent entry (no re-scan needed).</summary>
+    private record DrinkMemory(double? Oz, int? Sugar, string? Tags, int? Calories, double? ProteinG,
+        double? CarbsG, double? SugarG, double? FatG, int? SodiumMg, double? FiberG, double? AddedSugarG);
+    private Dictionary<string, DrinkMemory> _drinkDefaults = new(StringComparer.OrdinalIgnoreCase);
 
     private void SelectDrink(string name)
     {
@@ -589,6 +592,10 @@
             _drink.Ounces = d.Oz;
             _drink.SugarCount = d.Sugar;
             _drinkTagBox.Load(CsvField.Split(d.Tags));
+            // Carry macros from the last time — a repeat needs no scan/AI call.
+            _drink.Calories = d.Calories; _drink.ProteinG = d.ProteinG; _drink.CarbsG = d.CarbsG;
+            _drink.SugarG = d.SugarG; _drink.FatG = d.FatG; _drink.SodiumMg = d.SodiumMg;
+            _drink.FiberG = d.FiberG; _drink.AddedSugarG = d.AddedSugarG;
         }
     }
 
@@ -1186,7 +1193,8 @@
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
         var drinkRows = await db.DrinkEntries
             .OrderByDescending(d => d.Time)
-            .Select(d => new { d.Description, d.Ounces, d.SugarCount, d.Tags }).ToListAsync();
+            .Select(d => new { d.Description, d.Ounces, d.SugarCount, d.Tags, d.Calories, d.ProteinG,
+                d.CarbsG, d.SugarG, d.FatG, d.SodiumMg, d.FiberG, d.AddedSugarG }).ToListAsync();
         _drinkLib = CommonDrinks.Concat(drinkRows.Select(d => d.Description))
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
@@ -1208,9 +1216,14 @@
         _drinkDefaults = drinkRows
             .Where(d => !string.IsNullOrWhiteSpace(d.Description))
             .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key,
-                g => (RecentMode(g.Select(x => x.Ounces)), RecentMode(g.Select(x => x.SugarCount)), g.First().Tags),
-                StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(g => g.Key, g =>
+            {
+                var last = g.First(); // most recent entry (rows are newest-first) → macros
+                return new DrinkMemory(
+                    RecentMode(g.Select(x => x.Ounces)), RecentMode(g.Select(x => x.SugarCount)), last.Tags,
+                    last.Calories, last.ProteinG, last.CarbsG, last.SugarG, last.FatG, last.SodiumMg,
+                    last.FiberG, last.AddedSugarG);
+            }, StringComparer.OrdinalIgnoreCase);
 
         // Separate vocabularies: each = its starter tags + custom tags already used
         // on that entry type, so meal and drink chips don't bleed into each other.
