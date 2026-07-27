@@ -855,13 +855,22 @@ public static class GeminiAnalyzer
     public static async Task<MealScan?> EstimateMealFromPhotoAsync(string apiKey, byte[] imageJpeg, IReadOnlyList<string> vocabulary)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("Estimate the nutrition of the meal in this photo AND tag/rate it. Identify the foods " +
-                      "and approximate portions, then estimate the TOTAL macros for everything on the plate/bowl " +
-                      "as shown. These are visual estimates, not exact — be reasonable, not precise. Respond with " +
-                      "ONLY this JSON object (null for anything you truly can't estimate):");
-        sb.AppendLine("""{ "foodDescription": "<short, e.g. 'grilled chicken, rice, broccoli'>", "servingSize": "whole plate (estimate)", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "addedSugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num>, "tags": ["<existing tags that apply>"], "newTag": "<one new tag or null>", "stars": <1-5>, "starReason": "<≤8 words, encouraging>" }""");
-        sb.AppendLine("Numbers are for the whole plate, units stripped. If it isn't a photo of food, return all nulls. " +
-                      "Base tags and the star rating on the estimated macros for the whole plate.");
+        sb.AppendLine("Estimate the nutrition of the meal in this photo AND tag/rate it. Identify each food, " +
+                      "estimate its portion, then TOTAL the macros for everything on the plate/bowl as shown. " +
+                      "Respond with ONLY this JSON object (null for anything you truly can't estimate):");
+        sb.AppendLine("""{ "foodDescription": "<short, e.g. 'meatloaf, mashed potatoes, green beans'>", "servingSize": "whole plate (estimate)", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "addedSugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num>, "tags": ["<existing tags that apply>"], "newTag": "<one new tag or null>", "stars": <1-5>, "starReason": "<≤8 words, encouraging>" }""");
+        sb.AppendLine("Numbers are for the whole plate, units stripped. If it isn't a photo of food, return all nulls.");
+        sb.AppendLine("CALIBRATION — photo estimates tend to run HIGH; do NOT overestimate. Assume STANDARD " +
+                      "home portions unless the plate is clearly oversized, and do NOT add calories for oil, " +
+                      "butter, or sauce you cannot actually see. Use these per-serving anchors and pick the " +
+                      "MIDDLE of the range, never the top:");
+        sb.AppendLine("  - cooked meat/protein, palm-sized 3-5 oz: 150-300 kcal");
+        sb.AppendLine("  - mashed potatoes ~1 cup: 200-250 kcal; rice/pasta ~1 cup: ~200 kcal");
+        sb.AppendLine("  - non-starchy veg (green beans, broccoli, salad) ~1 cup: 40-70 kcal");
+        sb.AppendLine("  - a slice of bread ~80 kcal; a pat of butter ~35 kcal");
+        sb.AppendLine("A normal meat-and-two-sides dinner plate totals roughly 500-750 kcal. Only exceed ~900 " +
+                      "if the plate is clearly large or obviously fried, breaded, heavily sauced, or cheesy. " +
+                      "Base tags and the star rating on the estimated macros.");
         AppendMealTaggingRules(sb, vocabulary);
 
         var text = await GenerateAsync(apiKey, sb.ToString(), imageJpeg);
