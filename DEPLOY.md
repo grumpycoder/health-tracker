@@ -45,6 +45,26 @@ Notes:
 
 If the script fails partway, fall back to the manual steps below.
 
+### Automatic (launchd)
+
+A launchd agent runs the refresh **every Monday 9:00 AM** (or the next wake if
+the Mac was asleep), then posts a macOS notification with the result. It only
+succeeds if, at that moment, the Mac is logged in and the **iPhone is unlocked
+and connected** — otherwise you get a "refresh failed" notification and just run
+`refresh-cert.sh` manually. Pieces:
+- `refresh-cert-scheduled.sh` — the entry point (sets PATH, logs, notifies)
+- `tools/com.mlawrence.fitlog.refresh.plist` → installed at
+  `~/Library/LaunchAgents/com.mlawrence.fitlog.refresh.plist`
+- Log: `~/Library/Logs/fitlog-refresh.log`
+
+Manage it:
+```bash
+launchctl list | grep fitlog                                   # is it loaded?
+launchctl start com.mlawrence.fitlog.refresh                   # run now
+launchctl unload ~/Library/LaunchAgents/com.mlawrence.fitlog.refresh.plist   # disable
+launchctl load -w ~/Library/LaunchAgents/com.mlawrence.fitlog.refresh.plist  # re-enable
+```
+
 ---
 
 ## Before you start (every time)
