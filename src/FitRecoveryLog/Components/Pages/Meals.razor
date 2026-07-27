@@ -353,6 +353,21 @@
                                         @foreach (var s in SatietyOptions) { <option value="@s">@Pretty(s.ToString())</option> }
                                     </select>
                                 </div>
+                                <p class="muted" style="margin:0.4rem 0 0.2rem;font-size:0.8rem">Macros</p>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Calories</label><input type="number" inputmode="numeric" @bind="_mealEdit.Calories" /></div>
+                                    <div class="field"><label>Protein (g)</label><input type="number" inputmode="decimal" @bind="_mealEdit.ProteinG" /></div>
+                                    <div class="field"><label>Carbs (g)</label><input type="number" inputmode="decimal" @bind="_mealEdit.CarbsG" /></div>
+                                </div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Sugar (g)</label><input type="number" inputmode="decimal" @bind="_mealEdit.SugarG" /></div>
+                                    <div class="field"><label>Added sugar (g)</label><input type="number" inputmode="decimal" @bind="_mealEdit.AddedSugarG" /></div>
+                                    <div class="field"><label>Fat (g)</label><input type="number" inputmode="decimal" @bind="_mealEdit.FatG" /></div>
+                                </div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Sodium (mg)</label><input type="number" inputmode="numeric" @bind="_mealEdit.SodiumMg" /></div>
+                                    <div class="field"><label>Fiber (g)</label><input type="number" inputmode="decimal" @bind="_mealEdit.FiberG" /></div>
+                                </div>
                                 <div class="routine-actions">
                                     <button class="save-btn" @onclick="SaveMealEdit">Save</button>
                                     <button class="link-btn" @onclick="() => _editMealId = null">Cancel</button>
@@ -410,6 +425,21 @@
                                     <div class="field"><label>Sugar</label><input type="number" inputmode="decimal" @bind="_drinkEdit.SugarCount" /></div>
                                 </div>
                                 @TagField(_drinkEditTagBox, _drinkTagOptions, () => SuggestTagsAsync(_drinkEditTagBox, _drinkTagOptions, "Drink", _drinkEdit.Description, DrinkPortion(_drinkEdit)))
+                                <p class="muted" style="margin:0.4rem 0 0.2rem;font-size:0.8rem">Macros</p>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Calories</label><input type="number" inputmode="numeric" @bind="_drinkEdit.Calories" /></div>
+                                    <div class="field"><label>Protein (g)</label><input type="number" inputmode="decimal" @bind="_drinkEdit.ProteinG" /></div>
+                                    <div class="field"><label>Carbs (g)</label><input type="number" inputmode="decimal" @bind="_drinkEdit.CarbsG" /></div>
+                                </div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Sugar (g)</label><input type="number" inputmode="decimal" @bind="_drinkEdit.SugarG" /></div>
+                                    <div class="field"><label>Added sugar (g)</label><input type="number" inputmode="decimal" @bind="_drinkEdit.AddedSugarG" /></div>
+                                    <div class="field"><label>Fat (g)</label><input type="number" inputmode="decimal" @bind="_drinkEdit.FatG" /></div>
+                                </div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Sodium (mg)</label><input type="number" inputmode="numeric" @bind="_drinkEdit.SodiumMg" /></div>
+                                    <div class="field"><label>Fiber (g)</label><input type="number" inputmode="decimal" @bind="_drinkEdit.FiberG" /></div>
+                                </div>
                                 <div class="routine-actions">
                                     <button class="save-btn" @onclick="SaveDrinkEdit">Save</button>
                                     <button class="link-btn" @onclick="() => _editDrinkId = null">Cancel</button>
@@ -1012,7 +1042,8 @@
             Description = m.Description, MealType = m.MealType,
             PortionNote = m.PortionNote, Satiety = m.Satiety,
             Calories = m.Calories, ProteinG = m.ProteinG, CarbsG = m.CarbsG,
-            SugarG = m.SugarG, FatG = m.FatG, SodiumMg = m.SodiumMg, FiberG = m.FiberG
+            SugarG = m.SugarG, FatG = m.FatG, SodiumMg = m.SodiumMg, FiberG = m.FiberG,
+            AddedSugarG = m.AddedSugarG
         };
         _mealEditTagBox.Load(m.TagList);
         _mealEditTagBox.Stars = m.QualityStars;
@@ -1033,6 +1064,9 @@
             e.Time = _mealEditTime;
             e.Tags = CsvField.Join(_mealEditTagBox.Selected);
             e.QualityStars = _mealEditTagBox.Stars;
+            e.Calories = _mealEdit.Calories; e.ProteinG = _mealEdit.ProteinG; e.CarbsG = _mealEdit.CarbsG;
+            e.SugarG = _mealEdit.SugarG; e.FatG = _mealEdit.FatG; e.SodiumMg = _mealEdit.SodiumMg;
+            e.FiberG = _mealEdit.FiberG; e.AddedSugarG = _mealEdit.AddedSugarG;
             await db.SaveChangesAsync();
             if (_mealEdit.Satiety != Satiety.Unset)
                 ReminderNotifier.Cancel(ReminderNotifier.MealRatingNotificationId);
@@ -1054,7 +1088,12 @@
     {
         _editMealId = null;
         _editDrinkId = d.Id;
-        _drinkEdit = new DrinkEntry { Description = d.Description, Ounces = d.Ounces, SugarCount = d.SugarCount };
+        _drinkEdit = new DrinkEntry
+        {
+            Description = d.Description, Ounces = d.Ounces, SugarCount = d.SugarCount,
+            Calories = d.Calories, ProteinG = d.ProteinG, CarbsG = d.CarbsG, SugarG = d.SugarG,
+            FatG = d.FatG, SodiumMg = d.SodiumMg, FiberG = d.FiberG, AddedSugarG = d.AddedSugarG
+        };
         _drinkEditTagBox.Load(d.TagList);
         _drinkEditTime = d.Time;
     }
@@ -1071,6 +1110,9 @@
             e.SugarCount = _drinkEdit.SugarCount;
             e.Time = _drinkEditTime;
             e.Tags = CsvField.Join(_drinkEditTagBox.Selected);
+            e.Calories = _drinkEdit.Calories; e.ProteinG = _drinkEdit.ProteinG; e.CarbsG = _drinkEdit.CarbsG;
+            e.SugarG = _drinkEdit.SugarG; e.FatG = _drinkEdit.FatG; e.SodiumMg = _drinkEdit.SodiumMg;
+            e.FiberG = _drinkEdit.FiberG; e.AddedSugarG = _drinkEdit.AddedSugarG;
             await db.SaveChangesAsync();
         }
         _editDrinkId = null;
