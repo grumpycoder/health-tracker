@@ -20,6 +20,33 @@ Key facts you'll need:
 
 ---
 
+## Weekly reset — one command (preferred)
+
+Run this once a week (e.g. Monday) with the iPhone unlocked and on Wi‑Fi:
+
+```bash
+/Users/YOURNAME/source/HealthTracker/refresh-cert.sh
+```
+
+It deletes the current profile, mints a **fresh 7-day one** from the terminal
+(via `xcodebuild -allowProvisioningUpdates` against the stub Xcode project at
+`/Users/YOURNAME/source/ios_temp/fitrecoverylog`), rebuilds, installs, and
+launches to confirm. **No Rider or Xcode GUI needed** — the *only* thing that
+still needs the GUI is keeping the Apple ID signed into **Xcode → Settings →
+Accounts** (that session lapses every so often; if the script reports an
+`xcodebuild` failure, re-sign in there and re-run).
+
+Notes:
+- You won't get a "Trust" prompt on the phone — trust is tied to the signing
+  *certificate*, which doesn't change; only the profile is renewed.
+- The stub Xcode project must keep the same bundle id
+  (`com.mlawrence.fitrecoverylog`), team `<YOUR_TEAM_ID>`, automatic signing, and
+  the **HealthKit** capability, or the minted profile won't match the app.
+
+If the script fails partway, fall back to the manual steps below.
+
+---
+
 ## Before you start (every time)
 
 1. **Unlock the iPhone and keep it awake** — plug it in via USB. Most failures
