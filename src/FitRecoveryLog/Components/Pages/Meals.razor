@@ -142,7 +142,15 @@
                     <div class="field"><label>Fiber (g)</label><input type="number" inputmode="decimal" @bind="_scan.FiberG" /></div>
                 </div>
                 <div class="routine-actions">
-                    <button class="save-btn" @onclick="ApplyScan">Apply to meal</button>
+                    @if (MealHasMacros)
+                    {
+                        <button class="save-btn" @onclick="() => ApplyScan(true)">➕ Add to meal</button>
+                        <button class="link-btn" @onclick="() => ApplyScan(false)">Replace</button>
+                    }
+                    else
+                    {
+                        <button class="save-btn" @onclick="() => ApplyScan(false)">Apply to meal</button>
+                    }
                     <button class="link-btn" @onclick="() => { _scan = null; _scanMsg = null; }">Discard</button>
                 </div>
             </div>
@@ -262,7 +270,15 @@
                     <div class="field"><label>Fiber (g)</label><input type="number" inputmode="decimal" @bind="_drinkScan.FiberG" /></div>
                 </div>
                 <div class="routine-actions">
-                    <button class="save-btn" @onclick="ApplyDrinkScan">Apply to drink</button>
+                    @if (DrinkHasMacros)
+                    {
+                        <button class="save-btn" @onclick="() => ApplyDrinkScan(true)">➕ Add to drink</button>
+                        <button class="link-btn" @onclick="() => ApplyDrinkScan(false)">Replace</button>
+                    }
+                    else
+                    {
+                        <button class="save-btn" @onclick="() => ApplyDrinkScan(false)">Apply to drink</button>
+                    }
                     <button class="link-btn" @onclick="() => { _drinkScan = null; _drinkScanMsg = null; }">Discard</button>
                 </div>
             </div>
@@ -898,20 +914,43 @@
     }
 
     /// <summary>Multiply the reviewed per-serving values by servings eaten onto the meal.</summary>
-    private void ApplyScan()
+    // True once an entry carries any macro — drives the Add-vs-Replace choice so a
+    // second scan (e.g. whey added to yogurt) can sum onto the first instead of overwriting.
+    private bool MealHasMacros => _meal.Calories is not null || _meal.ProteinG is not null
+        || _meal.CarbsG is not null || _meal.SugarG is not null || _meal.FatG is not null
+        || _meal.SodiumMg is not null || _meal.FiberG is not null || _meal.AddedSugarG is not null;
+    private bool DrinkHasMacros => _drink.Calories is not null || _drink.ProteinG is not null
+        || _drink.CarbsG is not null || _drink.SugarG is not null || _drink.FatG is not null
+        || _drink.SodiumMg is not null || _drink.FiberG is not null || _drink.AddedSugarG is not null;
+
+    // Combine a scanned value (× servings) with the current: replace it, or add onto it.
+    private static int? CombineInt(int? current, int? scanned, double servings, bool add)
+    {
+        if (scanned is null) return add ? current : null;
+        var v = (int)Math.Round(scanned.Value * servings);
+        return add ? (current ?? 0) + v : v;
+    }
+    private static double? CombineDbl(double? current, double? scanned, double servings, bool add)
+    {
+        if (scanned is null) return add ? current : null;
+        var v = scanned.Value * servings;
+        return Math.Round(add ? (current ?? 0) + v : v, 1);
+    }
+
+    private void ApplyScan(bool add)
     {
         if (_scan is not { } f) return;
         var n = _scanServings <= 0 ? 1 : _scanServings;
-        _meal.Calories = f.Calories is { } c ? (int)Math.Round(c * n) : null;
-        _meal.ProteinG = f.ProteinG is { } p ? Math.Round(p * n, 1) : null;
-        _meal.CarbsG = f.CarbsG is { } cb ? Math.Round(cb * n, 1) : null;
-        _meal.SugarG = f.SugarG is { } su ? Math.Round(su * n, 1) : null;
-        _meal.FatG = f.FatG is { } ft ? Math.Round(ft * n, 1) : null;
-        _meal.SodiumMg = f.SodiumMg is { } so ? (int)Math.Round(so * n) : null;
-        _meal.FiberG = f.FiberG is { } fi ? Math.Round(fi * n, 1) : null;
-        _meal.AddedSugarG = f.AddedSugarG is { } asu ? Math.Round(asu * n, 1) : null;
+        _meal.Calories = CombineInt(_meal.Calories, f.Calories, n, add);
+        _meal.ProteinG = CombineDbl(_meal.ProteinG, f.ProteinG, n, add);
+        _meal.CarbsG = CombineDbl(_meal.CarbsG, f.CarbsG, n, add);
+        _meal.SugarG = CombineDbl(_meal.SugarG, f.SugarG, n, add);
+        _meal.FatG = CombineDbl(_meal.FatG, f.FatG, n, add);
+        _meal.SodiumMg = CombineInt(_meal.SodiumMg, f.SodiumMg, n, add);
+        _meal.FiberG = CombineDbl(_meal.FiberG, f.FiberG, n, add);
+        _meal.AddedSugarG = CombineDbl(_meal.AddedSugarG, f.AddedSugarG, n, add);
         _scan = null;
-        _scanMsg = "Macros applied ✓";
+        _scanMsg = add ? "Added to meal ✓" : "Macros applied ✓";
     }
 
     private static string MacroLine(MealEntry m)
@@ -968,22 +1007,22 @@
 
     /// <summary>Apply the reviewed macros to the drink, scaled by ounces drunk ÷ label
     /// serving oz (falls back to one full serving when the ounces aren't both known).</summary>
-    private void ApplyDrinkScan()
+    private void ApplyDrinkScan(bool add)
     {
         if (_drinkScan is not { } f) return;
         var n = _drink.Ounces is { } drank and > 0 && _drinkScanServingOz is { } serv and > 0
             ? drank / serv
             : 1.0;
-        _drink.Calories = f.Calories is { } c ? (int)Math.Round(c * n) : null;
-        _drink.ProteinG = f.ProteinG is { } p ? Math.Round(p * n, 1) : null;
-        _drink.CarbsG = f.CarbsG is { } cb ? Math.Round(cb * n, 1) : null;
-        _drink.SugarG = f.SugarG is { } su ? Math.Round(su * n, 1) : null;
-        _drink.FatG = f.FatG is { } ft ? Math.Round(ft * n, 1) : null;
-        _drink.SodiumMg = f.SodiumMg is { } so ? (int)Math.Round(so * n) : null;
-        _drink.FiberG = f.FiberG is { } fi ? Math.Round(fi * n, 1) : null;
-        _drink.AddedSugarG = f.AddedSugarG is { } asu ? Math.Round(asu * n, 1) : null;
+        _drink.Calories = CombineInt(_drink.Calories, f.Calories, n, add);
+        _drink.ProteinG = CombineDbl(_drink.ProteinG, f.ProteinG, n, add);
+        _drink.CarbsG = CombineDbl(_drink.CarbsG, f.CarbsG, n, add);
+        _drink.SugarG = CombineDbl(_drink.SugarG, f.SugarG, n, add);
+        _drink.FatG = CombineDbl(_drink.FatG, f.FatG, n, add);
+        _drink.SodiumMg = CombineInt(_drink.SodiumMg, f.SodiumMg, n, add);
+        _drink.FiberG = CombineDbl(_drink.FiberG, f.FiberG, n, add);
+        _drink.AddedSugarG = CombineDbl(_drink.AddedSugarG, f.AddedSugarG, n, add);
         _drinkScan = null;
-        _drinkScanMsg = "Macros applied ✓";
+        _drinkScanMsg = add ? "Added to drink ✓" : "Macros applied ✓";
     }
 
     private static string DrinkMacroLine(DrinkEntry d)
