@@ -24,8 +24,7 @@
         </section>
     }
 
-    <section class="card">
-        <h2>Sleep <span class="muted" style="font-size:0.8rem;font-weight:400">· or enter manually</span></h2>
+    <Collapsible Title="😴 Sleep — enter manually" Subtitle="usually pulled from Apple Health" PersistKey="sleep-manual">
         <div class="field">
             <label>Date</label>
             <input type="date" @bind="_date" />
@@ -51,17 +50,41 @@
         {
             <span class="warn-msg">@_sleepWarn</span>
         }
-    </section>
+    </Collapsible>
 
     <section class="card">
         <h2>Recovery & soreness</h2>
-        <div class="field">
-            <label>Recovery rating (1-10)</label>
+        <div class="field" style="position:relative">
+            <label>Recovery rating (1-10)
+                <button type="button" aria-label="How to rate recovery" @onclick="() => _showRecoveryHint = !_showRecoveryHint"
+                        style="border:none;background:none;color:var(--accent);cursor:pointer;font-size:0.95rem;padding:0 0.2rem">ⓘ</button>
+            </label>
             <input type="number" inputmode="decimal" min="1" max="10" @bind="_recovery.RecoveryRating" />
+            @if (_showRecoveryHint)
+            {
+                <div @onclick="() => _showRecoveryHint = false"
+                     style="position:absolute;z-index:30;top:100%;left:0;right:0;margin-top:0.25rem;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:0.6rem 0.75rem;box-shadow:0 8px 24px rgba(0,0,0,0.25);font-size:0.8rem;line-height:1.4;cursor:pointer">
+                    <strong>How ready is your body to train today?</strong> — 10 = fresh &amp; recovered, 1 = still wiped. Weigh last night's sleep, muscle soreness, energy, and motivation.
+                    <br><span class="muted">8-10 slept well, no soreness · 5-7 minor tiredness/soreness · 1-4 poor sleep, sore, drained</span>
+                    <br><span class="muted" style="font-size:0.72rem">tap to close</span>
+                </div>
+            }
         </div>
-        <div class="field">
-            <label>Fatigue rating (1-10)</label>
+        <div class="field" style="position:relative">
+            <label>Fatigue rating (1-10)
+                <button type="button" aria-label="How to rate fatigue" @onclick="() => _showFatigueHint = !_showFatigueHint"
+                        style="border:none;background:none;color:var(--accent);cursor:pointer;font-size:0.95rem;padding:0 0.2rem">ⓘ</button>
+            </label>
             <input type="number" inputmode="decimal" min="1" max="10" @bind="_recovery.FatigueRating" />
+            @if (_showFatigueHint)
+            {
+                <div @onclick="() => _showFatigueHint = false"
+                     style="position:absolute;z-index:30;top:100%;left:0;right:0;margin-top:0.25rem;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:0.6rem 0.75rem;box-shadow:0 8px 24px rgba(0,0,0,0.25);font-size:0.8rem;line-height:1.4;cursor:pointer">
+                    <strong>How drained do you feel?</strong> — 10 = exhausted, 1 = fresh &amp; energetic. Cues: heavy limbs, sluggishness, low motivation, elevated resting HR, life stress, the week's training load.
+                    <br><span class="muted">1-3 fresh · 4-6 normal tiredness · 7-10 very depleted</span>
+                    <br><span class="muted" style="font-size:0.72rem">tap to close · often the inverse of recovery — log it when it differs</span>
+                </div>
+            }
         </div>
         <div class="field">
             <label>Soreness locations</label>
@@ -159,6 +182,7 @@
     private DateTime _date = DateTime.Now.Date;
     private SleepEntry _sleep = new();
     private RecoveryEntry _recovery = new();
+    private bool _showRecoveryHint, _showFatigueHint;
     private readonly HashSet<string> _soreLocs = new();
     private string? _sleepWarn, _recoveryWarn;
     private List<SleepEntry> _recentSleep = new();
