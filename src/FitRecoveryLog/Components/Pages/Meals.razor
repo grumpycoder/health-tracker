@@ -314,7 +314,13 @@
         }
         @if (HasNutritionData)
         {
-            <div style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--border)">
+            <button class="link-btn" style="padding:0;margin-top:0.4rem" @onclick="() => _showDayMacros = !_showDayMacros">
+                @(_showDayMacros ? "▾" : "▸") Macros for this day
+            </button>
+        }
+        @if (HasNutritionData && _showDayMacros)
+        {
+            <div style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid var(--border)">
                 <div style="display:flex;flex-wrap:wrap;gap:0.4rem 1.1rem;font-size:0.95rem;margin-bottom:0.4rem">
                     <span><strong>@DayCalories</strong> <span class="muted">cal</span></span>
                     <span><strong>@DaySugar.ToString("0")</strong> <span class="muted">g total sugar</span></span>
@@ -1225,12 +1231,16 @@
 
     // The "Log" tab can browse any day; edit/delete work the same everywhere.
     private DateTime _viewDate = DateTime.Now.Date;
+    // Day-macro section on the Log tab: collapsed for today (macros live on the
+    // dashboard), auto-expanded when reviewing a different day.
+    private bool _showDayMacros;
 
     private async Task OnViewDateChanged(ChangeEventArgs e)
     {
         if (DateTime.TryParse(e.Value?.ToString(), out var d))
         {
             _viewDate = d.Date;
+            _showDayMacros = _viewDate != DateTime.Now.Date;
             _editMealId = null;
             _editDrinkId = null;
             await LoadToday();
