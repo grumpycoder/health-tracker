@@ -85,6 +85,18 @@
                                     @foreach (var r in Repeats) { <option value="@r" selected="@(r == s.Repeat)">@r</option> }
                                 </select>
                             </div>
+                            @if (s.Repeat == ReminderRepeat.Weekly)
+                            {
+                                <div class="field">
+                                    <label>Day</label>
+                                    <select value="@(s.DayOfWeek ?? 0)" @onchange="e => ChangeDay(s, e)">
+                                        @for (var d = 0; d < 7; d++)
+                                        {
+                                            <option value="@d" selected="@((s.DayOfWeek ?? 0) == d)">@DayNames[d]</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
                             <div class="field">
                                 <label>Time</label>
                                 <input type="time" value="@s.Time.ToString("HH:mm")" @onchange="e => ChangeTime(s, e)" />
@@ -181,6 +193,11 @@
         Enum.TryParse<ReminderRepeat>(e.Value?.ToString(), out var r) ? Update(s, x => x.Repeat = r) : Task.CompletedTask;
     private Task ChangeTime(ReminderSetting s, ChangeEventArgs e) =>
         TimeOnly.TryParse(e.Value?.ToString(), out var t) ? Update(s, x => x.Time = t) : Task.CompletedTask;
+    private Task ChangeDay(ReminderSetting s, ChangeEventArgs e) =>
+        int.TryParse(e.Value?.ToString(), out var d) ? Update(s, x => x.DayOfWeek = d) : Task.CompletedTask;
+
+    private static readonly string[] DayNames =
+        { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
 
     private async Task Update(ReminderSetting s, Action<ReminderSetting> apply)
     {

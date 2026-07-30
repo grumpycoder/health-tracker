@@ -173,7 +173,21 @@ public static class ReminderNotifier
     }
 
     public static DateTime NextDue(ReminderSetting s) =>
-        NextOccurrence(DateOnly.FromDateTime(DateTime.Now), s.Time, s.Repeat);
+        s.Repeat == ReminderRepeat.Weekly
+            ? NextWeekly(s.DayOfWeek ?? 0, s.Time)
+            : NextOccurrence(DateOnly.FromDateTime(DateTime.Now), s.Time, s.Repeat);
+
+    /// <summary>Next future occurrence of a fixed weekday (0=Sunday..6=Saturday) at
+    /// the given time — so a weekly reminder lands on the same day every week.</summary>
+    public static DateTime NextWeekly(int targetDayOfWeek, TimeOnly time)
+    {
+        var now = DateTime.Now;
+        var date = DateOnly.FromDateTime(now);
+        while ((int)date.DayOfWeek != targetDayOfWeek) date = date.AddDays(1);
+        var when = date.ToDateTime(time);
+        if (when <= now) when = when.AddDays(7);
+        return when;
+    }
 
     /// <summary>Next future occurrence at the given time, stepping by the repeat.</summary>
     public static DateTime NextOccurrence(DateOnly start, TimeOnly time, ReminderRepeat repeat)

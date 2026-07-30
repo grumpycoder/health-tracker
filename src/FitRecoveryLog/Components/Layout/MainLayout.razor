@@ -90,6 +90,14 @@
             foreach (var s in await db.ReminderSettings.ToListAsync())
             {
                 if (!s.Active) { ReminderNotifier.Cancel(s.NotificationId); continue; }
+                // Weekly reminders fire on a fixed weekday (e.g. Sunday) and repeat
+                // weekly — schedule to that day and let the OS repeat it. No per-launch
+                // reschedule, so it can't drift to whatever weekday the app was opened.
+                if (s.Repeat == ReminderRepeat.Weekly)
+                {
+                    await ReminderNotifier.ScheduleAsync(s, Label(s.Key));
+                    continue;
+                }
                 var interval = s.Repeat switch
                 {
                     ReminderRepeat.Daily => 1, ReminderRepeat.Weekly => 7,

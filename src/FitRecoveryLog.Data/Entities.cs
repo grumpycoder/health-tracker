@@ -422,6 +422,10 @@ public class ReminderSetting : EntityBase
     public bool Active { get; set; }
     /// <summary>Stable id used to schedule/cancel the OS notification.</summary>
     public int NotificationId { get; set; }
+    /// <summary>For weekly reminders: which day it fires (0=Sunday..6=Saturday).
+    /// Null is treated as Sunday, so a weekly reminder fires once on a fixed day
+    /// instead of floating to whatever weekday the app was last opened.</summary>
+    public int? DayOfWeek { get; set; }
 }
 
 /// <summary>Helpers for CSV-backed multi-value string columns.</summary>
