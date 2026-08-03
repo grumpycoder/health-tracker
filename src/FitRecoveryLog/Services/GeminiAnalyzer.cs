@@ -852,9 +852,11 @@ public static class GeminiAnalyzer
     /// <summary>Estimate macros for a plate of food from a photo (Gemini vision) AND
     /// tag/rate it, in one call. Rough estimate for the WHOLE plate as shown; the user
     /// reviews/edits. Also returns a short description of the identified foods.</summary>
-    public static async Task<MealScan?> EstimateMealFromPhotoAsync(string apiKey, byte[] imageJpeg, IReadOnlyList<string> vocabulary)
+    public static async Task<MealScan?> EstimateMealFromPhotoAsync(string apiKey, byte[] imageJpeg, IReadOnlyList<string> vocabulary, string? hint = null)
     {
         var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(hint))
+            sb.AppendLine($"IMPORTANT USER CORRECTION — treat as authoritative and re-estimate accordingly: \"{hint.Trim()}\"");
         sb.AppendLine("Estimate the nutrition of the meal in this photo AND tag/rate it. Identify each food, " +
                       "estimate its portion, then TOTAL the macros for everything on the plate/bowl as shown. " +
                       "Respond with ONLY this JSON object (null for anything you truly can't estimate):");

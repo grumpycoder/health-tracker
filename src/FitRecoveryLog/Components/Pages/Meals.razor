@@ -117,6 +117,15 @@
                     <p class="muted" style="margin:0 0 0.4rem;font-size:0.8rem">
                         📷 Rough estimate from the photo@(string.IsNullOrWhiteSpace(_scan.FoodDescription) ? "" : $": {_scan.FoodDescription}") — <strong>double-check the numbers</strong> before applying. "Servings" = how many plates this size you ate.
                     </p>
+                    @if (_plateJpeg is not null)
+                    {
+                        <div class="field">
+                            <label>Got something wrong? Add a hint and re-estimate</label>
+                            <input @bind="_plateHint" placeholder="e.g. it's turkey not beef · ~4 oz meat · no added oil" />
+                        </div>
+                        <button type="button" class="chip" disabled="@_scanBusy" style="margin-bottom:0.4rem"
+                                @onclick="ReEstimatePlate">@(_scanBusy ? "Re-estimating…" : "🔄 Re-estimate with hint")</button>
+                    }
                 }
                 else
                 {
@@ -151,7 +160,7 @@
                     {
                         <button class="save-btn" @onclick="() => ApplyScan(false)">Apply to meal</button>
                     }
-                    <button class="link-btn" @onclick="() => { _scan = null; _scanMsg = null; }">Discard</button>
+                    <button class="link-btn" @onclick="() => { _scan = null; _scanMsg = null; _plateJpeg = null; _plateHint = string.Empty; }">Discard</button>
                 </div>
             </div>
         }
@@ -548,6 +557,8 @@
     private GeminiAnalyzer.NutritionFacts? _scan;   // values under review
     private double _scanServings = 1;
     private bool _scanIsEstimate;                   // true = plate estimate, false = label read
+    private byte[]? _plateJpeg;                     // plate photo kept in-memory for re-estimate
+    private string _plateHint = "";                 // user correction fed back to the estimator
     // Drink label-scan state (separate from the meal scan). Drinks scale by ounces
     // drunk ÷ label serving-size ounces, not a manual serving count.
     private GeminiAnalyzer.NutritionFacts? _drinkScan;
@@ -880,6 +891,7 @@
             else
             {
                 _scan = facts; _scanServings = 1; _scanIsEstimate = false;
+                _plateJpeg = null; _plateHint = "";   // no re-estimate for label reads
                 // Tags + stars came back in the same call — no separate ✨ needed.
                 ApplySuggestionToBox(_mealTagBox, _mealTagOptions, result!.Tags);
             }
@@ -898,25 +910,42 @@
         {
             var jpeg = await CapturePhotoAsync(camera);
             if (jpeg is null) { _scanBusy = false; return; } // cancelled
-            var key = await GeminiAnalyzer.KeyStore.GetAsync() ?? throw new InvalidOperationException("No API key");
-            var result = await GeminiAnalyzer.EstimateMealFromPhotoAsync(key, jpeg, _mealTagOptions);
-            var facts = result?.Facts;
-            if (facts is null || (facts.Calories is null && facts.ProteinG is null && facts.CarbsG is null))
-            {
-                _scanMsg = "Couldn't estimate macros from that photo — try a clearer shot or enter by hand.";
-            }
-            else
-            {
-                _scan = facts; _scanServings = 1; _scanIsEstimate = true;
-                // Prefill the food name from what the AI saw, if not already typed.
-                if (string.IsNullOrWhiteSpace(_meal.Description) && !string.IsNullOrWhiteSpace(facts.FoodDescription))
-                    _meal.Description = facts.FoodDescription;
-                // Tags + stars came back in the same call — no separate ✨ needed.
-                ApplySuggestionToBox(_mealTagBox, _mealTagOptions, result!.Tags);
-            }
+            _plateHint = "";
+            await RunPlateEstimate(jpeg);
         }
         catch (Exception ex) { _scanMsg = $"Estimate failed: {ex.Message}"; }
         _scanBusy = false;
+    }
+
+    /// <summary>Re-run the estimate on the same photo with the user's hint applied.</summary>
+    private async Task ReEstimatePlate()
+    {
+        if (_plateJpeg is null) return;
+        _scanBusy = true;
+        try { await RunPlateEstimate(_plateJpeg); }
+        catch (Exception ex) { _scanMsg = $"Re-estimate failed: {ex.Message}"; }
+        _scanBusy = false;
+    }
+
+    /// <summary>Shared plate-estimate call (initial capture and hint re-runs). Keeps the
+    /// photo in memory so a correction can re-estimate; the bytes are cleared on apply/
+    /// discard/save (never written to disk).</summary>
+    private async Task RunPlateEstimate(byte[] jpeg)
+    {
+        var key = await GeminiAnalyzer.KeyStore.GetAsync() ?? throw new InvalidOperationException("No API key");
+        var result = await GeminiAnalyzer.EstimateMealFromPhotoAsync(key, jpeg, _mealTagOptions,
+            string.IsNullOrWhiteSpace(_plateHint) ? null : _plateHint);
+        var facts = result?.Facts;
+        if (facts is null || (facts.Calories is null && facts.ProteinG is null && facts.CarbsG is null))
+        {
+            _scanMsg = "Couldn't estimate macros from that photo — try a clearer shot or enter by hand.";
+            return;
+        }
+        _scan = facts; _scanServings = 1; _scanIsEstimate = true; _plateJpeg = jpeg;
+        // Prefill the food name from what the AI saw, if not already typed.
+        if (string.IsNullOrWhiteSpace(_meal.Description) && !string.IsNullOrWhiteSpace(facts.FoodDescription))
+            _meal.Description = facts.FoodDescription;
+        ApplySuggestionToBox(_mealTagBox, _mealTagOptions, result!.Tags);
     }
 
     /// <summary>Multiply the reviewed per-serving values by servings eaten onto the meal.</summary>
@@ -955,7 +984,7 @@
         _meal.SodiumMg = CombineInt(_meal.SodiumMg, f.SodiumMg, n, add);
         _meal.FiberG = CombineDbl(_meal.FiberG, f.FiberG, n, add);
         _meal.AddedSugarG = CombineDbl(_meal.AddedSugarG, f.AddedSugarG, n, add);
-        _scan = null;
+        _scan = null; _plateJpeg = null; _plateHint = "";
         _scanMsg = add ? "Added to meal ✓" : "Macros applied ✓";
     }
 
@@ -1208,6 +1237,7 @@
         _mealTagBox.Reset();
         _remindFullness = false;
         _scan = null; _scanMsg = null; _scanServings = 1; _scanIsEstimate = false;
+        _plateJpeg = null; _plateHint = "";
         await LoadToday();
         _ = Toast.Show(remind ? "Meal logged ✓ — I'll remind you to rate it" : "Meal logged ✓");
     }
