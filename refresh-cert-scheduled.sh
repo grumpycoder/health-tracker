@@ -18,9 +18,12 @@ mkdir -p "$(dirname "$LOG")"
   echo "exit code: $rc"
 } >>"$LOG" 2>&1
 
-if [ "${rc:-1}" -eq 0 ]; then
-  osascript -e 'display notification "Signing profile refreshed for the week ✓" with title "Fit Log"' >/dev/null 2>&1
-else
-  osascript -e 'display notification "Refresh failed — unlock & connect the iPhone, then run refresh-cert.sh. Log: ~/Library/Logs/fitlog-refresh.log" with title "Fit Log ⚠️" sound name "Basso"' >/dev/null 2>&1
-fi
+# Notify only when it matters (routine daily heals stay silent):
+#   10 = weekly renewal succeeded · 2 = urgent (cert expired, can't reach phone)
+#    1 = build/sign error · 0,3 = routine/non-urgent → silent
+case "${rc:-1}" in
+  10) osascript -e 'display notification "Signing profile refreshed for the week ✓" with title "Fit Log"' >/dev/null 2>&1 ;;
+  2)  osascript -e 'display notification "Cert expired and the iPhone is unreachable — unlock & connect it (it will retry), or run refresh-cert.sh." with title "Fit Log ⚠️" sound name "Basso"' >/dev/null 2>&1 ;;
+  1)  osascript -e 'display notification "Cert refresh failed to build/sign — check Xcode → Settings → Accounts, then run refresh-cert.sh." with title "Fit Log ⚠️" sound name "Basso"' >/dev/null 2>&1 ;;
+esac
 exit "${rc:-1}"

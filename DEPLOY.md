@@ -47,11 +47,13 @@ If the script fails partway, fall back to the manual steps below.
 
 ### Automatic (launchd)
 
-A launchd agent runs the refresh **every Monday 9:00 AM** (or the next wake if
-the Mac was asleep), then posts a macOS notification with the result. It only
-succeeds if, at that moment, the Mac is logged in and the **iPhone is unlocked
-and connected** — otherwise you get a "refresh failed" notification and just run
-`refresh-cert.sh` manually. Pieces:
+A launchd agent runs the refresh **daily at 9:00 AM and 7:00 PM** (or the next
+wake if the Mac was asleep). It's self-healing: each run only **re-mints** the
+profile when it's within ~2 days of expiry, and **always tries to install**, so
+if the iPhone was disconnected at one run it gets caught up at the next one the
+phone is present. Notifications are quiet by design — you only get one on the
+weekly renewal (✓) or when something needs you (cert expired and phone
+unreachable, or a build/sign error). Routine daily heals are silent. Pieces:
 - `refresh-cert-scheduled.sh` — the entry point (sets PATH, logs, notifies)
 - `tools/com.mlawrence.fitlog.refresh.plist` → installed at
   `~/Library/LaunchAgents/com.mlawrence.fitlog.refresh.plist`
