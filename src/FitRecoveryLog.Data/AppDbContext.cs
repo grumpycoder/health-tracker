@@ -30,13 +30,15 @@ public class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<DailyLog>().HasIndex(x => x.Date).IsUnique();
+        // Unique indexes are filtered to live rows so a tombstoned row doesn't block
+        // re-adding the same date/name after a soft-delete.
+        modelBuilder.Entity<DailyLog>().HasIndex(x => x.Date).IsUnique().HasFilter("\"IsDeleted\" = 0");
         modelBuilder.Entity<CessationEvent>().HasIndex(x => new { x.GoalId, x.Time });
         modelBuilder.Entity<BodyMeasurement>().HasIndex(x => x.Date);
 
         // Library exercises are unique by name, matched case-insensitively.
         modelBuilder.Entity<ExerciseDefinition>().Property(e => e.Name).UseCollation("NOCASE");
-        modelBuilder.Entity<ExerciseDefinition>().HasIndex(e => e.Name).IsUnique();
+        modelBuilder.Entity<ExerciseDefinition>().HasIndex(e => e.Name).IsUnique().HasFilter("\"IsDeleted\" = 0");
         modelBuilder.Entity<WorkoutSession>().HasIndex(x => x.Date);
 
         modelBuilder.Entity<WorkoutRoutine>()
@@ -56,6 +58,18 @@ public class AppDbContext : DbContext
             .WithOne(f => f.WorkoutSession!)
             .HasForeignKey(f => f.WorkoutSessionId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        // Hide soft-deleted (tombstoned) rows from every normal query. FindAsync and
+        // IgnoreQueryFilters() still see them (used by the delete path and full wipe).
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            if (!typeof(EntityBase).IsAssignableFrom(entityType.ClrType)) continue;
+            var e = System.Linq.Expressions.Expression.Parameter(entityType.ClrType, "e");
+            var body = System.Linq.Expressions.Expression.Not(
+                System.Linq.Expressions.Expression.Property(e, nameof(EntityBase.IsDeleted)));
+            modelBuilder.Entity(entityType.ClrType)
+                .HasQueryFilter(System.Linq.Expressions.Expression.Lambda(body, e));
+        }
 
         base.OnModelCreating(modelBuilder);
     }
@@ -77,7 +91,20 @@ public class AppDbContext : DbContext
         foreach (var entry in ChangeTracker.Entries<EntityBase>())
         {
             if (entry.State == EntityState.Modified)
-                entry.Entity.UpdatedAt = DateTime.Now;
+            {
+                entry.Entity.UpdatedAt = DateTime.UtcNow;
+            }
+            else if (entry.State == EntityState.Deleted)
+            {
+                // Convert every delete into a soft-delete tombstone so it can sync to
+                // other clients. Physical removal only happens via ExecuteDelete (Wipe).
+                entry.State = EntityState.Modified;
+                entry.Entity.IsDeleted = true;
+                entry.Entity.DeletedAt = DateTime.UtcNow;
+                entry.Entity.UpdatedAt = DateTime.UtcNow;
+            }
+            // Added rows keep their constructor UTC stamps (or, on restore, the values
+            // from the backup) — don't overwrite them here.
         }
     }
 }

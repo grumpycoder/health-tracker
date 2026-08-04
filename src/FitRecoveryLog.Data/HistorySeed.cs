@@ -281,25 +281,25 @@ public static class HistorySeed
     /// Shared with BackupRestore.</summary>
     internal static void Wipe(AppDbContext db)
     {
-        db.ExerciseSets.ExecuteDelete();
-        db.ExerciseFeedback.ExecuteDelete();
-        db.WorkoutSessions.ExecuteDelete();
-        db.RoutineExercises.ExecuteDelete();
-        db.WorkoutRoutines.ExecuteDelete();
-        db.ExerciseDefinitions.ExecuteDelete();
-        db.MealEntries.ExecuteDelete();
-        db.DrinkEntries.ExecuteDelete();
-        db.BodyMeasurements.ExecuteDelete();
-        db.SleepEntries.ExecuteDelete();
-        db.RecoveryEntries.ExecuteDelete();
-        db.PhysicalWorkloadEntries.ExecuteDelete();
-        db.MedicationEntries.ExecuteDelete();
-        db.MedicationSchedules.ExecuteDelete();
-        db.LabResults.ExecuteDelete();
-        db.WeeklyReviews.ExecuteDelete();
-        db.ReminderSettings.ExecuteDelete();
-        db.DailyLogs.ExecuteDelete();
-        db.NoteEntries.ExecuteDelete();
+        db.ExerciseSets.IgnoreQueryFilters().ExecuteDelete();
+        db.ExerciseFeedback.IgnoreQueryFilters().ExecuteDelete();
+        db.WorkoutSessions.IgnoreQueryFilters().ExecuteDelete();
+        db.RoutineExercises.IgnoreQueryFilters().ExecuteDelete();
+        db.WorkoutRoutines.IgnoreQueryFilters().ExecuteDelete();
+        db.ExerciseDefinitions.IgnoreQueryFilters().ExecuteDelete();
+        db.MealEntries.IgnoreQueryFilters().ExecuteDelete();
+        db.DrinkEntries.IgnoreQueryFilters().ExecuteDelete();
+        db.BodyMeasurements.IgnoreQueryFilters().ExecuteDelete();
+        db.SleepEntries.IgnoreQueryFilters().ExecuteDelete();
+        db.RecoveryEntries.IgnoreQueryFilters().ExecuteDelete();
+        db.PhysicalWorkloadEntries.IgnoreQueryFilters().ExecuteDelete();
+        db.MedicationEntries.IgnoreQueryFilters().ExecuteDelete();
+        db.MedicationSchedules.IgnoreQueryFilters().ExecuteDelete();
+        db.LabResults.IgnoreQueryFilters().ExecuteDelete();
+        db.WeeklyReviews.IgnoreQueryFilters().ExecuteDelete();
+        db.ReminderSettings.IgnoreQueryFilters().ExecuteDelete();
+        db.DailyLogs.IgnoreQueryFilters().ExecuteDelete();
+        db.NoteEntries.IgnoreQueryFilters().ExecuteDelete();
     }
 
     // ---- JSON shapes (event-stream format) ---------------------------------------

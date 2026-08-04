@@ -40,3 +40,8 @@ Platforms/iOS/*.mobileprovision
 health-history.json
 signing.local.props
 refresh-cert.config
+
+# Design docs stay local; keep only the README screenshots tracked
+docs/
+!docs/screenshots/
+!docs/screenshots/**
