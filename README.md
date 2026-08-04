@@ -6,6 +6,28 @@ the App Store.
 
 See [`healthtracker.md`](./healthtracker.md) for the full feature spec.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/01-home.png" width="240" alt="Home dashboard"><br><sub><b>Home</b> — daily goals & plan</sub></td>
+    <td align="center"><img src="docs/screenshots/06-trends.png" width="240" alt="Trends"><br><sub><b>Trends</b> — weight, waist, sleep over time</sub></td>
+    <td align="center"><img src="docs/screenshots/02-meals-log.png" width="240" alt="Meal logging"><br><sub><b>Meals</b> — logging + AI label/plate scan</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/03-workout.png" width="240" alt="Workouts"><br><sub><b>Workout</b> — routines & progression</sub></td>
+    <td align="center"><img src="docs/screenshots/04-sleep-recovery.png" width="240" alt="Sleep and recovery"><br><sub><b>Sleep & Recovery</b></sub></td>
+    <td align="center"><img src="docs/screenshots/08-insights.png" width="240" alt="Insights"><br><sub><b>Insights</b> — AI analysis & correlations</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/07-meds-labs.png" width="240" alt="Medication and labs"><br><sub><b>Meds & Labs</b> — schedules & logging</sub></td>
+    <td align="center"><img src="docs/screenshots/09-body.png" width="240" alt="Body measurements"><br><sub><b>Body</b> — measurements & composition</sub></td>
+    <td align="center"><img src="docs/screenshots/05-more.png" width="240" alt="All screens"><br><sub><b>More</b> — every screen</sub></td>
+  </tr>
+</table>
+
+<sub>Shown with the app's built-in sample data.</sub>
+
 ## Stack
 
 - **.NET 9 MAUI Blazor Hybrid** — UI in Razor/HTML/CSS, native iOS shell (C# throughout)
