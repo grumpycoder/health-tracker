@@ -1,0 +1,8 @@
+# Copy to refresh-cert.config (gitignored) and fill in your values.
+# DEVICE_ID: from `xcrun devicectl list devices` (the ECID/UDID column).
+DEVICE_ID="00008110-XXXXXXXXXXXXXXXX"
+# XCODE_PROJECT: path to the stub .xcodeproj matching the app's bundle id.
+XCODE_PROJECT="/path/to/fitrecoverylog.xcodeproj"
+# Optional overrides (defaults shown):
+# BUNDLE_ID="com.mlawrence.fitrecoverylog"
+# XCODE_SCHEME="fitrecoverylog"

@@ -12,7 +12,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/YOURNAME/source/HealthTracker/refresh-cert-scheduled.sh</string>
+        <string>/Users/YOURNAME/source/health-tracker/refresh-cert-scheduled.sh</string>
     </array>
     <key>StartCalendarInterval</key>
     <array>

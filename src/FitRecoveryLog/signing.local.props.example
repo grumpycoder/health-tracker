@@ -1,0 +1,8 @@
+<Project>
+  <!-- Copy this file to signing.local.props (gitignored) and fill in your values.
+       Find your CodesignKey via:  security find-identity -v -p codesigning  -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
+    <CodesignKey>Apple Development: your-apple-id@example.com (XXXXXXXXXX)</CodesignKey>
+    <CodesignProvision>iOS Team Provisioning Profile: com.yourcompany.fitrecoverylog</CodesignProvision>
+  </PropertyGroup>
+</Project>

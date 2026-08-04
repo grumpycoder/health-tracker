@@ -74,19 +74,6 @@ public static class MauiProgram
 			using var db = factory.CreateDbContext();
 			db.Database.Migrate();
 
-			// One-time wipe + reseed from real history (health-history.json).
-			// The marker file keeps it from re-running on every launch.
-			// v4: current-week (Jun 1-3) events appended.
-			var importMarker = Path.Combine(FileSystem.AppDataDirectory, "history-import-v4.done");
-			if (!File.Exists(importMarker))
-			{
-				try
-				{
-					HistorySeed.ApplyEmbedded(db);
-					File.WriteAllText(importMarker, DateTime.Now.ToString("O"));
-				}
-				catch (Exception ex) { Log("HistorySeed", ex); }
-			}
 			// Legacy: per-day DailyLog notes move into timestamped NoteEntries
 			// (idempotent — converted notes are cleared from the DailyLog).
 			var legacyNotes = db.DailyLogs.Where(d => d.Note != null && d.Note != "").ToList();

@@ -10,15 +10,6 @@ namespace FitRecoveryLog.Data;
 /// </summary>
 public static class HistorySeed
 {
-    /// <summary>Reads health-history.json embedded in this assembly and applies it.</summary>
-    public static void ApplyEmbedded(AppDbContext db)
-    {
-        using var stream = typeof(HistorySeed).Assembly.GetManifestResourceStream("health-history.json")
-            ?? throw new InvalidOperationException("Embedded health-history.json not found");
-        using var reader = new StreamReader(stream);
-        Apply(db, reader.ReadToEnd());
-    }
-
     public static void Apply(AppDbContext db, string json)
     {
         var doc = JsonSerializer.Deserialize<HistoryDoc>(json,

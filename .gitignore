@@ -35,3 +35,8 @@ Platforms/iOS/*.mobileprovision
 *.db
 *.db3
 *.sqlite
+
+# Personal health data (reconstructed history) — never commit
+health-history.json
+signing.local.props
+refresh-cert.config

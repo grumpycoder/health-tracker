@@ -15,11 +15,14 @@
 #
 set -uo pipefail
 
-BUNDLE_ID="com.mlawrence.fitrecoverylog"
-DEVICE_ID="<YOUR_DEVICE_UDID>"
-XCODE_PROJECT="/Users/YOURNAME/source/ios_temp/fitrecoverylog/fitrecoverylog.xcodeproj"
-XCODE_SCHEME="fitrecoverylog"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Personal values (device UDID, stub-project path) live in a gitignored config so
+# they stay out of the repo. Copy refresh-cert.config.example → refresh-cert.config.
+[ -f "$REPO_DIR/refresh-cert.config" ] && source "$REPO_DIR/refresh-cert.config"
+: "${DEVICE_ID:?Set DEVICE_ID in refresh-cert.config (see refresh-cert.config.example)}"
+: "${XCODE_PROJECT:?Set XCODE_PROJECT in refresh-cert.config (see refresh-cert.config.example)}"
+BUNDLE_ID="${BUNDLE_ID:-com.mlawrence.fitrecoverylog}"
+XCODE_SCHEME="${XCODE_SCHEME:-fitrecoverylog}"
 APP_DIR="$REPO_DIR/src/FitRecoveryLog"
 APP_PATH="$APP_DIR/bin/Debug/net9.0-ios/ios-arm64/FitRecoveryLog.app"
 PROFILE_DIRS=(

@@ -8,12 +8,12 @@ profile **expires every 7 days**. When it lapses the app shows a grayed-out
 launch. It's safe to run anytime — it does **not** touch the app's data.
 
 **Environment (fixed):** this Mac, Apple ID `your-apple-id@example.com`,
-Mark's iPhone 13 Pro Max. Do not sign in with a different Apple ID — that
+your iPhone. Do not sign in with a different Apple ID — that
 changes the signing identity and would reinstall the app as a new one
 (wiping its data).
 
 Key facts you'll need:
-- **Repo:** `/Users/YOURNAME/source/HealthTracker`
+- **Repo:** `/path/to/health-tracker`
 - **App project dir:** `src/FitRecoveryLog` (always build from here)
 - **Device ID:** `<YOUR_DEVICE_UDID>`
 - **Bundle ID:** `com.mlawrence.fitrecoverylog`
@@ -25,12 +25,12 @@ Key facts you'll need:
 Run this once a week (e.g. Monday) with the iPhone unlocked and on Wi‑Fi:
 
 ```bash
-/Users/YOURNAME/source/HealthTracker/refresh-cert.sh
+/path/to/health-tracker/refresh-cert.sh
 ```
 
 It deletes the current profile, mints a **fresh 7-day one** from the terminal
 (via `xcodebuild -allowProvisioningUpdates` against the stub Xcode project at
-`/Users/YOURNAME/source/ios_temp/fitrecoverylog`), rebuilds, installs, and
+`/path/to/stub/fitrecoverylog`), rebuilds, installs, and
 launches to confirm. **No Rider or Xcode GUI needed** — the *only* thing that
 still needs the GUI is keeping the Apple ID signed into **Xcode → Settings →
 Accounts** (that session lapses every so often; if the script reports an
@@ -84,7 +84,7 @@ launchctl load -w ~/Library/LaunchAgents/com.mlawrence.fitlog.refresh.plist  # r
 Open Terminal and run:
 
 ```bash
-cd /Users/YOURNAME/source/HealthTracker/src/FitRecoveryLog
+cd /path/to/health-tracker/src/FitRecoveryLog
 dotnet build -f net9.0-ios -p:RuntimeIdentifier=ios-arm64
 ```
 
@@ -146,7 +146,7 @@ Use this if the profile directory is empty or install fails with
    reinstall:
 
 ```bash
-cd /Users/YOURNAME/source/HealthTracker/src/FitRecoveryLog
+cd /path/to/health-tracker/src/FitRecoveryLog
 rm -rf bin/Debug/net9.0-ios obj/Debug/net9.0-ios
 dotnet build -f net9.0-ios -p:RuntimeIdentifier=ios-arm64
 ```

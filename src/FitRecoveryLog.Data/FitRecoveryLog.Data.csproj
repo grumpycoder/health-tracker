@@ -8,11 +8,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Real history reconstructed from chat logs; imported once by HistorySeed. -->
-    <EmbeddedResource Include="health-history.json" LogicalName="health-history.json" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.9" />
     <!-- Design package enables `dotnet ef` to read the model and scaffold migrations. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.9">
