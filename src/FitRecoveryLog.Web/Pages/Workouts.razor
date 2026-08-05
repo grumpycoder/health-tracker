@@ -1,9 +1,12 @@
 @page "/workouts"
 @using Microsoft.AspNetCore.Authorization
-@using FitRecoveryLog.Data
+@using FitRecoveryLog.Application.Common
+@using FitRecoveryLog.Application.Workouts
+@using FitRecoveryLog.Domain.Workouts
+@using ExDef = FitRecoveryLog.Data.ExerciseDefinition
 @attribute [Authorize]
+@inject WorkoutService WorkoutSvc
 @inject AppState State
-@inject WebSyncClient Sync
 
 <PageTitle>Workouts — Fit Log</PageTitle>
 
@@ -16,88 +19,114 @@
 else if (_error is not null)
 {
     <div class="alert alert-danger">@_error</div>
-    <button class="btn btn-primary" @onclick="() => Load(true)">Retry</button>
-}
-else if (_editSession is not null)
-{
-    <div class="card p-3 mb-4">
-        <div class="d-flex justify-content-between">
-            <h5>Edit workout</h5>
-            <button class="btn btn-sm btn-secondary" @onclick="Cancel">Back to list</button>
-        </div>
-        <div class="row g-2 mb-3">
-            <div class="col-sm-4"><label class="form-label">Date</label><input type="date" class="form-control" @bind="_editSession.Date" /></div>
-            <div class="col-sm-4"><label class="form-label">Duration (min)</label><input type="number" class="form-control" @bind="_durationMin" /></div>
-            <div class="col-12"><label class="form-label">Notes</label><textarea class="form-control" rows="2" @bind="_editSession.Notes"></textarea></div>
-        </div>
-
-        <h6>Sets</h6>
-        <div class="table-responsive">
-            <table class="table table-sm align-middle">
-                <thead><tr><th>Exercise</th><th>Set</th><th>Reps</th><th>Weight</th><th>Duration (s)</th><th>Done</th><th></th></tr></thead>
-                <tbody>
-                    @foreach (var s in _editSets.Where(x => !x.IsDeleted).OrderBy(x => ExName(x.ExerciseDefinitionId)).ThenBy(x => x.SetNumber))
-                    {
-                        <tr>
-                            <td>@ExName(s.ExerciseDefinitionId)</td>
-                            <td>@s.SetNumber</td>
-                            <td style="width:6rem"><input type="number" class="form-control form-control-sm" @bind="s.Reps" /></td>
-                            <td style="width:7rem"><input type="number" step="0.5" class="form-control form-control-sm" @bind="s.Weight" /></td>
-                            <td style="width:7rem"><input type="number" class="form-control form-control-sm" @bind="s.DurationSeconds" /></td>
-                            <td><input type="checkbox" class="form-check-input" @bind="s.Completed" /></td>
-                            <td class="text-end"><button class="btn btn-sm btn-outline-danger" title="Remove set" @onclick="() => RemoveSet(s)">✕</button></td>
-                        </tr>
-                    }
-                    @if (!_editSets.Any(x => !x.IsDeleted)) { <tr><td colspan="7" class="text-muted">No sets recorded.</td></tr> }
-                </tbody>
-            </table>
-        </div>
-        <div class="d-flex gap-2 align-items-end mb-2">
-            <div>
-                <label class="form-label mb-0"><small>Add a set for</small></label>
-                <select class="form-select form-select-sm" @bind="_addExId" style="min-width:14rem">
-                    @foreach (var ex in _exercises) { <option value="@ex.Id">@ex.Name</option> }
-                </select>
-            </div>
-            <button class="btn btn-sm btn-outline-primary" @onclick="AddSet" disabled="@(_addExId == Guid.Empty)">+ Add set</button>
-        </div>
-
-        @if (_feedback.Count > 0)
-        {
-            <h6>Feedback</h6>
-            <ul class="list-group mb-2">
-                @foreach (var f in _feedback)
-                {
-                    <li class="list-group-item">
-                        <strong>@ExName(f.ExerciseDefinitionId)</strong> — @f.Difficulty
-                        @if (f.PainOrDiscomfort) { <span class="badge bg-warning text-dark ms-1">pain</span> }
-                        @if (f.BreathingDifficulty) { <span class="badge bg-warning text-dark ms-1">breathing</span> }
-                        @if (f.FormIssues) { <span class="badge bg-warning text-dark ms-1">form</span> }
-                        @if (!string.IsNullOrWhiteSpace(f.Comment)) { <div><small class="text-muted">@f.Comment</small></div> }
-                    </li>
-                }
-            </ul>
-        }
-
-        <div class="mt-2 d-flex gap-2">
-            <button class="btn btn-primary" @onclick="Save" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
-            <button class="btn btn-secondary" @onclick="Cancel" disabled="@_saving">Cancel</button>
-        </div>
-        @if (_msg is not null) { <div class="form-text mt-2">@_msg</div> }
-    </div>
+    <button class="btn btn-primary" @onclick="LoadAll">Retry</button>
 }
 else
 {
+    @if (_msg is not null) { <div class="alert alert-warning py-2">@_msg</div> }
+
+    <div class="input-group mb-4" style="max-width:26rem">
+        <input type="date" class="form-control" @bind="_newDate" />
+        <button class="btn btn-primary" @onclick="CreateWorkout" disabled="@_busy">+ New workout</button>
+    </div>
+
+    @if (Open is WorkoutSession w)
+    {
+        <div class="card p-3 mb-4 border-primary">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h5 class="mb-0">Workout — @w.Date.ToString("ddd, MMM d, yyyy")</h5>
+                <button class="btn btn-sm btn-secondary" @onclick="Close">Close</button>
+            </div>
+
+            <div class="row g-2 mb-3">
+                <div class="col-sm-4"><label class="form-label mb-0"><small>Date</small></label>
+                    <div class="input-group input-group-sm"><input type="date" class="form-control" @bind="_dateDraft" /><button class="btn btn-outline-primary" @onclick="SaveDate" disabled="@_busy">Save</button></div></div>
+                <div class="col-sm-4"><label class="form-label mb-0"><small>Duration (min)</small></label>
+                    <div class="input-group input-group-sm"><input type="number" class="form-control" @bind="_durationMin" /><button class="btn btn-outline-primary" @onclick="SaveDuration" disabled="@_busy">Save</button></div></div>
+                <div class="col-12"><label class="form-label mb-0"><small>Notes</small></label>
+                    <div class="input-group input-group-sm"><input class="form-control" @bind="_notesDraft" /><button class="btn btn-outline-primary" @onclick="SaveNotes" disabled="@_busy">Save</button></div></div>
+            </div>
+
+            <h6>Sets</h6>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th>Exercise</th><th>Set</th><th>Reps</th><th>Weight</th><th>Dur(s)</th><th>Rest(s)</th><th>Done</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var d in _setDrafts.OrderBy(x => ExName(x.ExerciseDefinitionId)).ThenBy(x => x.SetNumber))
+                        {
+                            <tr>
+                                <td>@ExName(d.ExerciseDefinitionId)</td>
+                                <td>@d.SetNumber</td>
+                                <td style="width:5rem"><input type="number" class="form-control form-control-sm" @bind="d.Reps" /></td>
+                                <td style="width:6rem"><input type="number" step="0.5" class="form-control form-control-sm" @bind="d.Weight" /></td>
+                                <td style="width:5.5rem"><input type="number" class="form-control form-control-sm" @bind="d.Dur" /></td>
+                                <td style="width:5rem"><input type="number" class="form-control form-control-sm" @bind="d.Rest" /></td>
+                                <td><input type="checkbox" class="form-check-input" @bind="d.Completed" /></td>
+                                <td class="text-nowrap">
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => SaveSet(d)" disabled="@_busy">Save</button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveSet(d.Id)" disabled="@_busy">✕</button>
+                                </td>
+                            </tr>
+                        }
+                        @if (_setDrafts.Count == 0) { <tr><td colspan="8" class="text-muted">No sets.</td></tr> }
+                    </tbody>
+                </table>
+            </div>
+            <div class="d-flex gap-2 align-items-end mb-3">
+                <div><label class="form-label mb-0"><small>Add set for</small></label>
+                    <select class="form-select form-select-sm" @bind="_addSetExId" style="min-width:13rem">
+                        @foreach (var ex in _exercises) { <option value="@ex.Id">@ex.Name</option> }
+                    </select></div>
+                <button class="btn btn-sm btn-outline-primary" @onclick="AddSet" disabled="@(_busy || _addSetExId == Guid.Empty)">+ Add set</button>
+            </div>
+
+            <h6>Feedback</h6>
+            @foreach (var f in _fbDrafts)
+            {
+                <div class="row g-2 align-items-center mb-1">
+                    <div class="col-sm-3">@ExName(f.ExerciseDefinitionId)</div>
+                    <div class="col-sm-2">
+                        <select class="form-select form-select-sm" @bind="f.Difficulty">
+                            @foreach (var v in Enum.GetValues<Difficulty>()) { <option value="@v">@v</option> }
+                        </select>
+                    </div>
+                    <div class="col-sm-4 d-flex gap-2">
+                        <label class="form-check-label"><input type="checkbox" class="form-check-input" @bind="f.Pain" /> pain</label>
+                        <label class="form-check-label"><input type="checkbox" class="form-check-input" @bind="f.Breathing" /> breathing</label>
+                        <label class="form-check-label"><input type="checkbox" class="form-check-input" @bind="f.Form" /> form</label>
+                    </div>
+                    <div class="col-sm-2"><input class="form-control form-control-sm" @bind="f.Comment" placeholder="comment" /></div>
+                    <div class="col-sm-1 text-nowrap">
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => SaveFeedback(f)" disabled="@_busy">Save</button>
+                        @if (f.Id is Guid) { <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveFeedback(f.Id!.Value)" disabled="@_busy">✕</button> }
+                    </div>
+                </div>
+            }
+            <div class="d-flex gap-2 align-items-end mb-3">
+                <div><label class="form-label mb-0"><small>Add feedback for</small></label>
+                    <select class="form-select form-select-sm" @bind="_addFbExId" style="min-width:13rem">
+                        @foreach (var ex in _exercises) { <option value="@ex.Id">@ex.Name</option> }
+                    </select></div>
+                <button class="btn btn-sm btn-outline-primary" @onclick="AddFeedbackRow" disabled="@(_addFbExId == Guid.Empty)">+ Add feedback</button>
+            </div>
+
+            <div class="d-flex gap-2 mt-2">
+                <button class="btn btn-sm btn-success" @onclick="Complete" disabled="@_busy">Mark complete</button>
+                <button class="btn btn-sm btn-outline-danger ms-auto" @onclick="() => Delete(w.Id)" disabled="@_busy">Delete workout</button>
+            </div>
+        </div>
+    }
+
     <table class="table table-hover align-middle">
-        <thead><tr><th>Date</th><th>Duration</th><th class="text-end">Sets</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th class="text-end">Duration</th><th class="text-end">Sets</th><th></th></tr></thead>
         <tbody>
-            @foreach (var w in _sessions.OrderByDescending(x => x.Date))
+            @foreach (var s in _sessions.OrderByDescending(x => x.Date))
             {
                 <tr>
-                    <td>@w.Date.ToString("ddd, MMM d, yyyy")</td>
-                    <td>@(w.TotalSeconds is int s ? $"{s / 60} min" : "—")</td>
-                    <td class="text-end">@_setsBySession.GetValueOrDefault(w.Id)?.Count</td>
-                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => Open(w)">Open</button></td>
+                    <td>@s.Date.ToString("ddd, MMM d, yyyy")@(s.EndedAt is null ? "" : " ✓")</td>
+                    <td class="text-end">@(s.TotalSeconds is int t ? $"{t / 60} min" : "—")</td>
+                    <td class="text-end">@s.Sets.Count</td>
+                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => OpenSession(s.Id)" disabled="@_busy">Open</button></td>
                 </tr>
             }
             @if (_sessions.Count == 0) { <tr><td colspan="4" class="text-muted">No workouts.</td></tr> }
@@ -106,84 +135,133 @@ else
 }
 
 @code {
-    private bool _loading = true, _saving;
+    private bool _loading = true, _busy;
     private string? _error, _msg;
-    private List<WorkoutSession> _sessions = new();
+    private IReadOnlyList<WorkoutSession> _sessions = Array.Empty<WorkoutSession>();
+    private List<ExDef> _exercises = new();
     private Dictionary<Guid, string> _exNames = new();
-    private Dictionary<Guid, List<ExerciseSet>> _setsBySession = new();
-    private Dictionary<Guid, List<ExerciseFeedback>> _fbBySession = new();
 
-    private List<ExerciseDefinition> _exercises = new();
-    private WorkoutSession? _editSession;
-    private List<ExerciseSet> _editSets = new();
-    private List<ExerciseFeedback> _feedback = new();
+    private Guid? _openId;
+    private DateOnly _dateDraft;
     private int? _durationMin;
-    private Guid _addExId;
+    private string? _notesDraft;
+    private List<SetDraft> _setDrafts = new();
+    private List<FbDraft> _fbDrafts = new();
+    private Guid _addSetExId, _addFbExId;
+    private DateOnly _newDate = DateOnly.FromDateTime(DateTime.Now);
 
-    protected override async Task OnInitializedAsync() => await Load();
+    private WorkoutSession? Open => _openId is Guid id ? _sessions.FirstOrDefault(s => s.Id == id) : null;
 
-    private async Task Load(bool refresh = false)
+    private sealed class SetDraft { public Guid Id; public Guid ExerciseDefinitionId; public int SetNumber; public int? Reps, Dur, Rest; public double? Weight; public bool Completed; }
+    private sealed class FbDraft { public Guid? Id; public Guid ExerciseDefinitionId; public Difficulty Difficulty; public bool Pain, Breathing, Form; public string? Comment; }
+
+    protected override async Task OnInitializedAsync() => await LoadAll();
+
+    private async Task LoadAll()
     {
         _loading = true; _error = null;
         try
         {
-            var pull = await State.DataAsync(refresh);
-            _sessions = WebSyncClient.Rows<WorkoutSession>(pull);
-            var defs = WebSyncClient.Rows<ExerciseDefinition>(pull);
-            _exNames = defs.ToDictionary(e => e.Id, e => e.Name);
-            _exercises = defs.Where(e => !e.Retired).OrderBy(e => e.Name).ToList();
-            _setsBySession = WebSyncClient.Rows<ExerciseSet>(pull).GroupBy(s => s.WorkoutSessionId).ToDictionary(g => g.Key, g => g.ToList());
-            _fbBySession = WebSyncClient.Rows<ExerciseFeedback>(pull).GroupBy(f => f.WorkoutSessionId).ToDictionary(g => g.Key, g => g.ToList());
+            var pull = await State.DataAsync();
+            var defs = WebSyncClient.Rows<ExDef>(pull);
+            _exNames = defs.ToDictionary(d => d.Id, d => d.Name);
+            _exercises = defs.Where(d => !d.Retired).OrderBy(d => d.Name).ToList();
+            _sessions = await WorkoutSvc.ListAsync();
+            if (_openId is Guid id) BuildDrafts(id);
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; }
     }
 
     private string ExName(Guid id) => _exNames.GetValueOrDefault(id, "(exercise)");
+    private void OpenSession(Guid id) { _openId = id; _msg = null; BuildDrafts(id); }
+    private void Close() => _openId = null;
 
-    private void Open(WorkoutSession w)
+    private void BuildDrafts(Guid id)
     {
-        _editSession = WebSyncClient.Clone(w);
-        _durationMin = w.TotalSeconds is int s ? s / 60 : null;
-        _editSets = (_setsBySession.GetValueOrDefault(w.Id) ?? new()).Select(WebSyncClient.Clone).ToList();
-        _feedback = _fbBySession.GetValueOrDefault(w.Id) ?? new();
-        // Default the add-set picker to an exercise already in this session, else the first.
-        _addExId = _editSets.FirstOrDefault()?.ExerciseDefinitionId ?? _exercises.FirstOrDefault()?.Id ?? Guid.Empty;
-        _msg = null;
-    }
-
-    private void Cancel() { _editSession = null; _editSets = new(); _feedback = new(); _msg = null; }
-
-    private void AddSet()
-    {
-        if (_editSession is null || _addExId == Guid.Empty) return;
-        var next = _editSets.Where(s => s.ExerciseDefinitionId == _addExId && !s.IsDeleted)
-                            .Select(s => s.SetNumber).DefaultIfEmpty(0).Max() + 1;
-        _editSets.Add(new ExerciseSet
+        var s = _sessions.FirstOrDefault(x => x.Id == id);
+        if (s is null) { _openId = null; return; }
+        _dateDraft = s.Date;
+        _durationMin = s.TotalSeconds is int t ? t / 60 : null;
+        _notesDraft = s.Notes;
+        _setDrafts = s.Sets.Select(x => new SetDraft
         {
-            WorkoutSessionId = _editSession.Id,
-            ExerciseDefinitionId = _addExId,
-            SetNumber = next,
-            Completed = false,
-        });
+            Id = x.Id, ExerciseDefinitionId = x.ExerciseDefinitionId, SetNumber = x.SetNumber,
+            Reps = x.Result.Reps, Weight = x.Result.Weight, Dur = x.Result.DurationSeconds, Rest = x.Result.RestSeconds,
+            Completed = x.Completed,
+        }).ToList();
+        _fbDrafts = s.Feedback.Select(f => new FbDraft
+        {
+            Id = f.Id, ExerciseDefinitionId = f.ExerciseDefinitionId, Difficulty = f.Difficulty,
+            Pain = f.PainOrDiscomfort, Breathing = f.BreathingDifficulty, Form = f.FormIssues, Comment = f.Comment,
+        }).ToList();
+        _addSetExId = _setDrafts.FirstOrDefault()?.ExerciseDefinitionId ?? _exercises.FirstOrDefault()?.Id ?? Guid.Empty;
+        _addFbExId = _addSetExId;
     }
 
-    private void RemoveSet(ExerciseSet s) { s.IsDeleted = true; s.DeletedAt = DateTime.UtcNow; }
+    private static SetResult Rx(SetDraft d) => new(d.Reps, d.Weight, d.Dur, d.Rest);
 
-    private async Task Save()
+    private async Task Run(Func<Task<Result>> action)
     {
-        if (_editSession is null) return;
-        _saving = true; _msg = null;
+        _busy = true; _msg = null;
+        try { var r = await action(); if (!r.IsSuccess) _msg = r.Error; await LoadAll(); }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task CreateWorkout()
+    {
+        _busy = true; _msg = null;
         try
         {
-            _editSession.TotalSeconds = _durationMin is int m ? m * 60 : null;
-            await Sync.PushAsync(_editSession);
-            await Sync.PushAsync(_editSets);
-            State.Invalidate();
-            await Load(true);
-            _editSession = null;
+            var r = await WorkoutSvc.CreateAsync(_newDate);
+            if (!r.IsSuccess) { _msg = r.Error; return; }
+            await LoadAll();
+            OpenSession(r.Value);
         }
-        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
-        finally { _saving = false; }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private Task SaveDate() => Run(() => WorkoutSvc.SetDateAsync(_openId!.Value, _dateDraft));
+    private Task SaveNotes() => Run(() => WorkoutSvc.SetNotesAsync(_openId!.Value, _notesDraft));
+    private Task SaveDuration() => Run(() => WorkoutSvc.SetDurationAsync(_openId!.Value, _durationMin is int m ? m * 60 : null));
+    private Task SaveSet(SetDraft d) => Run(() => WorkoutSvc.UpdateSetAsync(_openId!.Value, d.Id, Rx(d), d.Completed));
+    private Task RemoveSet(Guid setId) => Run(() => WorkoutSvc.RemoveSetAsync(_openId!.Value, setId));
+    private Task RemoveFeedback(Guid fbId) => Run(() => WorkoutSvc.RemoveFeedbackAsync(_openId!.Value, fbId));
+    private Task Complete() => Run(() => WorkoutSvc.CompleteAsync(_openId!.Value, DateTime.UtcNow));
+
+    private async Task Delete(Guid id)
+    {
+        await Run(() => WorkoutSvc.DeleteAsync(id));
+        if (_openId == id) _openId = null;
+    }
+
+    private async Task AddSet()
+    {
+        if (_addSetExId == Guid.Empty || _openId is null) return;
+        _busy = true; _msg = null;
+        try { var r = await WorkoutSvc.AddSetAsync(_openId.Value, _addSetExId, SetResult.None); if (!r.IsSuccess) _msg = r.Error; await LoadAll(); }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private void AddFeedbackRow()
+    {
+        if (_addFbExId == Guid.Empty || _fbDrafts.Any(f => f.ExerciseDefinitionId == _addFbExId && f.Id is null)) return;
+        _fbDrafts.Add(new FbDraft { ExerciseDefinitionId = _addFbExId, Difficulty = Difficulty.Unset });
+    }
+
+    private async Task SaveFeedback(FbDraft f)
+    {
+        _busy = true; _msg = null;
+        try
+        {
+            var r = await WorkoutSvc.SetFeedbackAsync(_openId!.Value, f.ExerciseDefinitionId, f.Difficulty, f.Pain, f.Breathing, f.Form, f.Comment);
+            if (!r.IsSuccess) _msg = r.Error;
+            await LoadAll();
+        }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
     }
 }

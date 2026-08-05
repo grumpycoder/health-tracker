@@ -29,4 +29,11 @@ builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.IRoutineRepositor
 builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.IWorkoutSessionRepository, FitRecoveryLog.Web.Infrastructure.ApiWorkoutSessionRepository>();
 builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.RoutineService>();
 
+// Workouts: aggregate use cases + domain-event dispatch (WorkoutCompleted -> mark the day).
+builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.IWorkoutRepository, FitRecoveryLog.Web.Infrastructure.ApiWorkoutRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.IDayTypeService, FitRecoveryLog.Web.Infrastructure.ApiDayTypeService>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Common.IDomainEventDispatcher, FitRecoveryLog.Application.Common.DomainEventDispatcher>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Common.IDomainEventHandler<FitRecoveryLog.Domain.Workouts.Events.WorkoutCompleted>, FitRecoveryLog.Application.Workouts.WorkoutCompletedHandler>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.WorkoutService>();
+
 await builder.Build().RunAsync();
