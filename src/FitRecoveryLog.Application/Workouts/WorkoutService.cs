@@ -11,12 +11,12 @@ namespace FitRecoveryLog.Application.Workouts;
 public sealed class WorkoutService
 {
     private readonly IWorkoutRepository _workouts;
-    private readonly IDayTypeService _days;
+    private readonly IDomainEventDispatcher _events;
 
-    public WorkoutService(IWorkoutRepository workouts, IDayTypeService days)
+    public WorkoutService(IWorkoutRepository workouts, IDomainEventDispatcher events)
     {
         _workouts = workouts;
-        _days = days;
+        _events = events;
     }
 
     public Task<IReadOnlyList<WorkoutSession>> ListAsync(CancellationToken ct = default) => _workouts.ListAsync(ct);
@@ -78,7 +78,9 @@ public sealed class WorkoutService
         try { session.Finish(endedAt); }
         catch (ArgumentException ex) { return Result.Failure(ex.Message); }
         await _workouts.SaveAsync(session, ct);
-        await _days.MarkWorkoutDayAsync(session.Date, ct);
+        // Dispatch domain events (e.g. WorkoutCompleted -> mark the workout day) after the save.
+        await _events.DispatchAsync(session.DomainEvents, ct);
+        session.ClearDomainEvents();
         return Result.Success();
     }
 

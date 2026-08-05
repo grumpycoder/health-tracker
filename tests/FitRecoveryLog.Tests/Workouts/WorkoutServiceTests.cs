@@ -1,5 +1,8 @@
+using FitRecoveryLog.Application.Common;
 using FitRecoveryLog.Application.Workouts;
+using FitRecoveryLog.Domain.Common;
 using FitRecoveryLog.Domain.Workouts;
+using FitRecoveryLog.Domain.Workouts.Events;
 using NUnit.Framework;
 
 namespace FitRecoveryLog.Tests.Workouts;
@@ -9,15 +12,15 @@ public class WorkoutServiceTests
 {
     private static readonly DateOnly Day = new(2026, 8, 5);
     private FakeWorkoutRepository _workouts = null!;
-    private FakeDayTypeService _days = null!;
+    private FakeDispatcher _events = null!;
     private WorkoutService _service = null!;
 
     [SetUp]
     public void SetUp()
     {
         _workouts = new FakeWorkoutRepository();
-        _days = new FakeDayTypeService();
-        _service = new WorkoutService(_workouts, _days);
+        _events = new FakeDispatcher();
+        _service = new WorkoutService(_workouts, _events);
     }
 
     [Test]
@@ -44,7 +47,7 @@ public class WorkoutServiceTests
     }
 
     [Test]
-    public async Task Complete_Finishes_AndMarksWorkoutDay()
+    public async Task Complete_Finishes_AndDispatchesWorkoutCompleted()
     {
         var id = (await _service.CreateAsync(Day)).Value;
 
@@ -54,7 +57,9 @@ public class WorkoutServiceTests
         {
             Assert.That(result.IsSuccess, Is.True);
             Assert.That(_workouts.Store[id].EndedAt, Is.Not.Null);
-            Assert.That(_days.Marked, Does.Contain(Day), "the workout's day must be marked as a workout day");
+            var evt = _events.Dispatched.OfType<WorkoutCompleted>().SingleOrDefault();
+            Assert.That(evt, Is.Not.Null, "a WorkoutCompleted event must be dispatched");
+            Assert.That(evt!.Date, Is.EqualTo(Day));
         });
     }
 
@@ -74,9 +79,13 @@ public class WorkoutServiceTests
         public Task RemoveAsync(Guid id, CancellationToken ct = default) { Store.Remove(id); return Task.CompletedTask; }
     }
 
-    private sealed class FakeDayTypeService : IDayTypeService
+    private sealed class FakeDispatcher : IDomainEventDispatcher
     {
-        public readonly List<DateOnly> Marked = new();
-        public Task MarkWorkoutDayAsync(DateOnly date, CancellationToken ct = default) { Marked.Add(date); return Task.CompletedTask; }
+        public readonly List<IDomainEvent> Dispatched = new();
+        public Task DispatchAsync(IEnumerable<IDomainEvent> events, CancellationToken ct = default)
+        {
+            Dispatched.AddRange(events);
+            return Task.CompletedTask;
+        }
     }
 }

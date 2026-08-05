@@ -82,6 +82,20 @@ public class WorkoutSessionTests
     }
 
     [Test]
+    public void Finish_RaisesWorkoutCompleted()
+    {
+        var s = WorkoutSession.Create(Today);
+        s.Finish(new DateTime(2026, 8, 5, 7, 0, 0, DateTimeKind.Utc));
+        var evt = s.DomainEvents.OfType<FitRecoveryLog.Domain.Workouts.Events.WorkoutCompleted>().SingleOrDefault();
+        Assert.Multiple(() =>
+        {
+            Assert.That(evt, Is.Not.Null);
+            Assert.That(evt!.SessionId, Is.EqualTo(s.Id));
+            Assert.That(evt.Date, Is.EqualTo(Today));
+        });
+    }
+
+    [Test]
     public void Finish_BeforeStart_Throws()
     {
         var s = WorkoutSession.Create(Today);

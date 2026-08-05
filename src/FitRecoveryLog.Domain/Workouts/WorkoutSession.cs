@@ -1,3 +1,6 @@
+using FitRecoveryLog.Domain.Common;
+using FitRecoveryLog.Domain.Workouts.Events;
+
 namespace FitRecoveryLog.Domain.Workouts;
 
 /// <summary>
@@ -6,7 +9,7 @@ namespace FitRecoveryLog.Domain.Workouts;
 /// are contiguous per exercise (1..N), and each exercise has at most one feedback entry.
 /// May be linked to the routine it was run from (nullable, and cleared if that routine is deleted).
 /// </summary>
-public sealed class WorkoutSession
+public sealed class WorkoutSession : AggregateRoot
 {
     private readonly List<WorkoutSet> _sets;
     private readonly List<WorkoutFeedback> _feedback;
@@ -55,13 +58,15 @@ public sealed class WorkoutSession
 
     public void Start(DateTime startedAt) => StartedAt = startedAt;
 
-    /// <summary>Mark the workout finished; derives duration from start when not set explicitly.</summary>
+    /// <summary>Mark the workout finished; derives duration from start when not set explicitly.
+    /// Raises <see cref="WorkoutCompleted"/> for handlers to react (e.g. mark the workout day).</summary>
     public void Finish(DateTime endedAt)
     {
         if (StartedAt is DateTime s && endedAt < s)
             throw new ArgumentException("End cannot precede start.", nameof(endedAt));
         EndedAt = endedAt;
         TotalSeconds ??= StartedAt is DateTime start ? (int)(endedAt - start).TotalSeconds : null;
+        Raise(new WorkoutCompleted(Id, Date));
     }
 
     // ---- sets ----
