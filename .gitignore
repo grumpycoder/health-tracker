@@ -45,3 +45,16 @@ refresh-cert.config
 docs/
 !docs/screenshots/
 !docs/screenshots/**
+
+# Cloud backend secrets — never commit
+src/FitRecoveryLog.Server/local.settings.json
+infra/main.parameters.json
+infra/*.parameters.json
+!infra/*.parameters.json.example
+
+# Functions publish artifacts
+src/FitRecoveryLog.Server/publish/
+**/deploy.zip
+
+# Transpiled Bicep output (generated from main.bicep)
+infra/main.json

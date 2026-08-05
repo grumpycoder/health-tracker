@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FitRecoveryLog", "src\FitRe
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FitRecoveryLog.Data", "src\FitRecoveryLog.Data\FitRecoveryLog.Data.csproj", "{90C3A5FF-25AB-4199-A5A6-EC8C88FB9E76}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FitRecoveryLog.Server", "src\FitRecoveryLog.Server\FitRecoveryLog.Server.csproj", "{5B17EF7F-5D7E-43FD-8CDB-0FFC800AC7F7}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -26,9 +28,14 @@ Global
 		{90C3A5FF-25AB-4199-A5A6-EC8C88FB9E76}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{90C3A5FF-25AB-4199-A5A6-EC8C88FB9E76}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{90C3A5FF-25AB-4199-A5A6-EC8C88FB9E76}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5B17EF7F-5D7E-43FD-8CDB-0FFC800AC7F7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5B17EF7F-5D7E-43FD-8CDB-0FFC800AC7F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5B17EF7F-5D7E-43FD-8CDB-0FFC800AC7F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5B17EF7F-5D7E-43FD-8CDB-0FFC800AC7F7}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{221C9A64-4855-4120-901C-C82584AD01D8} = {9C9D6818-1DA6-4BE5-AC1E-A5053EF66EB8}
 		{90C3A5FF-25AB-4199-A5A6-EC8C88FB9E76} = {9C9D6818-1DA6-4BE5-AC1E-A5053EF66EB8}
+		{5B17EF7F-5D7E-43FD-8CDB-0FFC800AC7F7} = {9C9D6818-1DA6-4BE5-AC1E-A5053EF66EB8}
 	EndGlobalSection
 EndGlobal

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "namePrefix": { "value": "fitlog" },
+    "sqlAdminLogin": { "value": "fitlogadmin" },
+    "sqlAdminPassword": { "value": "<SET-A-STRONG-PASSWORD>" },
+    "authAuthority": { "value": "https://login.microsoftonline.com/<YOUR_PERSONAL_TENANT_ID>/v2.0" },
+    "authAudience": { "value": "<API_APP_REGISTRATION_CLIENT_ID>" },
+    "authAllowedUserId": { "value": "<YOUR_USER_OBJECT_ID>" }
+  }
+}

@@ -6,6 +6,10 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
+    /// <summary>For derived contexts (e.g. the cloud/server SQL Server context) that pass
+    /// their own strongly-typed options. Keeps one model definition across providers.</summary>
+    protected AppDbContext(DbContextOptions options) : base(options) { }
+
     public DbSet<DailyLog> DailyLogs => Set<DailyLog>();
     public DbSet<NoteEntry> NoteEntries => Set<NoteEntry>();
     public DbSet<WorkoutRoutine> WorkoutRoutines => Set<WorkoutRoutine>();
@@ -30,15 +34,23 @@ public class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        // The unique-index filter and the case-insensitive collation are written in
+        // provider-specific SQL, so pick the dialect for whichever provider is active
+        // (SQLite on the phone, SQL Server in the cloud). Same model, both targets.
+        var isSqlite = Database.ProviderName == "Microsoft.EntityFrameworkCore.Sqlite";
+        var liveRowFilter = isSqlite ? "\"IsDeleted\" = 0" : "[IsDeleted] = 0";
+
         // Unique indexes are filtered to live rows so a tombstoned row doesn't block
         // re-adding the same date/name after a soft-delete.
-        modelBuilder.Entity<DailyLog>().HasIndex(x => x.Date).IsUnique().HasFilter("\"IsDeleted\" = 0");
+        modelBuilder.Entity<DailyLog>().HasIndex(x => x.Date).IsUnique().HasFilter(liveRowFilter);
         modelBuilder.Entity<CessationEvent>().HasIndex(x => new { x.GoalId, x.Time });
         modelBuilder.Entity<BodyMeasurement>().HasIndex(x => x.Date);
 
-        // Library exercises are unique by name, matched case-insensitively.
-        modelBuilder.Entity<ExerciseDefinition>().Property(e => e.Name).UseCollation("NOCASE");
-        modelBuilder.Entity<ExerciseDefinition>().HasIndex(e => e.Name).IsUnique().HasFilter("\"IsDeleted\" = 0");
+        // Library exercises are unique by name, matched case-insensitively. SQLite needs an
+        // explicit NOCASE collation; SQL Server's default collation is already case-insensitive.
+        if (isSqlite)
+            modelBuilder.Entity<ExerciseDefinition>().Property(e => e.Name).UseCollation("NOCASE");
+        modelBuilder.Entity<ExerciseDefinition>().HasIndex(e => e.Name).IsUnique().HasFilter(liveRowFilter);
         modelBuilder.Entity<WorkoutSession>().HasIndex(x => x.Date);
 
         modelBuilder.Entity<WorkoutRoutine>()
@@ -86,7 +98,7 @@ public class AppDbContext : DbContext
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, ct);
     }
 
-    private void StampTimestamps()
+    protected virtual void StampTimestamps()
     {
         foreach (var entry in ChangeTracker.Entries<EntityBase>())
         {
