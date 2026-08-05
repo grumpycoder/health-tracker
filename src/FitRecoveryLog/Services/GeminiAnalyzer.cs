@@ -517,7 +517,8 @@ public static class GeminiAnalyzer
         sb.AppendLine();
         sb.AppendLine("EXISTING ROUTINES (do not duplicate these):");
         var routines = await db.WorkoutRoutines
-            .Include(r => r.Exercises).ThenInclude(e => e.ExerciseDefinition).ToListAsync();
+            .Include(r => r.Exercises).ThenInclude(e => e.ExerciseDefinition)
+            .Where(r => !r.Archived).ToListAsync();
         if (routines.Count == 0) sb.AppendLine("(none)");
         foreach (var r in routines)
             sb.AppendLine($"- {r.Name}: {string.Join(", ", r.Exercises.OrderBy(e => e.Order).Select(e => e.ExerciseDefinition?.Name ?? "?"))}");

@@ -420,6 +420,7 @@ else // Feedback
         await using var db = await DbFactory.CreateDbContextAsync();
         _routines = await db.WorkoutRoutines
             .Include(r => r.Exercises).ThenInclude(e => e.ExerciseDefinition)
+            .Where(r => !r.Archived)
             .OrderBy(r => r.Name).ToListAsync();
 
         // Per-routine usage, to show running time + a "time to progress" nudge here
@@ -571,6 +572,7 @@ else // Feedback
         await using var db = await DbFactory.CreateDbContextAsync();
         _routines = await db.WorkoutRoutines
             .Include(r => r.Exercises).ThenInclude(e => e.ExerciseDefinition)
+            .Where(r => !r.Archived)
             .OrderBy(r => r.Name).ToListAsync();
     }
 
