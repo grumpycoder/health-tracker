@@ -40,12 +40,41 @@ public sealed class WebSyncClient
                    .ToList();
     }
 
+    /// <summary>Deep-copy an entity (for editing a draft without mutating the cached row).</summary>
+    public static T Clone<T>(T entity) =>
+        JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToElement(entity, JsonOpts), JsonOpts)!;
+
     /// <summary>Push a single new/changed entity to the cloud (upsert by Id).</summary>
-    public async Task PushAsync<T>(T entity, CancellationToken ct = default) where T : EntityBase
+    public Task PushAsync<T>(T entity, CancellationToken ct = default) where T : EntityBase =>
+        PushAsync(new[] { entity }, ct);
+
+    /// <summary>Push a batch of same-typed new/changed entities (upsert by Id).</summary>
+    public async Task PushAsync<T>(IReadOnlyCollection<T> entities, CancellationToken ct = default) where T : EntityBase
     {
+        if (entities.Count == 0) return;
         var req = new SyncPushRequest();
-        req.Changes[typeof(T).Name] = new() { JsonSerializer.SerializeToElement((object)entity, JsonOpts) };
+        req.Changes[typeof(T).Name] = entities.Select(e => JsonSerializer.SerializeToElement((object)e, JsonOpts)).ToList();
         var res = await _http.PostAsJsonAsync("/api/v1/sync", req, JsonOpts, ct);
         res.EnsureSuccessStatusCode();
     }
+}
+
+/// <summary>
+/// Session-lived cache of the last full pull so navigating between pages doesn't re-fetch
+/// the whole dataset each time. Invalidated after a write (or force-refreshed).
+/// </summary>
+public sealed class AppState
+{
+    private readonly WebSyncClient _sync;
+    private SyncPullResponse? _pull;
+
+    public AppState(WebSyncClient sync) => _sync = sync;
+
+    public async Task<SyncPullResponse> DataAsync(bool refresh = false)
+    {
+        if (_pull is null || refresh) _pull = await _sync.PullAllAsync();
+        return _pull;
+    }
+
+    public void Invalidate() => _pull = null;
 }

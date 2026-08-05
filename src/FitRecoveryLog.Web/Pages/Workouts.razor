@@ -1,0 +1,157 @@
+@page "/workouts"
+@using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Data
+@attribute [Authorize]
+@inject AppState State
+@inject WebSyncClient Sync
+
+<PageTitle>Workouts — Fit Log</PageTitle>
+
+<h1 class="mb-3">Workouts</h1>
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+    <button class="btn btn-primary" @onclick="() => Load(true)">Retry</button>
+}
+else if (_editSession is not null)
+{
+    <div class="card p-3 mb-4">
+        <div class="d-flex justify-content-between">
+            <h5>Edit workout</h5>
+            <button class="btn btn-sm btn-secondary" @onclick="Cancel">Back to list</button>
+        </div>
+        <div class="row g-2 mb-3">
+            <div class="col-sm-4"><label class="form-label">Date</label><input type="date" class="form-control" @bind="_editSession.Date" /></div>
+            <div class="col-sm-4"><label class="form-label">Duration (min)</label><input type="number" class="form-control" @bind="_durationMin" /></div>
+            <div class="col-12"><label class="form-label">Notes</label><textarea class="form-control" rows="2" @bind="_editSession.Notes"></textarea></div>
+        </div>
+
+        <h6>Sets</h6>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead><tr><th>Exercise</th><th>Set</th><th>Reps</th><th>Weight</th><th>Duration (s)</th><th>Done</th></tr></thead>
+                <tbody>
+                    @foreach (var s in _editSets.OrderBy(x => ExName(x.ExerciseDefinitionId)).ThenBy(x => x.SetNumber))
+                    {
+                        <tr>
+                            <td>@ExName(s.ExerciseDefinitionId)</td>
+                            <td>@s.SetNumber</td>
+                            <td style="width:6rem"><input type="number" class="form-control form-control-sm" @bind="s.Reps" /></td>
+                            <td style="width:7rem"><input type="number" step="0.5" class="form-control form-control-sm" @bind="s.Weight" /></td>
+                            <td style="width:7rem"><input type="number" class="form-control form-control-sm" @bind="s.DurationSeconds" /></td>
+                            <td><input type="checkbox" class="form-check-input" @bind="s.Completed" /></td>
+                        </tr>
+                    }
+                    @if (_editSets.Count == 0) { <tr><td colspan="6" class="text-muted">No sets recorded.</td></tr> }
+                </tbody>
+            </table>
+        </div>
+
+        @if (_feedback.Count > 0)
+        {
+            <h6>Feedback</h6>
+            <ul class="list-group mb-2">
+                @foreach (var f in _feedback)
+                {
+                    <li class="list-group-item">
+                        <strong>@ExName(f.ExerciseDefinitionId)</strong> — @f.Difficulty
+                        @if (f.PainOrDiscomfort) { <span class="badge bg-warning text-dark ms-1">pain</span> }
+                        @if (f.BreathingDifficulty) { <span class="badge bg-warning text-dark ms-1">breathing</span> }
+                        @if (f.FormIssues) { <span class="badge bg-warning text-dark ms-1">form</span> }
+                        @if (!string.IsNullOrWhiteSpace(f.Comment)) { <div><small class="text-muted">@f.Comment</small></div> }
+                    </li>
+                }
+            </ul>
+        }
+
+        <div class="mt-2 d-flex gap-2">
+            <button class="btn btn-primary" @onclick="Save" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+            <button class="btn btn-secondary" @onclick="Cancel" disabled="@_saving">Cancel</button>
+        </div>
+        @if (_msg is not null) { <div class="form-text mt-2">@_msg</div> }
+    </div>
+}
+else
+{
+    <table class="table table-hover align-middle">
+        <thead><tr><th>Date</th><th>Duration</th><th class="text-end">Sets</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var w in _sessions.OrderByDescending(x => x.Date))
+            {
+                <tr>
+                    <td>@w.Date.ToString("ddd, MMM d, yyyy")</td>
+                    <td>@(w.TotalSeconds is int s ? $"{s / 60} min" : "—")</td>
+                    <td class="text-end">@_setsBySession.GetValueOrDefault(w.Id)?.Count</td>
+                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => Open(w)">Open</button></td>
+                </tr>
+            }
+            @if (_sessions.Count == 0) { <tr><td colspan="4" class="text-muted">No workouts.</td></tr> }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool _loading = true, _saving;
+    private string? _error, _msg;
+    private List<WorkoutSession> _sessions = new();
+    private Dictionary<Guid, string> _exNames = new();
+    private Dictionary<Guid, List<ExerciseSet>> _setsBySession = new();
+    private Dictionary<Guid, List<ExerciseFeedback>> _fbBySession = new();
+
+    private WorkoutSession? _editSession;
+    private List<ExerciseSet> _editSets = new();
+    private List<ExerciseFeedback> _feedback = new();
+    private int? _durationMin;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load(bool refresh = false)
+    {
+        _loading = true; _error = null;
+        try
+        {
+            var pull = await State.DataAsync(refresh);
+            _sessions = WebSyncClient.Rows<WorkoutSession>(pull);
+            _exNames = WebSyncClient.Rows<ExerciseDefinition>(pull).ToDictionary(e => e.Id, e => e.Name);
+            _setsBySession = WebSyncClient.Rows<ExerciseSet>(pull).GroupBy(s => s.WorkoutSessionId).ToDictionary(g => g.Key, g => g.ToList());
+            _fbBySession = WebSyncClient.Rows<ExerciseFeedback>(pull).GroupBy(f => f.WorkoutSessionId).ToDictionary(g => g.Key, g => g.ToList());
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private string ExName(Guid id) => _exNames.GetValueOrDefault(id, "(exercise)");
+
+    private void Open(WorkoutSession w)
+    {
+        _editSession = WebSyncClient.Clone(w);
+        _durationMin = w.TotalSeconds is int s ? s / 60 : null;
+        _editSets = (_setsBySession.GetValueOrDefault(w.Id) ?? new()).Select(WebSyncClient.Clone).ToList();
+        _feedback = _fbBySession.GetValueOrDefault(w.Id) ?? new();
+        _msg = null;
+    }
+
+    private void Cancel() { _editSession = null; _editSets = new(); _feedback = new(); _msg = null; }
+
+    private async Task Save()
+    {
+        if (_editSession is null) return;
+        _saving = true; _msg = null;
+        try
+        {
+            _editSession.TotalSeconds = _durationMin is int m ? m * 60 : null;
+            await Sync.PushAsync(_editSession);
+            await Sync.PushAsync(_editSets);
+            State.Invalidate();
+            await Load(true);
+            _editSession = null;
+        }
+        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
+        finally { _saving = false; }
+    }
+}

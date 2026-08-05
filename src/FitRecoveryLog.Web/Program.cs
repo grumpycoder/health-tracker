@@ -21,5 +21,6 @@ builder.Services
     .AddHttpMessageHandler<ApiAuthorizationMessageHandler>();
 builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient("api"));
 builder.Services.AddScoped<WebSyncClient>();
+builder.Services.AddScoped<AppState>();
 
 await builder.Build().RunAsync();
