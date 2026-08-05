@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-test:
+    name: Build & test core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # Builds Domain + Application + Infrastructure and runs the NUnit suite.
+      # The MAUI/iOS/web heads are intentionally out of scope here — the domain and
+      # application layers are platform-independent, so CI needs no MAUI workloads.
+      - name: Restore
+        run: |
+          dotnet restore tests/FitRecoveryLog.Tests/FitRecoveryLog.Tests.csproj
+          dotnet restore src/FitRecoveryLog.Infrastructure/FitRecoveryLog.Infrastructure.csproj
+
+      - name: Build
+        run: |
+          dotnet build src/FitRecoveryLog.Infrastructure/FitRecoveryLog.Infrastructure.csproj -c Release --no-restore
+          dotnet build tests/FitRecoveryLog.Tests/FitRecoveryLog.Tests.csproj -c Release --no-restore
+
+      - name: Test
+        run: dotnet test tests/FitRecoveryLog.Tests/FitRecoveryLog.Tests.csproj -c Release --no-build --verbosity normal

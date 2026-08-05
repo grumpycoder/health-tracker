@@ -1,10 +1,14 @@
 # Fit Recovery Log
 
-Personal iOS app for tracking workouts, recovery, nutrition, body measurements,
-medication/labs, and trends. Built for personal use only — **not** intended for
-the App Store.
+[![CI](https://github.com/grumpycoder/health-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/grumpycoder/health-tracker/actions/workflows/ci.yml)
 
-See [`healthtracker.md`](./healthtracker.md) for the full feature spec.
+Offline-first personal health tracker across three clients over one cloud backend — a
+.NET MAUI iOS app (local-first, works offline), a Blazor WebAssembly web app, and an Azure
+Functions + Azure SQL sync API. Built for personal use — **not** intended for the App Store.
+
+Architected with **Clean Architecture / DDD**: a dependency-free domain, application use
+cases, and thin client/server adapters. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the
+design, and [`healthtracker.md`](./healthtracker.md) for the full feature spec.
 
 ## Screenshots
 
