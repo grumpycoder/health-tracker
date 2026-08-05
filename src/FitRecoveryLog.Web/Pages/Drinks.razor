@@ -27,6 +27,16 @@ else
     {
         <div class="card p-3 mb-4">
             <h5>@(_isNew ? "New drink" : "Edit drink")</h5>
+            @if (_isNew && _drinkNames.Count > 0)
+            {
+                <div class="mb-3">
+                    <label class="form-label">Repeat a recent drink</label>
+                    <select class="form-select" @onchange="RepeatDrink">
+                        <option value="">— pick to prefill oz, sugar &amp; macros —</option>
+                        @foreach (var n in _drinkNames) { <option value="@n">@n</option> }
+                    </select>
+                </div>
+            }
             <div class="row g-2">
                 <div class="col-12"><label class="form-label">Description</label><input class="form-control" @bind="_edit.Description" /></div>
                 <div class="col-sm-5"><label class="form-label">Time</label><input type="datetime-local" class="form-control" @bind="_edit.Time" /></div>
@@ -77,14 +87,38 @@ else
     private List<DrinkEntry> _drinks = new();
     private DrinkEntry? _edit;
 
+    private Dictionary<string, DrinkEntry> _drinkMemory = new(StringComparer.OrdinalIgnoreCase);
+    private List<string> _drinkNames = new();
+
     protected override async Task OnInitializedAsync() => await Load();
 
     private async Task Load(bool refresh = false)
     {
         _loading = true; _error = null;
-        try { _drinks = WebSyncClient.Rows<DrinkEntry>(await State.DataAsync(refresh)); }
+        try
+        {
+            _drinks = WebSyncClient.Rows<DrinkEntry>(await State.DataAsync(refresh));
+            _drinkMemory = _drinks
+                .Where(d => !string.IsNullOrWhiteSpace(d.Description))
+                .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(d => d.Time).First(), StringComparer.OrdinalIgnoreCase);
+            _drinkNames = _drinkMemory.Values.OrderByDescending(d => d.Time).Select(d => d.Description.Trim()).ToList();
+        }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; }
+    }
+
+    private void RepeatDrink(ChangeEventArgs e)
+    {
+        var name = e.Value?.ToString();
+        if (_edit is null || string.IsNullOrEmpty(name) || !_drinkMemory.TryGetValue(name, out var src)) return;
+        _edit.Description = src.Description;
+        _edit.Ounces = src.Ounces;
+        _edit.SugarCount = src.SugarCount;
+        _edit.Tags = src.Tags;
+        _edit.Calories = src.Calories; _edit.ProteinG = src.ProteinG; _edit.CarbsG = src.CarbsG;
+        _edit.SugarG = src.SugarG; _edit.FatG = src.FatG; _edit.SodiumMg = src.SodiumMg;
+        _edit.FiberG = src.FiberG; _edit.AddedSugarG = src.AddedSugarG;
     }
 
     private void AddNew() { _edit = new DrinkEntry { Time = DateTime.Now }; _isNew = true; _msg = null; }

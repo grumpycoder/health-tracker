@@ -27,6 +27,16 @@ else
     {
         <div class="card p-3 mb-4">
             <h5>@(_isNew ? "New meal" : "Edit meal")</h5>
+            @if (_isNew && _foodNames.Count > 0)
+            {
+                <div class="mb-3">
+                    <label class="form-label">Repeat a recent meal</label>
+                    <select class="form-select" @onchange="RepeatFood">
+                        <option value="">— pick to prefill macros &amp; tags —</option>
+                        @foreach (var n in _foodNames) { <option value="@n">@n</option> }
+                    </select>
+                </div>
+            }
             <div class="row g-2">
                 <div class="col-12">
                     <label class="form-label">Description</label>
@@ -97,14 +107,42 @@ else
     private List<MealEntry> _meals = new();
     private MealEntry? _edit;
 
+    // Repeat-from-history: distinct past foods (recent first) + the most-recent entry per
+    // name, so picking one prefills macros/tags without retyping.
+    private Dictionary<string, MealEntry> _foodMemory = new(StringComparer.OrdinalIgnoreCase);
+    private List<string> _foodNames = new();
+
     protected override async Task OnInitializedAsync() => await Load();
 
     private async Task Load(bool refresh = false)
     {
         _loading = true; _error = null;
-        try { _meals = WebSyncClient.Rows<MealEntry>(await State.DataAsync(refresh)); }
+        try
+        {
+            _meals = WebSyncClient.Rows<MealEntry>(await State.DataAsync(refresh));
+            _foodMemory = _meals
+                .Where(m => !string.IsNullOrWhiteSpace(m.Description))
+                .GroupBy(m => m.Description.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(m => m.Time).First(), StringComparer.OrdinalIgnoreCase);
+            _foodNames = _foodMemory.Values.OrderByDescending(m => m.Time).Select(m => m.Description.Trim()).ToList();
+        }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; }
+    }
+
+    private void RepeatFood(ChangeEventArgs e)
+    {
+        var name = e.Value?.ToString();
+        if (_edit is null || string.IsNullOrEmpty(name) || !_foodMemory.TryGetValue(name, out var src)) return;
+        _edit.Description = src.Description;
+        _edit.MealType = src.MealType;
+        _edit.PortionNote = src.PortionNote;
+        _edit.Tags = src.Tags;
+        _edit.QualityStars = src.QualityStars;
+        _edit.Calories = src.Calories; _edit.ProteinG = src.ProteinG; _edit.CarbsG = src.CarbsG;
+        _edit.SugarG = src.SugarG; _edit.FatG = src.FatG; _edit.SodiumMg = src.SodiumMg;
+        _edit.FiberG = src.FiberG; _edit.AddedSugarG = src.AddedSugarG;
+        // Time stays "now" for the new entry.
     }
 
     private void AddNew() { _edit = new MealEntry { Time = DateTime.Now }; _isNew = true; _msg = null; }
