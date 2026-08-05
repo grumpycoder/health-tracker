@@ -105,7 +105,7 @@ public class EfRoutineRepositoryTests
         await _repo.SaveAsync(routine);
         using (var db = _factory.CreateDbContext())
         {
-            db.WorkoutSessions.Add(new WorkoutSession { Date = new DateOnly(2026, 8, 1), RoutineId = routine.Id });
+            db.WorkoutSessions.Add(new FitRecoveryLog.Data.WorkoutSession { Date = new DateOnly(2026, 8, 1), RoutineId = routine.Id });
             await db.SaveChangesAsync();
         }
 
