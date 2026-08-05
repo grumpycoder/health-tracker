@@ -1,19 +1,17 @@
 @page "/routines"
 @using Microsoft.AspNetCore.Authorization
-@using FitRecoveryLog.Data
+@using FitRecoveryLog.Application.Common
+@using FitRecoveryLog.Application.Workouts
+@using FitRecoveryLog.Domain.Workouts
+@using ExDef = FitRecoveryLog.Data.ExerciseDefinition
 @attribute [Authorize]
+@inject RoutineService RoutineSvc
 @inject AppState State
 @inject WebSyncClient Sync
 
 <PageTitle>Routines — Fit Log</PageTitle>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="mb-0">Routines</h1>
-    @if (_editRoutine is null)
-    {
-        <button class="btn btn-primary" @onclick="AddRoutine">+ New routine</button>
-    }
-</div>
+<h1 class="mb-3">Routines</h1>
 
 @if (_loading)
 {
@@ -22,112 +20,118 @@
 else if (_error is not null)
 {
     <div class="alert alert-danger">@_error</div>
-    <button class="btn btn-primary" @onclick="() => Load(true)">Retry</button>
-}
-else if (_editRoutine is not null)
-{
-    <div class="card p-3 mb-4">
-        <div class="d-flex justify-content-between">
-            <h5>@(_isNew ? "New routine" : "Edit routine")</h5>
-            <button class="btn btn-sm btn-secondary" @onclick="Cancel">Back to list</button>
-        </div>
-        <div class="row g-2 mb-3">
-            <div class="col-md-6"><label class="form-label">Name</label><input class="form-control" @bind="_editRoutine.Name" /></div>
-            <div class="col-12"><label class="form-label">Notes</label><textarea class="form-control" rows="2" @bind="_editRoutine.Notes"></textarea></div>
-        </div>
-
-        <h6>Exercises</h6>
-        <div class="table-responsive">
-            <table class="table table-sm align-middle">
-                <thead>
-                    <tr><th style="width:4rem">Order</th><th>Exercise</th><th>Sets</th><th>Reps</th><th>Dur (s)</th><th>Weight</th><th>Rest (s)</th><th>Note</th><th></th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var re in _editEx.Where(x => !x.IsDeleted).OrderBy(x => x.Order))
-                    {
-                        <tr>
-                            <td><input type="number" class="form-control form-control-sm" @bind="re.Order" /></td>
-                            <td>
-                                <select class="form-select form-select-sm" @bind="re.ExerciseDefinitionId" style="min-width:11rem">
-                                    @foreach (var ex in _exercises) { <option value="@ex.Id">@ex.Name</option> }
-                                </select>
-                            </td>
-                            <td style="width:5rem"><input type="number" class="form-control form-control-sm" @bind="re.TargetSets" /></td>
-                            <td style="width:5rem"><input type="number" class="form-control form-control-sm" @bind="re.TargetReps" /></td>
-                            <td style="width:5rem"><input type="number" class="form-control form-control-sm" @bind="re.TargetDurationSeconds" /></td>
-                            <td style="width:6rem"><input type="number" step="0.5" class="form-control form-control-sm" @bind="re.TargetWeight" /></td>
-                            <td style="width:5rem"><input type="number" class="form-control form-control-sm" @bind="re.RestSeconds" /></td>
-                            <td style="min-width:9rem"><input class="form-control form-control-sm" @bind="re.TargetNote" placeholder="10-12, each side…" /></td>
-                            <td class="text-end"><button class="btn btn-sm btn-outline-danger" title="Remove" @onclick="() => RemoveEx(re)">✕</button></td>
-                        </tr>
-                    }
-                    @if (!_editEx.Any(x => !x.IsDeleted)) { <tr><td colspan="9" class="text-muted">No exercises.</td></tr> }
-                </tbody>
-            </table>
-        </div>
-        <div class="d-flex gap-2 align-items-end mb-2">
-            <div>
-                <label class="form-label mb-0"><small>Add exercise</small></label>
-                <select class="form-select form-select-sm" @bind="_addExId" style="min-width:14rem">
-                    @foreach (var ex in _exercises) { <option value="@ex.Id">@ex.Name</option> }
-                </select>
-            </div>
-            <button class="btn btn-sm btn-outline-primary" @onclick="AddEx" disabled="@(_addExId == Guid.Empty)">+ Add exercise</button>
-            <button class="btn btn-sm btn-link" @onclick="() => _newExOpen = !_newExOpen">＋ New exercise</button>
-        </div>
-        @if (_newExOpen)
-        {
-            <div class="card p-2 mb-3">
-                <div class="row g-2 align-items-end">
-                    <div class="col-sm-5">
-                        <label class="form-label mb-0"><small>Name</small></label>
-                        <input class="form-control form-control-sm" @bind="_newEx.Name" placeholder="e.g. Bulgarian split squat" />
-                    </div>
-                    <div class="col-6 col-sm-3">
-                        <label class="form-label mb-0"><small>Measured by</small></label>
-                        <select class="form-select form-select-sm" @bind="_newEx.Measure">
-                            @foreach (var v in Enum.GetValues<ExerciseMeasure>()) { <option value="@v">@v</option> }
-                        </select>
-                    </div>
-                    <div class="col-sm-4">
-                        <label class="form-label mb-0"><small>Muscle groups (comma)</small></label>
-                        <input class="form-control form-control-sm" @bind="_newEx.MuscleGroups" placeholder="Legs, Glutes" />
-                    </div>
-                </div>
-                <div class="mt-2 d-flex gap-2">
-                    <button class="btn btn-sm btn-primary" @onclick="CreateExercise" disabled="@(_saving || string.IsNullOrWhiteSpace(_newEx.Name))">Create &amp; add</button>
-                    <button class="btn btn-sm btn-secondary" @onclick="() => _newExOpen = false" disabled="@_saving">Cancel</button>
-                </div>
-            </div>
-        }
-
-        <div class="mt-2 d-flex gap-2">
-            <button class="btn btn-primary" @onclick="Save" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
-            <button class="btn btn-secondary" @onclick="Cancel" disabled="@_saving">Cancel</button>
-            @if (!_isNew)
-            {
-                <button class="btn btn-outline-secondary ms-auto" @onclick="ToggleArchive" disabled="@_saving">
-                    @(_editRoutine.Archived ? "Restore" : "Archive")
-                </button>
-                <button class="btn btn-outline-danger" @onclick="DeleteRoutine" disabled="@_saving">Delete routine</button>
-            }
-        </div>
-        @if (_msg is not null) { <div class="form-text mt-2">@_msg</div> }
-    </div>
+    <button class="btn btn-primary" @onclick="() => LoadAll()">Retry</button>
 }
 else
 {
+    @if (_msg is not null) { <div class="alert alert-warning py-2">@_msg</div> }
+
+    <div class="input-group mb-4" style="max-width:32rem">
+        <input class="form-control" @bind="_newRoutineName" placeholder="New routine name" />
+        <button class="btn btn-primary" @onclick="CreateRoutine" disabled="@(_busy || string.IsNullOrWhiteSpace(_newRoutineName))">+ Create</button>
+    </div>
+
+    @if (Open is Routine open)
+    {
+        <div class="card p-3 mb-4 border-primary">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h5 class="mb-0">Editing: @open.Name</h5>
+                <button class="btn btn-sm btn-secondary" @onclick="Close">Close</button>
+            </div>
+
+            <div class="row g-2 mb-2">
+                <div class="col-md-8">
+                    <label class="form-label mb-0"><small>Name</small></label>
+                    <div class="input-group input-group-sm">
+                        <input class="form-control" @bind="_nameDraft" />
+                        <button class="btn btn-outline-primary" @onclick="SaveName" disabled="@_busy">Save</button>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <label class="form-label mb-0"><small>Notes</small></label>
+                    <div class="input-group input-group-sm">
+                        <input class="form-control" @bind="_notesDraft" />
+                        <button class="btn btn-outline-primary" @onclick="SaveNotes" disabled="@_busy">Save</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th></th><th>Exercise</th><th>Sets</th><th>Reps</th><th>Dur(s)</th><th>Weight</th><th>Rest(s)</th><th>Note</th><th></th></tr></thead>
+                    <tbody>
+                        @for (var i = 0; i < _exDrafts.Count; i++)
+                        {
+                            var d = _exDrafts[i];
+                            var pos = i + 1;
+                            <tr>
+                                <td class="text-nowrap">
+                                    <button class="btn btn-sm btn-link p-0" title="Up" disabled="@(_busy || pos == 1)" @onclick="() => MoveExercise(d.Id, pos - 1)">↑</button>
+                                    <button class="btn btn-sm btn-link p-0" title="Down" disabled="@(_busy || pos == _exDrafts.Count)" @onclick="() => MoveExercise(d.Id, pos + 1)">↓</button>
+                                </td>
+                                <td>@ExName(d.ExerciseDefinitionId)</td>
+                                <td style="width:4.5rem"><input type="number" class="form-control form-control-sm" @bind="d.Sets" /></td>
+                                <td style="width:4.5rem"><input type="number" class="form-control form-control-sm" @bind="d.Reps" /></td>
+                                <td style="width:5rem"><input type="number" class="form-control form-control-sm" @bind="d.Dur" /></td>
+                                <td style="width:5.5rem"><input type="number" step="0.5" class="form-control form-control-sm" @bind="d.Weight" /></td>
+                                <td style="width:5rem"><input type="number" class="form-control form-control-sm" @bind="d.Rest" /></td>
+                                <td style="min-width:8rem"><input class="form-control form-control-sm" @bind="d.Note" /></td>
+                                <td class="text-nowrap">
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => SaveExercise(d)" disabled="@_busy">Save</button>
+                                    <button class="btn btn-sm btn-outline-danger" title="Remove" @onclick="() => RemoveExercise(d.Id)" disabled="@_busy">✕</button>
+                                </td>
+                            </tr>
+                        }
+                        @if (_exDrafts.Count == 0) { <tr><td colspan="9" class="text-muted">No exercises.</td></tr> }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="d-flex gap-2 align-items-end mb-2">
+                <div>
+                    <label class="form-label mb-0"><small>Add exercise</small></label>
+                    <select class="form-select form-select-sm" @bind="_addExId" style="min-width:13rem">
+                        @foreach (var ex in _exercises) { <option value="@ex.Id">@ex.Name</option> }
+                    </select>
+                </div>
+                <button class="btn btn-sm btn-outline-primary" @onclick="AddExercise" disabled="@(_busy || _addExId == Guid.Empty)">+ Add</button>
+                <button class="btn btn-sm btn-link" @onclick="() => _newExOpen = !_newExOpen">＋ New exercise</button>
+            </div>
+            @if (_newExOpen)
+            {
+                <div class="card p-2 mb-2">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-sm-6"><label class="form-label mb-0"><small>Name</small></label><input class="form-control form-control-sm" @bind="_newEx.Name" /></div>
+                        <div class="col-sm-4"><label class="form-label mb-0"><small>Muscle groups</small></label><input class="form-control form-control-sm" @bind="_newEx.MuscleGroups" /></div>
+                        <div class="col-sm-2"><button class="btn btn-sm btn-primary w-100" @onclick="CreateNewExercise" disabled="@(_busy || string.IsNullOrWhiteSpace(_newEx.Name))">Create</button></div>
+                    </div>
+                </div>
+            }
+
+            <div class="d-flex gap-2 mt-2">
+                @if (open.Archived)
+                {
+                    <button class="btn btn-sm btn-outline-success" @onclick="() => Restore(open.Id)" disabled="@_busy">Restore</button>
+                }
+                else
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => Archive(open.Id)" disabled="@_busy">Archive</button>
+                }
+                <button class="btn btn-sm btn-outline-danger ms-auto" @onclick="() => Delete(open.Id)" disabled="@_busy">Delete routine</button>
+            </div>
+        </div>
+    }
+
     <table class="table table-hover align-middle">
-        <thead><tr><th>Name</th><th class="text-end">Exercises</th><th></th></tr></thead>
         <tbody>
             @foreach (var r in _routines.Where(x => !x.Archived).OrderBy(x => x.Name))
             {
                 <tr>
                     <td>@r.Name</td>
-                    <td class="text-end">@(_exByRoutine.GetValueOrDefault(r.Id)?.Count ?? 0)</td>
-                    <td class="text-end">
-                        <button class="btn btn-sm btn-outline-secondary me-1" title="Archive" @onclick="() => SetArchived(r, true)" disabled="@_saving">Archive</button>
-                        <button class="btn btn-sm btn-outline-primary" @onclick="() => Open(r)">Open</button>
+                    <td class="text-end text-muted">@r.Exercises.Count exercises</td>
+                    <td class="text-end" style="width:12rem">
+                        <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => Archive(r.Id)" disabled="@_busy">Archive</button>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => OpenRoutine(r.Id)" disabled="@_busy">Open</button>
                     </td>
                 </tr>
             }
@@ -148,10 +152,9 @@ else
                     {
                         <tr class="text-muted">
                             <td>@r.Name</td>
-                            <td class="text-end">@(_exByRoutine.GetValueOrDefault(r.Id)?.Count ?? 0)</td>
-                            <td class="text-end">
-                                <button class="btn btn-sm btn-outline-success me-1" @onclick="() => SetArchived(r, false)" disabled="@_saving">Restore</button>
-                                <button class="btn btn-sm btn-outline-primary" @onclick="() => Open(r)">Open</button>
+                            <td class="text-end" style="width:12rem">
+                                <button class="btn btn-sm btn-outline-success me-1" @onclick="() => Restore(r.Id)" disabled="@_busy">Restore</button>
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => OpenRoutine(r.Id)" disabled="@_busy">Open</button>
                             </td>
                         </tr>
                     }
@@ -162,155 +165,145 @@ else
 }
 
 @code {
-    private bool _loading = true, _saving, _isNew, _showArchived;
+    private bool _loading = true, _busy, _showArchived, _newExOpen;
     private string? _error, _msg;
-    private List<WorkoutRoutine> _routines = new();
-    private List<ExerciseDefinition> _exercises = new();
-    private Dictionary<Guid, List<RoutineExercise>> _exByRoutine = new();
+    private IReadOnlyList<Routine> _routines = Array.Empty<Routine>();
+    private List<ExDef> _exercises = new();
+    private Dictionary<Guid, string> _exNames = new();
 
-    private WorkoutRoutine? _editRoutine;
-    private List<RoutineExercise> _editEx = new();
+    private Guid? _openId;
+    private string _nameDraft = "";
+    private string? _notesDraft;
+    private List<ExDraft> _exDrafts = new();
     private Guid _addExId;
-    private bool _newExOpen;
-    private ExerciseDefinition _newEx = new();
+    private ExDef _newEx = new();
+    private string _newRoutineName = "";
 
-    private List<WorkoutRoutine> ArchivedRoutines => _routines.Where(x => x.Archived).OrderBy(x => x.Name).ToList();
+    private Routine? Open => _openId is Guid id ? _routines.FirstOrDefault(r => r.Id == id) : null;
+    private List<Routine> ArchivedRoutines => _routines.Where(x => x.Archived).OrderBy(x => x.Name).ToList();
 
-    protected override async Task OnInitializedAsync() => await Load();
+    private sealed class ExDraft
+    {
+        public Guid Id;
+        public Guid ExerciseDefinitionId;
+        public int? Sets, Reps, Dur, Rest;
+        public double? Weight;
+        public string? Note;
+    }
 
-    private async Task Load(bool refresh = false)
+    protected override async Task OnInitializedAsync() => await LoadAll();
+
+    private async Task LoadAll()
     {
         _loading = true; _error = null;
         try
         {
-            var pull = await State.DataAsync(refresh);
-            _routines = WebSyncClient.Rows<WorkoutRoutine>(pull);
-            _exercises = WebSyncClient.Rows<ExerciseDefinition>(pull).Where(e => !e.Retired).OrderBy(e => e.Name).ToList();
-            _exByRoutine = WebSyncClient.Rows<RoutineExercise>(pull).GroupBy(x => x.RoutineId).ToDictionary(g => g.Key, g => g.ToList());
+            var pull = await State.DataAsync();
+            var defs = WebSyncClient.Rows<ExDef>(pull);
+            _exNames = defs.ToDictionary(d => d.Id, d => d.Name);
+            _exercises = defs.Where(d => !d.Retired).OrderBy(d => d.Name).ToList();
+            _routines = await RoutineSvc.ListAsync(includeArchived: true);
+            if (_openId is Guid id) BuildDrafts(id);
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; }
     }
 
-    private Guid DefaultEx => _exercises.FirstOrDefault()?.Id ?? Guid.Empty;
+    private string ExName(Guid id) => _exNames.GetValueOrDefault(id, "(exercise)");
 
-    private void AddRoutine()
+    private void OpenRoutine(Guid id) { _openId = id; _newExOpen = false; _msg = null; BuildDrafts(id); }
+    private void Close() => _openId = null;
+
+    private void BuildDrafts(Guid id)
     {
-        _editRoutine = new WorkoutRoutine();
-        _editEx = new();
-        _addExId = DefaultEx;
-        _isNew = true; _msg = null;
-    }
-
-    private void Open(WorkoutRoutine r)
-    {
-        _editRoutine = WebSyncClient.Clone(r);
-        _editEx = (_exByRoutine.GetValueOrDefault(r.Id) ?? new()).Select(WebSyncClient.Clone).ToList();
-        _addExId = DefaultEx;
-        _isNew = false; _msg = null;
-    }
-
-    private void Cancel() { _editRoutine = null; _editEx = new(); _msg = null; }
-
-    private void AddEx()
-    {
-        if (_editRoutine is null || _addExId == Guid.Empty) return;
-        var nextOrder = _editEx.Where(x => !x.IsDeleted).Select(x => x.Order).DefaultIfEmpty(0).Max() + 1;
-        _editEx.Add(new RoutineExercise
+        var r = _routines.FirstOrDefault(x => x.Id == id);
+        if (r is null) { _openId = null; return; }
+        _nameDraft = r.Name;
+        _notesDraft = r.Notes;
+        _exDrafts = r.Exercises.Select(e => new ExDraft
         {
-            RoutineId = _editRoutine.Id,
-            ExerciseDefinitionId = _addExId,
-            Order = nextOrder,
-        });
+            Id = e.Id, ExerciseDefinitionId = e.ExerciseDefinitionId,
+            Sets = e.Prescription.TargetSets, Reps = e.Prescription.TargetReps,
+            Dur = e.Prescription.TargetDurationSeconds, Rest = e.Prescription.RestSeconds,
+            Weight = e.Prescription.TargetWeight, Note = e.Prescription.TargetNote,
+        }).ToList();
+        _addExId = _exDrafts.FirstOrDefault()?.ExerciseDefinitionId ?? _exercises.FirstOrDefault()?.Id ?? Guid.Empty;
     }
 
-    private void RemoveEx(RoutineExercise re) { re.IsDeleted = true; re.DeletedAt = DateTime.UtcNow; }
+    private static ExercisePrescription Rx(ExDraft d) => new(d.Sets, d.Reps, d.Dur, d.Rest, d.Weight, d.Note);
 
-    private async Task CreateExercise()
+    // Run a granular use case, surface failures, reload.
+    private async Task Run(Func<Task<Result>> action)
+    {
+        _busy = true; _msg = null;
+        try
+        {
+            var result = await action();
+            if (!result.IsSuccess) _msg = result.Error;
+            await LoadAll();
+        }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task CreateRoutine()
+    {
+        _busy = true; _msg = null;
+        try
+        {
+            var result = await RoutineSvc.CreateAsync(_newRoutineName);
+            if (!result.IsSuccess) { _msg = result.Error; return; }
+            _newRoutineName = "";
+            await LoadAll();
+            OpenRoutine(result.Value);
+        }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private Task SaveName() => Run(() => RoutineSvc.RenameAsync(_openId!.Value, _nameDraft));
+    private Task SaveNotes() => Run(() => RoutineSvc.SetNotesAsync(_openId!.Value, _notesDraft));
+    private Task Archive(Guid id) => Run(() => RoutineSvc.ArchiveAsync(id));
+    private Task Restore(Guid id) => Run(() => RoutineSvc.RestoreAsync(id));
+    private Task RemoveExercise(Guid reId) => Run(() => RoutineSvc.RemoveExerciseAsync(_openId!.Value, reId));
+    private Task SaveExercise(ExDraft d) => Run(() => RoutineSvc.UpdateExerciseAsync(_openId!.Value, d.Id, Rx(d)));
+    private Task MoveExercise(Guid reId, int pos) => Run(() => RoutineSvc.MoveExerciseAsync(_openId!.Value, reId, pos));
+
+    private async Task Delete(Guid id)
+    {
+        await Run(() => RoutineSvc.DeleteAsync(id));
+        if (_openId == id) _openId = null;
+    }
+
+    private async Task AddExercise()
+    {
+        if (_addExId == Guid.Empty || _openId is null) return;
+        _busy = true; _msg = null;
+        try
+        {
+            var result = await RoutineSvc.AddExerciseAsync(_openId.Value, _addExId, ExercisePrescription.None);
+            if (!result.IsSuccess) _msg = result.Error;
+            await LoadAll();
+        }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task CreateNewExercise()
     {
         var name = _newEx.Name?.Trim();
         if (string.IsNullOrWhiteSpace(name)) return;
-
-        // If it already exists in the library, just use it instead of creating a duplicate
-        // (the ExerciseDefinition name has a unique index).
         var existing = _exercises.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase));
-        if (existing is not null)
-        {
-            _addExId = existing.Id;
-            AddEx();
-            _newExOpen = false; _newEx = new();
-            return;
-        }
-
-        _saving = true; _msg = null;
-        try
+        if (existing is null)
         {
             _newEx.Name = name;
-            await Sync.PushAsync(_newEx);            // add to the shared exercise library
-            _exercises = _exercises.Append(_newEx).OrderBy(e => e.Name).ToList();
+            await Sync.PushAsync(_newEx);   // exercise library not yet migrated into the domain
+            State.Invalidate();
             _addExId = _newEx.Id;
-            AddEx();                                 // and drop it into this routine
-            State.Invalidate();                      // fresh loads elsewhere pick up the new exercise
-            _newExOpen = false; _newEx = new();
+            _newEx = new();
         }
-        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
-        finally { _saving = false; }
-    }
-
-    private async Task SetArchived(WorkoutRoutine r, bool archived)
-    {
-        _saving = true; _error = null;
-        try
-        {
-            var c = WebSyncClient.Clone(r);
-            c.Archived = archived;
-            await Sync.PushAsync(c);
-            State.Invalidate();
-            await Load(true);
-        }
-        catch (Exception ex) { _error = ex.Message; }
-        finally { _saving = false; }
-    }
-
-    private async Task ToggleArchive()
-    {
-        if (_editRoutine is null) return;
-        _editRoutine.Archived = !_editRoutine.Archived;
-        await Save();  // persists the routine (incl. Archived) + its exercises, then closes
-    }
-
-    private async Task Save()
-    {
-        if (_editRoutine is null) return;
-        _saving = true; _msg = null;
-        try
-        {
-            await Sync.PushAsync(_editRoutine);        // parent first (FK)
-            await Sync.PushAsync(_editEx);             // children (adds/edits/removes)
-            State.Invalidate();
-            await Load(true);
-            _editRoutine = null;
-        }
-        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
-        finally { _saving = false; }
-    }
-
-    private async Task DeleteRoutine()
-    {
-        if (_editRoutine is null) return;
-        _saving = true; _msg = null;
-        try
-        {
-            // Tombstone the routine and all its exercises (children don't cascade over sync).
-            foreach (var re in _editEx) { re.IsDeleted = true; re.DeletedAt = DateTime.UtcNow; }
-            _editRoutine.IsDeleted = true; _editRoutine.DeletedAt = DateTime.UtcNow;
-            await Sync.PushAsync(_editEx);
-            await Sync.PushAsync(_editRoutine);
-            State.Invalidate();
-            await Load(true);
-            _editRoutine = null;
-        }
-        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
-        finally { _saving = false; }
+        else _addExId = existing.Id;
+        _newExOpen = false;
+        await AddExercise();
     }
 }

@@ -16,6 +16,8 @@
   <ItemGroup>
     <!-- Canonical entity model + sync contracts (no EF/SQLite — browser-safe). -->
     <ProjectReference Include="..\FitRecoveryLog.Shared\FitRecoveryLog.Shared.csproj" />
+    <ProjectReference Include="..\FitRecoveryLog.Application\FitRecoveryLog.Application.csproj" />
+    <ProjectReference Include="..\FitRecoveryLog.Domain\FitRecoveryLog.Domain.csproj" />
   </ItemGroup>
 
 </Project>

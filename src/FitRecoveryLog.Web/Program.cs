@@ -23,4 +23,10 @@ builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().Cre
 builder.Services.AddScoped<WebSyncClient>();
 builder.Services.AddScoped<AppState>();
 
+// Clean Architecture: application use cases over API-backed repositories, so the web runs
+// the same domain logic as the phone.
+builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.IRoutineRepository, FitRecoveryLog.Web.Infrastructure.ApiRoutineRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.IWorkoutSessionRepository, FitRecoveryLog.Web.Infrastructure.ApiWorkoutSessionRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.RoutineService>();
+
 await builder.Build().RunAsync();
