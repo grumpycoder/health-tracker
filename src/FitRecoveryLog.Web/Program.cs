@@ -30,7 +30,13 @@ builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.IWorkoutSessionRe
 builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.RoutineService>();
 
 // Workouts: aggregate use cases + domain-event dispatch (WorkoutCompleted -> mark the day).
-builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.IWorkoutRepository, FitRecoveryLog.Web.Infrastructure.ApiWorkoutRepository>();
+// IWorkoutRepository is the real API repo wrapped in the event-dispatching decorator, so
+// saving a session dispatches its domain events automatically.
+builder.Services.AddScoped<FitRecoveryLog.Web.Infrastructure.ApiWorkoutRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.IWorkoutRepository>(sp =>
+    new FitRecoveryLog.Application.Workouts.EventDispatchingWorkoutRepository(
+        sp.GetRequiredService<FitRecoveryLog.Web.Infrastructure.ApiWorkoutRepository>(),
+        sp.GetRequiredService<FitRecoveryLog.Application.Common.IDomainEventDispatcher>()));
 builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.IDayTypeService, FitRecoveryLog.Web.Infrastructure.ApiDayTypeService>();
 builder.Services.AddScoped<FitRecoveryLog.Application.Common.IDomainEventDispatcher, FitRecoveryLog.Application.Common.DomainEventDispatcher>();
 builder.Services.AddScoped<FitRecoveryLog.Application.Common.IDomainEventHandler<FitRecoveryLog.Domain.Workouts.Events.WorkoutCompleted>, FitRecoveryLog.Application.Workouts.WorkoutCompletedHandler>();

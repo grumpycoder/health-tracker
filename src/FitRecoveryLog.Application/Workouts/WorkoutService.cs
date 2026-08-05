@@ -11,13 +11,8 @@ namespace FitRecoveryLog.Application.Workouts;
 public sealed class WorkoutService
 {
     private readonly IWorkoutRepository _workouts;
-    private readonly IDomainEventDispatcher _events;
 
-    public WorkoutService(IWorkoutRepository workouts, IDomainEventDispatcher events)
-    {
-        _workouts = workouts;
-        _events = events;
-    }
+    public WorkoutService(IWorkoutRepository workouts) => _workouts = workouts;
 
     public Task<IReadOnlyList<WorkoutSession>> ListAsync(CancellationToken ct = default) => _workouts.ListAsync(ct);
     public Task<WorkoutSession?> GetAsync(Guid id, CancellationToken ct = default) => _workouts.GetAsync(id, ct);
@@ -77,10 +72,9 @@ public sealed class WorkoutService
         if (session is null) return Result.Failure("Workout not found.");
         try { session.Finish(endedAt); }
         catch (ArgumentException ex) { return Result.Failure(ex.Message); }
+        // Finish() raised WorkoutCompleted; the repository decorator dispatches it on save
+        // (-> marks the workout day). The use case just mutates and saves.
         await _workouts.SaveAsync(session, ct);
-        // Dispatch domain events (e.g. WorkoutCompleted -> mark the workout day) after the save.
-        await _events.DispatchAsync(session.DomainEvents, ct);
-        session.ClearDomainEvents();
         return Result.Success();
     }
 

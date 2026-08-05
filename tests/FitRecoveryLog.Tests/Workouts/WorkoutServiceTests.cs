@@ -12,15 +12,13 @@ public class WorkoutServiceTests
 {
     private static readonly DateOnly Day = new(2026, 8, 5);
     private FakeWorkoutRepository _workouts = null!;
-    private FakeDispatcher _events = null!;
     private WorkoutService _service = null!;
 
     [SetUp]
     public void SetUp()
     {
         _workouts = new FakeWorkoutRepository();
-        _events = new FakeDispatcher();
-        _service = new WorkoutService(_workouts, _events);
+        _service = new WorkoutService(_workouts);
     }
 
     [Test]
@@ -47,7 +45,7 @@ public class WorkoutServiceTests
     }
 
     [Test]
-    public async Task Complete_Finishes_AndDispatchesWorkoutCompleted()
+    public async Task Complete_Finishes_AndRaisesEvent()
     {
         var id = (await _service.CreateAsync(Day)).Value;
 
@@ -57,9 +55,8 @@ public class WorkoutServiceTests
         {
             Assert.That(result.IsSuccess, Is.True);
             Assert.That(_workouts.Store[id].EndedAt, Is.Not.Null);
-            var evt = _events.Dispatched.OfType<WorkoutCompleted>().SingleOrDefault();
-            Assert.That(evt, Is.Not.Null, "a WorkoutCompleted event must be dispatched");
-            Assert.That(evt!.Date, Is.EqualTo(Day));
+            // Dispatch is the repository decorator's job (see EventDispatchingWorkoutRepositoryTests);
+            // the use case's responsibility is to finish + save.
         });
     }
 
@@ -79,13 +76,4 @@ public class WorkoutServiceTests
         public Task RemoveAsync(Guid id, CancellationToken ct = default) { Store.Remove(id); return Task.CompletedTask; }
     }
 
-    private sealed class FakeDispatcher : IDomainEventDispatcher
-    {
-        public readonly List<IDomainEvent> Dispatched = new();
-        public Task DispatchAsync(IEnumerable<IDomainEvent> events, CancellationToken ct = default)
-        {
-            Dispatched.AddRange(events);
-            return Task.CompletedTask;
-        }
-    }
 }
