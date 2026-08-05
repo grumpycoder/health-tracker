@@ -1,0 +1,171 @@
+@page "/sleep"
+@using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Data
+@attribute [Authorize]
+@inject AppState State
+@inject WebSyncClient Sync
+
+<PageTitle>Sleep & Recovery — Fit Log</PageTitle>
+
+<h1 class="mb-3">Sleep &amp; Recovery</h1>
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+    <button class="btn btn-primary" @onclick="() => Load(true)">Retry</button>
+}
+else
+{
+    <!-- ===== Sleep ===== -->
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h4 class="mb-0">Sleep</h4>
+        <button class="btn btn-sm btn-primary" @onclick="AddSleep" disabled="@(_sleepEdit is not null)">+ Add</button>
+    </div>
+    @if (_sleepEdit is not null)
+    {
+        <div class="card p-3 mb-3">
+            <div class="row g-2">
+                <div class="col-sm-4"><label class="form-label">Date</label><input type="date" class="form-control" @bind="_sleepEdit.Date" /></div>
+                <div class="col-6 col-sm-3"><label class="form-label">Hours</label><input type="number" step="0.1" class="form-control" @bind="_sleepEdit.DurationHours" /></div>
+                <div class="col-6 col-sm-3"><label class="form-label">Score</label><input type="number" class="form-control" @bind="_sleepEdit.SleepScore" /></div>
+                <div class="col-6 col-sm-2"><label class="form-label">Wake-ups</label><input type="number" class="form-control" @bind="_sleepEdit.Interruptions" /></div>
+                <div class="col-12"><label class="form-label">Notes</label><input class="form-control" @bind="_sleepEdit.Notes" /></div>
+            </div>
+            <div class="mt-2 d-flex gap-2">
+                <button class="btn btn-primary" @onclick="SaveSleep" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+                <button class="btn btn-secondary" @onclick="() => _sleepEdit = null" disabled="@_saving">Cancel</button>
+                @if (!_sleepNew) { <button class="btn btn-outline-danger ms-auto" @onclick="DeleteSleep" disabled="@_saving">Delete</button> }
+            </div>
+        </div>
+    }
+    <table class="table table-hover table-sm align-middle mb-4">
+        <thead><tr><th>Date</th><th class="text-end">Hours</th><th class="text-end">Score</th><th class="text-end">Wake-ups</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var s in _sleep.OrderByDescending(x => x.Date))
+            {
+                <tr>
+                    <td>@s.Date.ToString("ddd, MMM d")</td>
+                    <td class="text-end">@(s.DurationHours?.ToString("0.#") ?? "—")</td>
+                    <td class="text-end">@(s.SleepScore?.ToString() ?? "—")@(s.ScoreEstimated ? " (est.)" : "")</td>
+                    <td class="text-end">@(s.Interruptions?.ToString() ?? "—")</td>
+                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => EditSleep(s)">Edit</button></td>
+                </tr>
+            }
+            @if (_sleep.Count == 0) { <tr><td colspan="5" class="text-muted">No sleep entries.</td></tr> }
+        </tbody>
+    </table>
+
+    <!-- ===== Recovery ===== -->
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h4 class="mb-0">Recovery</h4>
+        <button class="btn btn-sm btn-primary" @onclick="AddRec" disabled="@(_recEdit is not null)">+ Add</button>
+    </div>
+    @if (_recEdit is not null)
+    {
+        <div class="card p-3 mb-3">
+            <div class="row g-2">
+                <div class="col-sm-4"><label class="form-label">Date</label><input type="date" class="form-control" @bind="_recEdit.Date" /></div>
+                <div class="col-6 col-sm-3"><label class="form-label">Recovery (1-10)</label><input type="number" class="form-control" @bind="_recEdit.RecoveryRating" /></div>
+                <div class="col-6 col-sm-3"><label class="form-label">Fatigue (1-10)</label><input type="number" class="form-control" @bind="_recEdit.FatigueRating" /></div>
+                <div class="col-sm-6"><label class="form-label">Soreness locations (comma-separated)</label><input class="form-control" @bind="_recEdit.SorenessLocations" /></div>
+                <div class="col-sm-6"><label class="form-label">Soreness severity</label>
+                    <select class="form-select" @bind="_recEdit.SorenessSeverity">
+                        @foreach (var v in Enum.GetValues<SorenessSeverity>()) { <option value="@v">@v</option> }
+                    </select>
+                </div>
+                <div class="col-12"><label class="form-label">Notes</label><input class="form-control" @bind="_recEdit.Notes" /></div>
+            </div>
+            <div class="mt-2 d-flex gap-2">
+                <button class="btn btn-primary" @onclick="SaveRec" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+                <button class="btn btn-secondary" @onclick="() => _recEdit = null" disabled="@_saving">Cancel</button>
+                @if (!_recNew) { <button class="btn btn-outline-danger ms-auto" @onclick="DeleteRec" disabled="@_saving">Delete</button> }
+            </div>
+        </div>
+    }
+    <table class="table table-hover table-sm align-middle">
+        <thead><tr><th>Date</th><th class="text-end">Recovery</th><th class="text-end">Fatigue</th><th>Soreness</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var r in _rec.OrderByDescending(x => x.Date))
+            {
+                <tr>
+                    <td>@r.Date.ToString("ddd, MMM d")</td>
+                    <td class="text-end">@(r.RecoveryRating?.ToString() ?? "—")</td>
+                    <td class="text-end">@(r.FatigueRating?.ToString() ?? "—")</td>
+                    <td>@(string.IsNullOrEmpty(r.SorenessLocations) ? "—" : $"{r.SorenessSeverity}: {r.SorenessLocations}")</td>
+                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => EditRec(r)">Edit</button></td>
+                </tr>
+            }
+            @if (_rec.Count == 0) { <tr><td colspan="5" class="text-muted">No recovery entries.</td></tr> }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool _loading = true, _saving, _sleepNew, _recNew;
+    private string? _error;
+    private List<SleepEntry> _sleep = new();
+    private List<RecoveryEntry> _rec = new();
+    private SleepEntry? _sleepEdit;
+    private RecoveryEntry? _recEdit;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load(bool refresh = false)
+    {
+        _loading = true; _error = null;
+        try
+        {
+            var pull = await State.DataAsync(refresh);
+            _sleep = WebSyncClient.Rows<SleepEntry>(pull);
+            _rec = WebSyncClient.Rows<RecoveryEntry>(pull);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Now);
+
+    // Sleep
+    private void AddSleep() { _sleepEdit = new SleepEntry { Date = Today }; _sleepNew = true; }
+    private void EditSleep(SleepEntry s) { _sleepEdit = WebSyncClient.Clone(s); _sleepNew = false; }
+    private async Task SaveSleep()
+    {
+        if (_sleepEdit is null) return;
+        _saving = true;
+        try { _sleepEdit.ScoreEstimated = false; await Sync.PushAsync(_sleepEdit); State.Invalidate(); await Load(true); _sleepEdit = null; }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _saving = false; }
+    }
+    private async Task DeleteSleep()
+    {
+        if (_sleepEdit is null) return;
+        _saving = true;
+        try { _sleepEdit.IsDeleted = true; _sleepEdit.DeletedAt = DateTime.UtcNow; await Sync.PushAsync(_sleepEdit); State.Invalidate(); await Load(true); _sleepEdit = null; }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _saving = false; }
+    }
+
+    // Recovery
+    private void AddRec() { _recEdit = new RecoveryEntry { Date = Today }; _recNew = true; }
+    private void EditRec(RecoveryEntry r) { _recEdit = WebSyncClient.Clone(r); _recNew = false; }
+    private async Task SaveRec()
+    {
+        if (_recEdit is null) return;
+        _saving = true;
+        try { await Sync.PushAsync(_recEdit); State.Invalidate(); await Load(true); _recEdit = null; }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _saving = false; }
+    }
+    private async Task DeleteRec()
+    {
+        if (_recEdit is null) return;
+        _saving = true;
+        try { _recEdit.IsDeleted = true; _recEdit.DeletedAt = DateTime.UtcNow; await Sync.PushAsync(_recEdit); State.Invalidate(); await Load(true); _recEdit = null; }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _saving = false; }
+    }
+}
