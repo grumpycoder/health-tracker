@@ -7,6 +7,8 @@ using Microsoft.Extensions.Hosting;
 var host = new HostBuilder()
     .ConfigureFunctionsWebApplication(worker =>
     {
+        // CORS first so browser preflight is answered before auth runs.
+        worker.UseMiddleware<CorsMiddleware>();
         worker.UseMiddleware<AuthMiddleware>();
     })
     .ConfigureServices(services =>

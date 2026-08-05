@@ -24,8 +24,10 @@ public sealed class AuthMiddleware : IFunctionsWorkerMiddleware
             return;
         }
 
+        // CORS preflight carries no token; let OPTIONS through (the SyncPreflight function
+        // answers it with CORS headers). Also exempt the health ping.
         var path = http.Request.Path.Value ?? "";
-        if (path.EndsWith("/ping", StringComparison.OrdinalIgnoreCase))
+        if (HttpMethods.IsOptions(http.Request.Method) || path.EndsWith("/ping", StringComparison.OrdinalIgnoreCase))
         {
             await next(context);
             return;

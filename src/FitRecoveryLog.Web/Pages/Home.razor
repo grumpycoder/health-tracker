@@ -1,0 +1,110 @@
+@page "/"
+@using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Data
+@attribute [Authorize]
+@inject WebSyncClient Sync
+
+<PageTitle>Fit Log — Web</PageTitle>
+
+<h1>Fit Log</h1>
+<p class="text-muted">Your data, live from the cloud. Changes here sync to your phone.</p>
+
+@if (_loading)
+{
+    <p><em>Loading your data from the cloud…</em></p>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger">Error: @_error</div>
+    <button class="btn btn-primary" @onclick="Load">Retry</button>
+}
+else
+{
+    <div class="row g-3 mb-4">
+        <div class="col"><div class="card p-3 text-center"><div class="h3 mb-0">@_meals.Count</div><small>Meals</small></div></div>
+        <div class="col"><div class="card p-3 text-center"><div class="h3 mb-0">@_drinks.Count</div><small>Drinks</small></div></div>
+        <div class="col"><div class="card p-3 text-center"><div class="h3 mb-0">@_workouts.Count</div><small>Workouts</small></div></div>
+        <div class="col"><div class="card p-3 text-center"><div class="h3 mb-0">@_measurements.Count</div><small>Measurements</small></div></div>
+        <div class="col"><div class="card p-3 text-center"><div class="h3 mb-0">@_notes.Count</div><small>Notes</small></div></div>
+    </div>
+
+    <div class="card p-3 mb-4">
+        <h5>Add a note</h5>
+        <div class="input-group">
+            <input class="form-control" @bind="_newNote" @bind:event="oninput" placeholder="Type a note…" />
+            <button class="btn btn-primary" @onclick="AddNote" disabled="@(_saving || string.IsNullOrWhiteSpace(_newNote))">
+                @(_saving ? "Saving…" : "Add")
+            </button>
+        </div>
+        @if (_saveMsg is not null) { <div class="form-text">@_saveMsg</div> }
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <h5>Recent notes</h5>
+            <ul class="list-group mb-4">
+                @foreach (var n in _notes.OrderByDescending(x => x.Time).Take(15))
+                {
+                    <li class="list-group-item"><small class="text-muted">@n.Time.ToLocalTime().ToString("g")</small><br />@n.Text</li>
+                }
+                @if (_notes.Count == 0) { <li class="list-group-item text-muted">No notes yet.</li> }
+            </ul>
+        </div>
+        <div class="col-md-6">
+            <h5>Recent measurements</h5>
+            <ul class="list-group mb-4">
+                @foreach (var m in _measurements.OrderByDescending(x => x.Date).Take(15))
+                {
+                    <li class="list-group-item">
+                        <small class="text-muted">@m.Date.ToString("d")</small> —
+                        @(m.WeightLbs?.ToString("0.#") ?? "—") lbs, waist @(m.WaistInches?.ToString("0.#") ?? "—")"
+                    </li>
+                }
+                @if (_measurements.Count == 0) { <li class="list-group-item text-muted">No measurements yet.</li> }
+            </ul>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true, _saving;
+    private string? _error, _saveMsg, _newNote;
+    private List<MealEntry> _meals = new();
+    private List<DrinkEntry> _drinks = new();
+    private List<BodyMeasurement> _measurements = new();
+    private List<NoteEntry> _notes = new();
+    private List<WorkoutSession> _workouts = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true; _error = null;
+        try
+        {
+            var pull = await Sync.PullAllAsync();
+            _meals = WebSyncClient.Rows<MealEntry>(pull);
+            _drinks = WebSyncClient.Rows<DrinkEntry>(pull);
+            _measurements = WebSyncClient.Rows<BodyMeasurement>(pull);
+            _notes = WebSyncClient.Rows<NoteEntry>(pull);
+            _workouts = WebSyncClient.Rows<WorkoutSession>(pull);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private async Task AddNote()
+    {
+        if (string.IsNullOrWhiteSpace(_newNote)) return;
+        _saving = true; _saveMsg = null;
+        try
+        {
+            await Sync.PushAsync(new NoteEntry { Text = _newNote.Trim(), Time = DateTime.Now });
+            _newNote = "";
+            _saveMsg = "Saved to the cloud ✓ — it'll appear on your phone next sync.";
+            await Load();
+        }
+        catch (Exception ex) { _saveMsg = "Failed: " + ex.Message; }
+        finally { _saving = false; }
+    }
+}

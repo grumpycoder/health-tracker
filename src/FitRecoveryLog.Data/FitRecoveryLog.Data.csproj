@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\FitRecoveryLog.Shared\FitRecoveryLog.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.9" />
     <!-- Design package enables `dotnet ef` to read the model and scaffold migrations. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.9">

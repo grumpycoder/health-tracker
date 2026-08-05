@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Dependency-free canonical model: entity POCOs + sync contracts, shared by the
+       phone app, the EF data layer, the server, and the Blazor WASM web app. No EF/SQLite
+       here so it can run in the browser. Types keep the FitRecoveryLog.Data namespace. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FitRecoveryLog.Data</RootNamespace>
+  </PropertyGroup>
+
+</Project>

@@ -52,4 +52,14 @@ public sealed class SyncFunctions
         // cursor meant ~40 extra queries per push — costly on a cold serverless DB.
         return new OkObjectResult(new SyncPushResponse { Applied = applied, Cursor = 0 });
     }
+
+    // Answers the browser's CORS preflight. Sets the CORS headers itself and returns a
+    // body-bearing 200 — a bodyless 204 drops headers in the isolated ASP.NET model.
+    [Function("SyncPreflight")]
+    public IActionResult Preflight(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "options", Route = "v1/sync")] HttpRequest req)
+    {
+        Auth.CorsMiddleware.ApplyHeaders(req.HttpContext);
+        return new OkObjectResult(new { ok = true });
+    }
 }
