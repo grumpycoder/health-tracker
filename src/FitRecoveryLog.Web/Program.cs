@@ -42,4 +42,10 @@ builder.Services.AddScoped<FitRecoveryLog.Application.Common.IDomainEventDispatc
 builder.Services.AddScoped<FitRecoveryLog.Application.Common.IDomainEventHandler<FitRecoveryLog.Domain.Workouts.Events.WorkoutCompleted>, FitRecoveryLog.Application.Workouts.WorkoutCompletedHandler>();
 builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.WorkoutService>();
 
+// Nutrition
+builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.IMealRepository, FitRecoveryLog.Web.Infrastructure.ApiMealRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.MealService>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.IDrinkRepository, FitRecoveryLog.Web.Infrastructure.ApiDrinkRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.DrinkService>();
+
 await builder.Build().RunAsync();

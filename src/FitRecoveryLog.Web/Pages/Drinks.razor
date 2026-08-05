@@ -1,9 +1,10 @@
 @page "/drinks"
 @using Microsoft.AspNetCore.Authorization
-@using FitRecoveryLog.Data
+@using FitRecoveryLog.Application.Nutrition
+@using FitRecoveryLog.Domain.Common
+@using FitRecoveryLog.Domain.Nutrition
 @attribute [Authorize]
-@inject AppState State
-@inject WebSyncClient Sync
+@inject DrinkService DrinkSvc
 
 <PageTitle>Drinks — Fit Log</PageTitle>
 
@@ -19,7 +20,7 @@
 else if (_error is not null)
 {
     <div class="alert alert-danger">@_error</div>
-    <button class="btn btn-primary" @onclick="() => Load(true)">Retry</button>
+    <button class="btn btn-primary" @onclick="Load">Retry</button>
 }
 else
 {
@@ -55,9 +56,9 @@ else
                 <div class="col-12"><label class="form-label">Tags (comma-separated)</label><input class="form-control" @bind="_edit.Tags" /></div>
             </div>
             <div class="mt-3 d-flex gap-2">
-                <button class="btn btn-primary" @onclick="Save" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
-                <button class="btn btn-secondary" @onclick="Cancel" disabled="@_saving">Cancel</button>
-                @if (!_isNew) { <button class="btn btn-outline-danger ms-auto" @onclick="Delete" disabled="@_saving">Delete</button> }
+                <button class="btn btn-primary" @onclick="Save" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
+                <button class="btn btn-secondary" @onclick="Cancel" disabled="@_busy">Cancel</button>
+                @if (!_isNew) { <button class="btn btn-outline-danger ms-auto" @onclick="Delete" disabled="@_busy">Delete</button> }
             </div>
             @if (_msg is not null) { <div class="form-text mt-2">@_msg</div> }
         </div>
@@ -72,7 +73,7 @@ else
                     <td><small>@d.Time.ToLocalTime().ToString("g")</small></td>
                     <td>@d.Description</td>
                     <td class="text-end">@(d.Ounces?.ToString("0.#") ?? "—")</td>
-                    <td class="text-end">@(d.Calories?.ToString() ?? "—")</td>
+                    <td class="text-end">@(d.Macros.Calories?.ToString() ?? "—")</td>
                     <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => Edit(d)">Edit</button></td>
                 </tr>
             }
@@ -82,24 +83,44 @@ else
 }
 
 @code {
-    private bool _loading = true, _saving, _isNew;
+    private bool _loading = true, _busy, _isNew;
     private string? _error, _msg;
-    private List<DrinkEntry> _drinks = new();
-    private DrinkEntry? _edit;
-
-    private Dictionary<string, DrinkEntry> _drinkMemory = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<Drink> _drinks = Array.Empty<Drink>();
+    private Draft? _edit;
+    private Dictionary<string, Drink> _drinkMemory = new(StringComparer.OrdinalIgnoreCase);
     private List<string> _drinkNames = new();
+
+    private sealed class Draft
+    {
+        public Guid? Id;
+        public DateTime Time = DateTime.Now;
+        public string? Description, Tags;
+        public double? Ounces;
+        public int? SugarCount, Calories, SodiumMg;
+        public double? ProteinG, CarbsG, SugarG, FatG, FiberG, AddedSugarG;
+
+        public static Draft From(Drink d) => new()
+        {
+            Id = d.Id, Time = d.Time, Description = d.Description, Ounces = d.Ounces, SugarCount = d.SugarCount,
+            Calories = d.Macros.Calories, SodiumMg = d.Macros.SodiumMg, ProteinG = d.Macros.ProteinG,
+            CarbsG = d.Macros.CarbsG, SugarG = d.Macros.SugarG, FatG = d.Macros.FatG, FiberG = d.Macros.FiberG,
+            AddedSugarG = d.Macros.AddedSugarG, Tags = d.Tags.ToCsv(),
+        };
+
+        public DrinkData ToData() => new(Time, Description, Ounces, SugarCount,
+            new Macros(Calories, ProteinG, CarbsG, FatG, FiberG, SugarG, AddedSugarG, SodiumMg),
+            FitRecoveryLog.Domain.Common.Tags.FromCsv(Tags));
+    }
 
     protected override async Task OnInitializedAsync() => await Load();
 
-    private async Task Load(bool refresh = false)
+    private async Task Load()
     {
         _loading = true; _error = null;
         try
         {
-            _drinks = WebSyncClient.Rows<DrinkEntry>(await State.DataAsync(refresh));
-            _drinkMemory = _drinks
-                .Where(d => !string.IsNullOrWhiteSpace(d.Description))
+            _drinks = await DrinkSvc.ListAsync();
+            _drinkMemory = _drinks.Where(d => !string.IsNullOrWhiteSpace(d.Description))
                 .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.OrderByDescending(d => d.Time).First(), StringComparer.OrdinalIgnoreCase);
             _drinkNames = _drinkMemory.Values.OrderByDescending(d => d.Time).Select(d => d.Description.Trim()).ToList();
@@ -108,42 +129,42 @@ else
         finally { _loading = false; }
     }
 
+    private void AddNew() { _edit = new Draft { Time = DateTime.Now }; _isNew = true; _msg = null; }
+    private void Edit(Drink d) { _edit = Draft.From(d); _isNew = false; _msg = null; }
+    private void Cancel() { _edit = null; _msg = null; }
+
     private void RepeatDrink(ChangeEventArgs e)
     {
         var name = e.Value?.ToString();
         if (_edit is null || string.IsNullOrEmpty(name) || !_drinkMemory.TryGetValue(name, out var src)) return;
-        _edit.Description = src.Description;
-        _edit.Ounces = src.Ounces;
-        _edit.SugarCount = src.SugarCount;
-        _edit.Tags = src.Tags;
-        _edit.Calories = src.Calories; _edit.ProteinG = src.ProteinG; _edit.CarbsG = src.CarbsG;
-        _edit.SugarG = src.SugarG; _edit.FatG = src.FatG; _edit.SodiumMg = src.SodiumMg;
-        _edit.FiberG = src.FiberG; _edit.AddedSugarG = src.AddedSugarG;
+        var d = Draft.From(src);
+        d.Id = null; d.Time = DateTime.Now;
+        _edit = d;
     }
-
-    private void AddNew() { _edit = new DrinkEntry { Time = DateTime.Now }; _isNew = true; _msg = null; }
-    private void Edit(DrinkEntry d) { _edit = WebSyncClient.Clone(d); _isNew = false; _msg = null; }
-    private void Cancel() { _edit = null; _msg = null; }
 
     private async Task Save()
     {
         if (_edit is null) return;
-        _saving = true; _msg = null;
-        try { await Sync.PushAsync(_edit); State.Invalidate(); await Load(true); _edit = null; }
+        _busy = true; _msg = null;
+        try
+        {
+            var ok = _isNew
+                ? (await DrinkSvc.CreateAsync(_edit.ToData())).IsSuccess
+                : (await DrinkSvc.UpdateAsync(_edit.Id!.Value, _edit.ToData())).IsSuccess;
+            if (!ok) { _msg = "Save failed (check amounts)."; return; }
+            _edit = null;
+            await Load();
+        }
         catch (Exception ex) { _msg = "Failed: " + ex.Message; }
-        finally { _saving = false; }
+        finally { _busy = false; }
     }
 
     private async Task Delete()
     {
-        if (_edit is null) return;
-        _saving = true; _msg = null;
-        try
-        {
-            _edit.IsDeleted = true; _edit.DeletedAt = DateTime.UtcNow;
-            await Sync.PushAsync(_edit); State.Invalidate(); await Load(true); _edit = null;
-        }
+        if (_edit?.Id is not Guid id) return;
+        _busy = true; _msg = null;
+        try { await DrinkSvc.DeleteAsync(id); _edit = null; await Load(); }
         catch (Exception ex) { _msg = "Failed: " + ex.Message; }
-        finally { _saving = false; }
+        finally { _busy = false; }
     }
 }
