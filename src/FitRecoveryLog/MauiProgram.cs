@@ -58,6 +58,11 @@ public static class MauiProgram
 		builder.Services.AddSingleton<FitRecoveryLog.Services.IAccessTokenProvider, FitRecoveryLog.Services.MsalAuthService>();
 		builder.Services.AddSingleton<FitRecoveryLog.Services.CloudSyncService>();
 
+		// Clean Architecture: application use cases over real (EF) repositories.
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.IRoutineRepository, FitRecoveryLog.Infrastructure.Workouts.EfRoutineRepository>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.IWorkoutSessionRepository, FitRecoveryLog.Infrastructure.Workouts.EfWorkoutSessionRepository>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.RoutineService>();
+
 #if IOS || MACCATALYST
 		// Silent sync when the app returns to the foreground (in addition to the launch
 		// sync). No-op if not signed in; the service's IsSyncing guard prevents overlap.

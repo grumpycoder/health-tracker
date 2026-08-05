@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FitRecoveryLog.Application\FitRecoveryLog.Application.csproj" />
     <ProjectReference Include="..\FitRecoveryLog.Domain\FitRecoveryLog.Domain.csproj" />
+    <ProjectReference Include="..\FitRecoveryLog.Data\FitRecoveryLog.Data.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -84,6 +84,8 @@
 
     <ItemGroup>
       <ProjectReference Include="..\FitRecoveryLog.Data\FitRecoveryLog.Data.csproj" />
+      <ProjectReference Include="..\FitRecoveryLog.Application\FitRecoveryLog.Application.csproj" />
+      <ProjectReference Include="..\FitRecoveryLog.Infrastructure\FitRecoveryLog.Infrastructure.csproj" />
     </ItemGroup>
 
 </Project>

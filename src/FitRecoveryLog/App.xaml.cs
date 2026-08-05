@@ -1,6 +1,8 @@
 ﻿namespace FitRecoveryLog;
 
-public partial class App : Application
+// Fully qualified: the FitRecoveryLog.Application layer namespace otherwise shadows
+// Microsoft.Maui.Controls.Application here.
+public partial class App : Microsoft.Maui.Controls.Application
 {
 	public App()
 	{
