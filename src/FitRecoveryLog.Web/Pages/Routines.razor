@@ -73,7 +73,33 @@ else if (_editRoutine is not null)
                 </select>
             </div>
             <button class="btn btn-sm btn-outline-primary" @onclick="AddEx" disabled="@(_addExId == Guid.Empty)">+ Add exercise</button>
+            <button class="btn btn-sm btn-link" @onclick="() => _newExOpen = !_newExOpen">＋ New exercise</button>
         </div>
+        @if (_newExOpen)
+        {
+            <div class="card p-2 mb-3">
+                <div class="row g-2 align-items-end">
+                    <div class="col-sm-5">
+                        <label class="form-label mb-0"><small>Name</small></label>
+                        <input class="form-control form-control-sm" @bind="_newEx.Name" placeholder="e.g. Bulgarian split squat" />
+                    </div>
+                    <div class="col-6 col-sm-3">
+                        <label class="form-label mb-0"><small>Measured by</small></label>
+                        <select class="form-select form-select-sm" @bind="_newEx.Measure">
+                            @foreach (var v in Enum.GetValues<ExerciseMeasure>()) { <option value="@v">@v</option> }
+                        </select>
+                    </div>
+                    <div class="col-sm-4">
+                        <label class="form-label mb-0"><small>Muscle groups (comma)</small></label>
+                        <input class="form-control form-control-sm" @bind="_newEx.MuscleGroups" placeholder="Legs, Glutes" />
+                    </div>
+                </div>
+                <div class="mt-2 d-flex gap-2">
+                    <button class="btn btn-sm btn-primary" @onclick="CreateExercise" disabled="@(_saving || string.IsNullOrWhiteSpace(_newEx.Name))">Create &amp; add</button>
+                    <button class="btn btn-sm btn-secondary" @onclick="() => _newExOpen = false" disabled="@_saving">Cancel</button>
+                </div>
+            </div>
+        }
 
         <div class="mt-2 d-flex gap-2">
             <button class="btn btn-primary" @onclick="Save" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
@@ -145,6 +171,8 @@ else
     private WorkoutRoutine? _editRoutine;
     private List<RoutineExercise> _editEx = new();
     private Guid _addExId;
+    private bool _newExOpen;
+    private ExerciseDefinition _newEx = new();
 
     private List<WorkoutRoutine> ArchivedRoutines => _routines.Where(x => x.Archived).OrderBy(x => x.Name).ToList();
 
@@ -197,6 +225,37 @@ else
     }
 
     private void RemoveEx(RoutineExercise re) { re.IsDeleted = true; re.DeletedAt = DateTime.UtcNow; }
+
+    private async Task CreateExercise()
+    {
+        var name = _newEx.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return;
+
+        // If it already exists in the library, just use it instead of creating a duplicate
+        // (the ExerciseDefinition name has a unique index).
+        var existing = _exercises.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            _addExId = existing.Id;
+            AddEx();
+            _newExOpen = false; _newEx = new();
+            return;
+        }
+
+        _saving = true; _msg = null;
+        try
+        {
+            _newEx.Name = name;
+            await Sync.PushAsync(_newEx);            // add to the shared exercise library
+            _exercises = _exercises.Append(_newEx).OrderBy(e => e.Name).ToList();
+            _addExId = _newEx.Id;
+            AddEx();                                 // and drop it into this routine
+            State.Invalidate();                      // fresh loads elsewhere pick up the new exercise
+            _newExOpen = false; _newEx = new();
+        }
+        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
+        finally { _saving = false; }
+    }
 
     private async Task SetArchived(WorkoutRoutine r, bool archived)
     {
