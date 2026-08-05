@@ -1,6 +1,7 @@
 using FitRecoveryLog.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Maui.LifecycleEvents;
 using Plugin.LocalNotification;
 
 namespace FitRecoveryLog;
@@ -56,6 +57,18 @@ public static class MauiProgram
 		// Cloud sync (MSAL sign-in + push/pull against the Azure sync API).
 		builder.Services.AddSingleton<FitRecoveryLog.Services.IAccessTokenProvider, FitRecoveryLog.Services.MsalAuthService>();
 		builder.Services.AddSingleton<FitRecoveryLog.Services.CloudSyncService>();
+
+#if IOS || MACCATALYST
+		// Silent sync when the app returns to the foreground (in addition to the launch
+		// sync). No-op if not signed in; the service's IsSyncing guard prevents overlap.
+		builder.ConfigureLifecycleEvents(events =>
+			events.AddiOS(ios => ios.WillEnterForeground(app =>
+			{
+				var sync = IPlatformApplication.Current?.Services?.GetService<FitRecoveryLog.Services.CloudSyncService>();
+				if (sync is not null)
+					_ = Task.Run(() => sync.SyncAsync(allowInteractive: false));
+			})));
+#endif
 
 		// Local-first SQLite database stored in the app's private data directory.
 		var dbPath = Path.Combine(FileSystem.AppDataDirectory, "fitrecoverylog.db3");
