@@ -1,4 +1,5 @@
 ﻿using Foundation;
+using Microsoft.Identity.Client;
 using UIKit;
 
 namespace FitRecoveryLog;
@@ -7,6 +8,13 @@ namespace FitRecoveryLog;
 public class AppDelegate : MauiUIApplicationDelegate
 {
 	protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp();
+
+	// Hands the MSAL sign-in redirect back to MSAL when it arrives via the app's URL scheme.
+	public override bool OpenUrl(UIApplication app, NSUrl url, NSDictionary options)
+	{
+		AuthenticationContinuationHelper.SetAuthenticationContinuationEventArgs(url);
+		return true;
+	}
 
 	public override bool FinishedLaunching(UIApplication application, NSDictionary launchOptions)
 	{

@@ -79,6 +79,7 @@
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.9" />
         <PackageReference Include="Plugin.LocalNotification" Version="13.0.0" />
+        <PackageReference Include="Microsoft.Identity.Client" Version="4.66.2" />
     </ItemGroup>
 
     <ItemGroup>

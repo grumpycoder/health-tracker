@@ -6,5 +6,11 @@
 	<true/>
 	<key>com.apple.developer.healthkit.access</key>
 	<array/>
+	<!-- MSAL token cache lives in this app's own keychain group
+	     (matches WithIosKeychainSecurityGroup in MsalAuthService). -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.mlawrence.fitrecoverylog</string>
+	</array>
 </dict>
 </plist>

@@ -47,7 +47,9 @@ public sealed class SyncFunctions
         }
 
         var applied = await _engine.PushAsync(_db, push);
-        var cursor = await _engine.MaxCursorAsync(_db);
-        return new OkObjectResult(new SyncPushResponse { Applied = applied, Cursor = cursor });
+        // No cursor query here: the client advances its own cursors from local state and the
+        // pull response, and re-pulling just-pushed rows is idempotent. Computing a server
+        // cursor meant ~40 extra queries per push — costly on a cold serverless DB.
+        return new OkObjectResult(new SyncPushResponse { Applied = applied, Cursor = 0 });
     }
 }

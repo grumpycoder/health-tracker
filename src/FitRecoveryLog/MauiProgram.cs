@@ -53,6 +53,10 @@ public static class MauiProgram
 		// Local automatic daily backup snapshots.
 		builder.Services.AddSingleton<FitRecoveryLog.Services.AutoBackup>();
 
+		// Cloud sync (MSAL sign-in + push/pull against the Azure sync API).
+		builder.Services.AddSingleton<FitRecoveryLog.Services.IAccessTokenProvider, FitRecoveryLog.Services.MsalAuthService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Services.CloudSyncService>();
+
 		// Local-first SQLite database stored in the app's private data directory.
 		var dbPath = Path.Combine(FileSystem.AppDataDirectory, "fitrecoverylog.db3");
 		builder.Services.AddDbContextFactory<AppDbContext>(options =>
@@ -91,6 +95,14 @@ public static class MauiProgram
 			DevSeed.SeedIfEmpty(db);
 #endif
 		}
+
+		// Best-effort silent sync on startup — a no-op if the user isn't signed in
+		// (never pops UI here; interactive sign-in happens from the Settings page).
+		_ = Task.Run(async () =>
+		{
+			try { await app.Services.GetRequiredService<FitRecoveryLog.Services.CloudSyncService>().SyncAsync(allowInteractive: false); }
+			catch { /* surfaced on manual sync in Settings */ }
+		});
 
 		return app;
 	}

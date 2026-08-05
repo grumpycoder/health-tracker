@@ -23,8 +23,6 @@ public sealed class SyncEngine
         typeof(SyncEngine).GetMethod(nameof(PullOneAsync), BindingFlags.NonPublic | BindingFlags.Instance)!;
     private static readonly MethodInfo PushOneMi =
         typeof(SyncEngine).GetMethod(nameof(PushOneAsync), BindingFlags.NonPublic | BindingFlags.Instance)!;
-    private static readonly MethodInfo MaxOneMi =
-        typeof(SyncEngine).GetMethod(nameof(MaxOneAsync), BindingFlags.NonPublic | BindingFlags.Instance)!;
 
     private static IEnumerable<Type> EntityTypesOf(DbContext db) =>
         db.Model.GetEntityTypes()
@@ -49,8 +47,10 @@ public sealed class SyncEngine
     private async Task PullOneAsync<T>(CloudDbContext db, DateTime since, SyncPullResponse resp) where T : EntityBase
     {
         // IgnoreQueryFilters so tombstones (IsDeleted = true) are included — that's how a
-        // delete reaches other clients.
-        var rows = await db.Set<T>().IgnoreQueryFilters()
+        // delete reaches other clients. AsNoTracking is essential: without it, EF fixes up
+        // navigation properties between the loaded entities, creating reference cycles that
+        // the JSON serializer throws on mid-stream (truncating the response).
+        var rows = await db.Set<T>().IgnoreQueryFilters().AsNoTracking()
             .Where(e => e.UpdatedAt > since)
             .OrderBy(e => e.UpdatedAt)
             .ToListAsync();
@@ -82,45 +82,24 @@ public sealed class SyncEngine
 
     private async Task<int> PushOneAsync<T>(CloudDbContext db, List<JsonElement> rows) where T : EntityBase
     {
-        var n = 0;
-        foreach (var el in rows)
+        var incoming = rows.Select(el => el.Deserialize<T>(JsonOpts)).OfType<T>().ToList();
+        if (incoming.Count == 0) return 0;
+
+        // One query for all existing rows in this batch (EF Core 9 translates Contains via
+        // OPENJSON on SQL Server, so no 2100-parameter limit) — avoids a round-trip per row.
+        var ids = incoming.Select(x => x.Id).ToList();
+        var existing = await db.Set<T>().IgnoreQueryFilters()
+            .Where(e => ids.Contains(e.Id))
+            .ToDictionaryAsync(e => e.Id);
+
+        foreach (var row in incoming)
         {
-            var incoming = el.Deserialize<T>(JsonOpts);
-            if (incoming is null) continue;
-
-            var existing = await db.Set<T>().IgnoreQueryFilters()
-                .FirstOrDefaultAsync(e => e.Id == incoming.Id);
-
-            if (existing is null)
-                db.Add(incoming);                                   // new row (may be a tombstone)
+            if (existing.TryGetValue(row.Id, out var cur))
+                db.Entry(cur).CurrentValues.SetValues(row); // last-write-wins overwrite
             else
-                db.Entry(existing).CurrentValues.SetValues(incoming); // last-write-wins overwrite
-
-            n++;
+                db.Add(row);                                // new row (may be a tombstone)
         }
-        return n;
-    }
-
-    // ---- Max cursor across all entity types (used to advance the client past its own push) ----
-
-    public async Task<long> MaxCursorAsync(CloudDbContext db)
-    {
-        long max = 0;
-        foreach (var t in EntityTypesOf(db))
-        {
-            var task = (Task<long>)MaxOneMi.MakeGenericMethod(t).Invoke(this, new object[] { db })!;
-            var v = await task;
-            if (v > max) max = v;
-        }
-        return max;
-    }
-
-    private async Task<long> MaxOneAsync<T>(CloudDbContext db) where T : EntityBase
-    {
-        var q = db.Set<T>().IgnoreQueryFilters();
-        if (!await q.AnyAsync()) return 0;
-        var max = await q.MaxAsync(e => e.UpdatedAt);
-        return max.Ticks;
+        return incoming.Count;
     }
 
     private static DateTime TicksToUtc(long ticks)

@@ -98,8 +98,16 @@ public class AppDbContext : DbContext
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, ct);
     }
 
+    /// <summary>When true, SaveChanges does not stamp <c>UpdatedAt</c> or convert deletes to
+    /// tombstones. The sync client sets this while applying rows pulled from the cloud so it
+    /// writes the server's <c>UpdatedAt</c> verbatim — otherwise applied rows would look
+    /// locally-modified and echo straight back on the next push.</summary>
+    public bool SuppressTimestamps { get; set; }
+
     protected virtual void StampTimestamps()
     {
+        if (SuppressTimestamps) return;
+
         foreach (var entry in ChangeTracker.Entries<EntityBase>())
         {
             if (entry.State == EntityState.Modified)

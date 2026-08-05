@@ -36,5 +36,20 @@
     <string>Read your weight and steps from Apple Health to show trends.</string>
     <key>NSHealthUpdateUsageDescription</key>
     <string>Save measurements you log to Apple Health.</string>
+    <!-- MSAL sign-in redirect (matches the mobile app registration + SyncConfig.RedirectUri). -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>msauth.com.mlawrence.fitrecoverylog</string>
+            </array>
+        </dict>
+    </array>
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>msauthv2</string>
+        <string>msauthv3</string>
+    </array>
 </dict>
 </plist>

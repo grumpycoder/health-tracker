@@ -1,6 +1,9 @@
 @page "/settings"
 @using FitRecoveryLog.Services
 @inject IJSRuntime JS
+@inject CloudSyncService Sync
+@inject IAccessTokenProvider Auth
+@implements IDisposable
 
 <PageTitle>Settings</PageTitle>
 
@@ -9,6 +12,37 @@
         <div class="dash-date">Settings</div>
         <div class="dash-date-sub">App configuration</div>
     </header>
+
+    <section class="card">
+        <h2>Cloud Sync</h2>
+        <p class="muted" style="margin:0 0 0.6rem">
+            Sync your data to the cloud so it's available on other devices and (later) a web
+            app. Your phone keeps working fully offline — sync runs in the background and
+            whenever you tap Sync Now.
+        </p>
+        @if (Auth.IsSignedIn)
+        {
+            <p style="margin:0 0 0.5rem">Signed in as <strong>@Auth.Username</strong></p>
+            <button class="save-btn" @onclick="SyncNow" disabled="@Sync.IsSyncing">
+                @(Sync.IsSyncing ? "Syncing…" : "Sync Now")
+            </button>
+            <button class="link-btn danger" style="margin-left:0.6rem" @onclick="SignOut">Sign Out</button>
+        }
+        else
+        {
+            <button class="save-btn" @onclick="SignIn" disabled="@_syncBusy">
+                @(_syncBusy ? "Signing in…" : "Sign In")
+            </button>
+        }
+        @if (_syncMsg is not null)
+        {
+            <p class="muted" style="margin:0.5rem 0 0">@_syncMsg</p>
+        }
+        @if (Sync.LastSyncUtc is DateTime last)
+        {
+            <p class="muted" style="margin:0.3rem 0 0">Last synced: @last.ToLocalTime().ToString("g")</p>
+        }
+    </section>
 
     <section class="card">
         <h2>Text size</h2>
@@ -140,8 +174,37 @@
         { ("Normal", 100), ("Large", 120), ("Larger", 140), ("Largest", 160) };
     private int _textScale = 100;
 
+    private bool _syncBusy;
+    private string? _syncMsg;
+
+    private void OnSyncState() => InvokeAsync(StateHasChanged);
+    public void Dispose() { Auth.StateChanged -= OnSyncState; Sync.StateChanged -= OnSyncState; }
+
+    private async Task SignIn()
+    {
+        _syncBusy = true; _syncMsg = null;
+        var r = await Sync.SyncAsync(allowInteractive: true);
+        _syncMsg = r.Success ? $"Synced — sent {r.Pushed}, received {r.Pulled}." : $"Failed: {r.Error}";
+        _syncBusy = false;
+    }
+
+    private async Task SyncNow()
+    {
+        _syncMsg = null;
+        var r = await Sync.SyncAsync(allowInteractive: true);
+        _syncMsg = r.Success ? $"Synced — sent {r.Pushed}, received {r.Pulled}." : $"Failed: {r.Error}";
+    }
+
+    private async Task SignOut()
+    {
+        await Auth.SignOutAsync();
+        _syncMsg = "Signed out.";
+    }
+
     protected override async Task OnInitializedAsync()
     {
+        Auth.StateChanged += OnSyncState;
+        Sync.StateChanged += OnSyncState;
         var existing = await GeminiAnalyzer.KeyStore.GetAsync();
         _hasKey = !string.IsNullOrEmpty(existing);
         if (_hasKey) _key = existing!;
