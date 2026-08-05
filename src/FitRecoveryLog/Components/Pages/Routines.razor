@@ -98,7 +98,7 @@
         </section>
     }
 
-    @foreach (var r in _routines)
+    @foreach (var r in _routines.Where(x => !x.Archived))
     {
         var expanded = _expandedId == r.Id;
         <section class="card">
@@ -296,6 +296,7 @@
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center">
                     <button class="link-btn" @onclick="@(() => RenameRoutine(r))">Save Name</button>
+                    <button class="link-btn" @onclick="@(() => SetArchived(r, true))">Archive</button>
                     <button class="link-btn danger" @onclick="@(() => DeleteRoutine(r))">Delete Routine</button>
                 </div>
             </div>
@@ -303,10 +304,31 @@
             }
         </section>
     }
+
+    @if (ArchivedRoutines.Count > 0)
+    {
+        <section class="card">
+            <div class="routine-head" style="cursor:pointer" @onclick="() => _showArchived = !_showArchived">
+                <h2>@(_showArchived ? "▾" : "▸") Archived (@ArchivedRoutines.Count)</h2>
+            </div>
+            @if (_showArchived)
+            {
+                @foreach (var r in ArchivedRoutines)
+                {
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:0.4rem 0">
+                        <span>@r.Name</span>
+                        <button class="link-btn" @onclick="@(() => SetArchived(r, false))">Restore</button>
+                    </div>
+                }
+            }
+        </section>
+    }
 </div>
 
 @code {
     private List<WorkoutRoutine> _routines = new();
+    private bool _showArchived;
+    private List<WorkoutRoutine> ArchivedRoutines => _routines.Where(x => x.Archived).OrderBy(x => x.Name).ToList();
     private List<(string Name, ExerciseMeasure Measure)> _library = new();
     private string _newRoutineName = "";
     private readonly Dictionary<Guid, ExerciseDraft> _draft = new();
@@ -586,6 +608,15 @@
             await db.SaveChangesAsync();
         }
         if (_editId == r.Id) _editId = null;
+        await Load();
+    }
+
+    private async Task SetArchived(WorkoutRoutine r, bool archived)
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var e = await db.WorkoutRoutines.FindAsync(r.Id);
+        if (e is not null) { e.Archived = archived; await db.SaveChangesAsync(); }
+        if (_expandedId == r.Id) _expandedId = null;
         await Load();
     }
 

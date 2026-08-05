@@ -78,7 +78,13 @@ else if (_editRoutine is not null)
         <div class="mt-2 d-flex gap-2">
             <button class="btn btn-primary" @onclick="Save" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
             <button class="btn btn-secondary" @onclick="Cancel" disabled="@_saving">Cancel</button>
-            @if (!_isNew) { <button class="btn btn-outline-danger ms-auto" @onclick="DeleteRoutine" disabled="@_saving">Delete routine</button> }
+            @if (!_isNew)
+            {
+                <button class="btn btn-outline-secondary ms-auto" @onclick="ToggleArchive" disabled="@_saving">
+                    @(_editRoutine.Archived ? "Restore" : "Archive")
+                </button>
+                <button class="btn btn-outline-danger" @onclick="DeleteRoutine" disabled="@_saving">Delete routine</button>
+            }
         </div>
         @if (_msg is not null) { <div class="form-text mt-2">@_msg</div> }
     </div>
@@ -88,21 +94,49 @@ else
     <table class="table table-hover align-middle">
         <thead><tr><th>Name</th><th class="text-end">Exercises</th><th></th></tr></thead>
         <tbody>
-            @foreach (var r in _routines.OrderBy(x => x.Name))
+            @foreach (var r in _routines.Where(x => !x.Archived).OrderBy(x => x.Name))
             {
                 <tr>
                     <td>@r.Name</td>
                     <td class="text-end">@(_exByRoutine.GetValueOrDefault(r.Id)?.Count ?? 0)</td>
-                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => Open(r)">Open</button></td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-secondary me-1" title="Archive" @onclick="() => SetArchived(r, true)" disabled="@_saving">Archive</button>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => Open(r)">Open</button>
+                    </td>
                 </tr>
             }
-            @if (_routines.Count == 0) { <tr><td colspan="3" class="text-muted">No routines.</td></tr> }
+            @if (!_routines.Any(x => !x.Archived)) { <tr><td colspan="3" class="text-muted">No active routines.</td></tr> }
         </tbody>
     </table>
+
+    @if (ArchivedRoutines.Count > 0)
+    {
+        <button class="btn btn-link px-0" @onclick="() => _showArchived = !_showArchived">
+            @(_showArchived ? "▾" : "▸") Archived (@ArchivedRoutines.Count)
+        </button>
+        @if (_showArchived)
+        {
+            <table class="table table-sm align-middle">
+                <tbody>
+                    @foreach (var r in ArchivedRoutines)
+                    {
+                        <tr class="text-muted">
+                            <td>@r.Name</td>
+                            <td class="text-end">@(_exByRoutine.GetValueOrDefault(r.Id)?.Count ?? 0)</td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-success me-1" @onclick="() => SetArchived(r, false)" disabled="@_saving">Restore</button>
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => Open(r)">Open</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
 }
 
 @code {
-    private bool _loading = true, _saving, _isNew;
+    private bool _loading = true, _saving, _isNew, _showArchived;
     private string? _error, _msg;
     private List<WorkoutRoutine> _routines = new();
     private List<ExerciseDefinition> _exercises = new();
@@ -111,6 +145,8 @@ else
     private WorkoutRoutine? _editRoutine;
     private List<RoutineExercise> _editEx = new();
     private Guid _addExId;
+
+    private List<WorkoutRoutine> ArchivedRoutines => _routines.Where(x => x.Archived).OrderBy(x => x.Name).ToList();
 
     protected override async Task OnInitializedAsync() => await Load();
 
@@ -161,6 +197,28 @@ else
     }
 
     private void RemoveEx(RoutineExercise re) { re.IsDeleted = true; re.DeletedAt = DateTime.UtcNow; }
+
+    private async Task SetArchived(WorkoutRoutine r, bool archived)
+    {
+        _saving = true; _error = null;
+        try
+        {
+            var c = WebSyncClient.Clone(r);
+            c.Archived = archived;
+            await Sync.PushAsync(c);
+            State.Invalidate();
+            await Load(true);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _saving = false; }
+    }
+
+    private async Task ToggleArchive()
+    {
+        if (_editRoutine is null) return;
+        _editRoutine.Archived = !_editRoutine.Archived;
+        await Save();  // persists the routine (incl. Archived) + its exercises, then closes
+    }
 
     private async Task Save()
     {
