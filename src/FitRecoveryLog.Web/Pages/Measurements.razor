@@ -1,0 +1,116 @@
+@page "/measurements"
+@using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Data
+@attribute [Authorize]
+@inject AppState State
+@inject WebSyncClient Sync
+
+<PageTitle>Measurements — Fit Log</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Body Measurements</h1>
+    <button class="btn btn-primary" @onclick="AddNew" disabled="@(_edit is not null)">+ Add</button>
+</div>
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+    <button class="btn btn-primary" @onclick="() => Load(true)">Retry</button>
+}
+else
+{
+    @if (_edit is not null)
+    {
+        <div class="card p-3 mb-4">
+            <h5>@(_isNew ? "New measurement" : "Edit measurement")</h5>
+            <div class="row g-2">
+                <div class="col-sm-4"><label class="form-label">Date</label><input type="date" class="form-control" @bind="_edit.Date" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Weight (lbs)</label><input type="number" step="0.1" class="form-control" @bind="_edit.WeightLbs" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Waist (in)</label><input type="number" step="0.1" class="form-control" @bind="_edit.WaistInches" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Chest (in)</label><input type="number" step="0.1" class="form-control" @bind="_edit.ChestInches" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Hips (in)</label><input type="number" step="0.1" class="form-control" @bind="_edit.HipsInches" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Arms (in)</label><input type="number" step="0.1" class="form-control" @bind="_edit.ArmsInches" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Thighs (in)</label><input type="number" step="0.1" class="form-control" @bind="_edit.ThighsInches" /></div>
+
+                <div class="col-6 col-md-3"><label class="form-label">Body fat (%)</label><input type="number" step="0.1" class="form-control" @bind="_edit.BodyFatPercent" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Muscle mass (lbs)</label><input type="number" step="0.1" class="form-control" @bind="_edit.MuscleMassLbs" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Visceral fat</label><input type="number" step="0.1" class="form-control" @bind="_edit.VisceralFat" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Body water (%)</label><input type="number" step="0.1" class="form-control" @bind="_edit.BodyWaterPercent" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">BMR</label><input type="number" class="form-control" @bind="_edit.BasalMetabolicRate" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Metabolic age</label><input type="number" class="form-control" @bind="_edit.MetabolicAge" /></div>
+
+                <div class="col-12"><label class="form-label">Clothing-fit notes</label><input class="form-control" @bind="_edit.ClothingFitNotes" /></div>
+            </div>
+            <div class="mt-3 d-flex gap-2">
+                <button class="btn btn-primary" @onclick="Save" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+                <button class="btn btn-secondary" @onclick="Cancel" disabled="@_saving">Cancel</button>
+                @if (!_isNew) { <button class="btn btn-outline-danger ms-auto" @onclick="Delete" disabled="@_saving">Delete</button> }
+            </div>
+            @if (_msg is not null) { <div class="form-text mt-2">@_msg</div> }
+        </div>
+    }
+
+    <table class="table table-hover align-middle">
+        <thead><tr><th>Date</th><th class="text-end">Weight</th><th class="text-end">Waist</th><th class="text-end">Body fat</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var m in _rows.OrderByDescending(x => x.Date))
+            {
+                <tr>
+                    <td>@m.Date.ToString("ddd, MMM d, yyyy")</td>
+                    <td class="text-end">@(m.WeightLbs?.ToString("0.#") ?? "—")</td>
+                    <td class="text-end">@(m.WaistInches?.ToString("0.#") ?? "—")</td>
+                    <td class="text-end">@(m.BodyFatPercent?.ToString("0.#") ?? "—")</td>
+                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => Edit(m)">Edit</button></td>
+                </tr>
+            }
+            @if (_rows.Count == 0) { <tr><td colspan="5" class="text-muted">No measurements.</td></tr> }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool _loading = true, _saving, _isNew;
+    private string? _error, _msg;
+    private List<BodyMeasurement> _rows = new();
+    private BodyMeasurement? _edit;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load(bool refresh = false)
+    {
+        _loading = true; _error = null;
+        try { _rows = WebSyncClient.Rows<BodyMeasurement>(await State.DataAsync(refresh)); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private void AddNew() { _edit = new BodyMeasurement { Date = DateOnly.FromDateTime(DateTime.Now) }; _isNew = true; _msg = null; }
+    private void Edit(BodyMeasurement m) { _edit = WebSyncClient.Clone(m); _isNew = false; _msg = null; }
+    private void Cancel() { _edit = null; _msg = null; }
+
+    private async Task Save()
+    {
+        if (_edit is null) return;
+        _saving = true; _msg = null;
+        try { await Sync.PushAsync(_edit); State.Invalidate(); await Load(true); _edit = null; }
+        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
+        finally { _saving = false; }
+    }
+
+    private async Task Delete()
+    {
+        if (_edit is null) return;
+        _saving = true; _msg = null;
+        try
+        {
+            _edit.IsDeleted = true; _edit.DeletedAt = DateTime.UtcNow;
+            await Sync.PushAsync(_edit); State.Invalidate(); await Load(true); _edit = null;
+        }
+        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
+        finally { _saving = false; }
+    }
+}

@@ -1,0 +1,115 @@
+@page "/drinks"
+@using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Data
+@attribute [Authorize]
+@inject AppState State
+@inject WebSyncClient Sync
+
+<PageTitle>Drinks — Fit Log</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Drinks</h1>
+    <button class="btn btn-primary" @onclick="AddNew" disabled="@(_edit is not null)">+ Add drink</button>
+</div>
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+    <button class="btn btn-primary" @onclick="() => Load(true)">Retry</button>
+}
+else
+{
+    @if (_edit is not null)
+    {
+        <div class="card p-3 mb-4">
+            <h5>@(_isNew ? "New drink" : "Edit drink")</h5>
+            <div class="row g-2">
+                <div class="col-12"><label class="form-label">Description</label><input class="form-control" @bind="_edit.Description" /></div>
+                <div class="col-sm-5"><label class="form-label">Time</label><input type="datetime-local" class="form-control" @bind="_edit.Time" /></div>
+                <div class="col-6 col-sm-3"><label class="form-label">Ounces</label><input type="number" step="0.1" class="form-control" @bind="_edit.Ounces" /></div>
+                <div class="col-6 col-sm-4"><label class="form-label">Sugar added (tsp)</label><input type="number" class="form-control" @bind="_edit.SugarCount" /></div>
+
+                <div class="col-6 col-md-3"><label class="form-label">Calories</label><input type="number" class="form-control" @bind="_edit.Calories" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Protein (g)</label><input type="number" step="0.1" class="form-control" @bind="_edit.ProteinG" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Carbs (g)</label><input type="number" step="0.1" class="form-control" @bind="_edit.CarbsG" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Fat (g)</label><input type="number" step="0.1" class="form-control" @bind="_edit.FatG" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Fiber (g)</label><input type="number" step="0.1" class="form-control" @bind="_edit.FiberG" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Sugar (g)</label><input type="number" step="0.1" class="form-control" @bind="_edit.SugarG" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Added sugar (g)</label><input type="number" step="0.1" class="form-control" @bind="_edit.AddedSugarG" /></div>
+                <div class="col-6 col-md-3"><label class="form-label">Sodium (mg)</label><input type="number" class="form-control" @bind="_edit.SodiumMg" /></div>
+
+                <div class="col-12"><label class="form-label">Tags (comma-separated)</label><input class="form-control" @bind="_edit.Tags" /></div>
+            </div>
+            <div class="mt-3 d-flex gap-2">
+                <button class="btn btn-primary" @onclick="Save" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+                <button class="btn btn-secondary" @onclick="Cancel" disabled="@_saving">Cancel</button>
+                @if (!_isNew) { <button class="btn btn-outline-danger ms-auto" @onclick="Delete" disabled="@_saving">Delete</button> }
+            </div>
+            @if (_msg is not null) { <div class="form-text mt-2">@_msg</div> }
+        </div>
+    }
+
+    <table class="table table-hover align-middle">
+        <thead><tr><th>When</th><th>Description</th><th class="text-end">Oz</th><th class="text-end">Cal</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var d in _drinks.OrderByDescending(x => x.Time))
+            {
+                <tr>
+                    <td><small>@d.Time.ToLocalTime().ToString("g")</small></td>
+                    <td>@d.Description</td>
+                    <td class="text-end">@(d.Ounces?.ToString("0.#") ?? "—")</td>
+                    <td class="text-end">@(d.Calories?.ToString() ?? "—")</td>
+                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => Edit(d)">Edit</button></td>
+                </tr>
+            }
+            @if (_drinks.Count == 0) { <tr><td colspan="5" class="text-muted">No drinks.</td></tr> }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool _loading = true, _saving, _isNew;
+    private string? _error, _msg;
+    private List<DrinkEntry> _drinks = new();
+    private DrinkEntry? _edit;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load(bool refresh = false)
+    {
+        _loading = true; _error = null;
+        try { _drinks = WebSyncClient.Rows<DrinkEntry>(await State.DataAsync(refresh)); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private void AddNew() { _edit = new DrinkEntry { Time = DateTime.Now }; _isNew = true; _msg = null; }
+    private void Edit(DrinkEntry d) { _edit = WebSyncClient.Clone(d); _isNew = false; _msg = null; }
+    private void Cancel() { _edit = null; _msg = null; }
+
+    private async Task Save()
+    {
+        if (_edit is null) return;
+        _saving = true; _msg = null;
+        try { await Sync.PushAsync(_edit); State.Invalidate(); await Load(true); _edit = null; }
+        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
+        finally { _saving = false; }
+    }
+
+    private async Task Delete()
+    {
+        if (_edit is null) return;
+        _saving = true; _msg = null;
+        try
+        {
+            _edit.IsDeleted = true; _edit.DeletedAt = DateTime.UtcNow;
+            await Sync.PushAsync(_edit); State.Invalidate(); await Load(true); _edit = null;
+        }
+        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
+        finally { _saving = false; }
+    }
+}
