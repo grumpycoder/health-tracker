@@ -56,4 +56,12 @@ builder.Services.AddScoped<FitRecoveryLog.Application.Recovery.SleepService>();
 builder.Services.AddScoped<FitRecoveryLog.Application.Recovery.IRecoveryRepository, FitRecoveryLog.Web.Infrastructure.ApiRecoveryRepository>();
 builder.Services.AddScoped<FitRecoveryLog.Application.Recovery.RecoveryService>();
 
+// Medication, labs, notes
+builder.Services.AddScoped<FitRecoveryLog.Application.Meds.IMedicationRepository, FitRecoveryLog.Web.Infrastructure.ApiMedicationRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Meds.MedicationService>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Labs.ILabRepository, FitRecoveryLog.Web.Infrastructure.ApiLabRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Labs.LabService>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Notes.INoteRepository, FitRecoveryLog.Web.Infrastructure.ApiNoteRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Notes.NoteService>();
+
 await builder.Build().RunAsync();

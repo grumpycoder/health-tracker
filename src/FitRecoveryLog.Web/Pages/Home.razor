@@ -1,8 +1,11 @@
 @page "/"
 @using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Application.Notes
 @using FitRecoveryLog.Data
+@using DomainNote = FitRecoveryLog.Domain.Notes.Note
 @attribute [Authorize]
-@inject WebSyncClient Sync
+@inject AppState State
+@inject NoteService NoteSvc
 
 <PageTitle>Fit Log — Web</PageTitle>
 
@@ -72,7 +75,7 @@ else
     private List<MealEntry> _meals = new();
     private List<DrinkEntry> _drinks = new();
     private List<BodyMeasurement> _measurements = new();
-    private List<NoteEntry> _notes = new();
+    private IReadOnlyList<DomainNote> _notes = Array.Empty<DomainNote>();
     private List<WorkoutSession> _workouts = new();
 
     protected override async Task OnInitializedAsync() => await Load();
@@ -82,12 +85,12 @@ else
         _loading = true; _error = null;
         try
         {
-            var pull = await Sync.PullAllAsync();
+            var pull = await State.DataAsync();
             _meals = WebSyncClient.Rows<MealEntry>(pull);
             _drinks = WebSyncClient.Rows<DrinkEntry>(pull);
             _measurements = WebSyncClient.Rows<BodyMeasurement>(pull);
-            _notes = WebSyncClient.Rows<NoteEntry>(pull);
             _workouts = WebSyncClient.Rows<WorkoutSession>(pull);
+            _notes = await NoteSvc.ListAsync();
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; }
@@ -99,7 +102,8 @@ else
         _saving = true; _saveMsg = null;
         try
         {
-            await Sync.PushAsync(new NoteEntry { Text = _newNote.Trim(), Time = DateTime.Now });
+            var result = await NoteSvc.AddAsync(DateTime.Now, _newNote.Trim());
+            if (!result.IsSuccess) { _saveMsg = "Failed: " + result.Error; return; }
             _newNote = "";
             _saveMsg = "Saved to the cloud ✓ — it'll appear on your phone next sync.";
             await Load();

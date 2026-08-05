@@ -1,9 +1,12 @@
 @page "/meds"
 @using Microsoft.AspNetCore.Authorization
-@using FitRecoveryLog.Data
+@using FitRecoveryLog.Application.Labs
+@using FitRecoveryLog.Application.Meds
+@using FitRecoveryLog.Domain.Labs
+@using FitRecoveryLog.Domain.Meds
 @attribute [Authorize]
-@inject AppState State
-@inject WebSyncClient Sync
+@inject MedicationService MedSvc
+@inject LabService LabSvc
 
 <PageTitle>Medication & Labs — Fit Log</PageTitle>
 
@@ -16,31 +19,33 @@
 else if (_error is not null)
 {
     <div class="alert alert-danger">@_error</div>
-    <button class="btn btn-primary" @onclick="() => Load(true)">Retry</button>
+    <button class="btn btn-primary" @onclick="Load">Retry</button>
 }
 else
 {
+    @if (_msg is not null) { <div class="alert alert-warning py-2">@_msg</div> }
+
     <!-- ===== Medication log ===== -->
     <div class="d-flex justify-content-between align-items-center mb-2">
         <h4 class="mb-0">Medication log</h4>
-        <button class="btn btn-sm btn-primary" @onclick="AddMed" disabled="@(_medEdit is not null)">+ Add dose</button>
+        <button class="btn btn-sm btn-primary" @onclick="AddMed" disabled="@(_med is not null)">+ Add dose</button>
     </div>
     <p class="text-muted small">Medication <em>schedules</em> (reminders) are managed on the phone — they carry on-device notification state.</p>
-    @if (_medEdit is not null)
+    @if (_med is not null)
     {
         <div class="card p-3 mb-3">
             <div class="row g-2">
-                <div class="col-sm-6"><label class="form-label">Name</label><input class="form-control" @bind="_medEdit.Name" /></div>
-                <div class="col-sm-3"><label class="form-label">Dose</label><input class="form-control" @bind="_medEdit.Dose" /></div>
-                <div class="col-sm-3"><label class="form-label">Frequency</label><input class="form-control" @bind="_medEdit.Frequency" /></div>
-                <div class="col-sm-5"><label class="form-label">Taken at</label><input type="datetime-local" class="form-control" @bind="_medEdit.TakenAt" /></div>
-                <div class="col-sm-3"><label class="form-label">Injection site</label><input class="form-control" @bind="_medEdit.InjectionSite" /></div>
-                <div class="col-12"><label class="form-label">Reaction notes</label><input class="form-control" @bind="_medEdit.ReactionNotes" /></div>
+                <div class="col-sm-6"><label class="form-label">Name</label><input class="form-control" @bind="_med.Name" /></div>
+                <div class="col-sm-3"><label class="form-label">Dose</label><input class="form-control" @bind="_med.Dose" /></div>
+                <div class="col-sm-3"><label class="form-label">Frequency</label><input class="form-control" @bind="_med.Frequency" /></div>
+                <div class="col-sm-5"><label class="form-label">Taken at</label><input type="datetime-local" class="form-control" @bind="_med.TakenAt" /></div>
+                <div class="col-sm-3"><label class="form-label">Injection site</label><input class="form-control" @bind="_med.InjectionSite" /></div>
+                <div class="col-12"><label class="form-label">Reaction notes</label><input class="form-control" @bind="_med.ReactionNotes" /></div>
             </div>
             <div class="mt-2 d-flex gap-2">
-                <button class="btn btn-primary" @onclick="SaveMed" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
-                <button class="btn btn-secondary" @onclick="() => _medEdit = null" disabled="@_saving">Cancel</button>
-                @if (!_medNew) { <button class="btn btn-outline-danger ms-auto" @onclick="DeleteMed" disabled="@_saving">Delete</button> }
+                <button class="btn btn-primary" @onclick="SaveMed" disabled="@_busy">Save</button>
+                <button class="btn btn-secondary" @onclick="() => _med = null" disabled="@_busy">Cancel</button>
+                @if (_med.Id is Guid) { <button class="btn btn-outline-danger ms-auto" @onclick="DeleteMed" disabled="@_busy">Delete</button> }
             </div>
         </div>
     }
@@ -51,9 +56,7 @@ else
             {
                 <tr>
                     <td><small>@m.TakenAt.ToLocalTime().ToString("g")</small></td>
-                    <td>@m.Name</td>
-                    <td>@(m.Dose ?? "—")</td>
-                    <td>@(m.InjectionSite ?? "—")</td>
+                    <td>@m.Name</td><td>@(m.Dose ?? "—")</td><td>@(m.InjectionSite ?? "—")</td>
                     <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => EditMed(m)">Edit</button></td>
                 </tr>
             }
@@ -64,22 +67,22 @@ else
     <!-- ===== Labs ===== -->
     <div class="d-flex justify-content-between align-items-center mb-2">
         <h4 class="mb-0">Lab results</h4>
-        <button class="btn btn-sm btn-primary" @onclick="AddLab" disabled="@(_labEdit is not null)">+ Add</button>
+        <button class="btn btn-sm btn-primary" @onclick="AddLab" disabled="@(_lab is not null)">+ Add</button>
     </div>
-    @if (_labEdit is not null)
+    @if (_lab is not null)
     {
         <div class="card p-3 mb-3">
             <div class="row g-2">
-                <div class="col-sm-4"><label class="form-label">Date</label><input type="date" class="form-control" @bind="_labEdit.Date" /></div>
-                <div class="col-sm-4"><label class="form-label">Lab</label><input class="form-control" @bind="_labEdit.LabName" placeholder="Testosterone, A1C…" /></div>
-                <div class="col-6 col-sm-2"><label class="form-label">Value</label><input type="number" step="0.01" class="form-control" @bind="_labEdit.Value" /></div>
-                <div class="col-6 col-sm-2"><label class="form-label">Unit</label><input class="form-control" @bind="_labEdit.Unit" /></div>
-                <div class="col-12"><label class="form-label">Notes</label><input class="form-control" @bind="_labEdit.Notes" /></div>
+                <div class="col-sm-4"><label class="form-label">Date</label><input type="date" class="form-control" @bind="_lab.Date" /></div>
+                <div class="col-sm-4"><label class="form-label">Lab</label><input class="form-control" @bind="_lab.LabName" placeholder="Testosterone, A1C…" /></div>
+                <div class="col-6 col-sm-2"><label class="form-label">Value</label><input type="number" step="0.01" class="form-control" @bind="_lab.Value" /></div>
+                <div class="col-6 col-sm-2"><label class="form-label">Unit</label><input class="form-control" @bind="_lab.Unit" /></div>
+                <div class="col-12"><label class="form-label">Notes</label><input class="form-control" @bind="_lab.Notes" /></div>
             </div>
             <div class="mt-2 d-flex gap-2">
-                <button class="btn btn-primary" @onclick="SaveLab" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
-                <button class="btn btn-secondary" @onclick="() => _labEdit = null" disabled="@_saving">Cancel</button>
-                @if (!_labNew) { <button class="btn btn-outline-danger ms-auto" @onclick="DeleteLab" disabled="@_saving">Delete</button> }
+                <button class="btn btn-primary" @onclick="SaveLab" disabled="@_busy">Save</button>
+                <button class="btn btn-secondary" @onclick="() => _lab = null" disabled="@_busy">Cancel</button>
+                @if (_lab.Id is Guid) { <button class="btn btn-outline-danger ms-auto" @onclick="DeleteLab" disabled="@_busy">Delete</button> }
             </div>
         </div>
     }
@@ -89,8 +92,7 @@ else
             @foreach (var l in _labs.OrderByDescending(x => x.Date))
             {
                 <tr>
-                    <td>@l.Date.ToString("MMM d, yyyy")</td>
-                    <td>@l.LabName</td>
+                    <td>@l.Date.ToString("MMM d, yyyy")</td><td>@l.LabName</td>
                     <td class="text-end">@(l.Value?.ToString("0.##") ?? "—") @l.Unit</td>
                     <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => EditLab(l)">Edit</button></td>
                 </tr>
@@ -101,65 +103,78 @@ else
 }
 
 @code {
-    private bool _loading = true, _saving, _medNew, _labNew;
-    private string? _error;
-    private List<MedicationEntry> _meds = new();
-    private List<LabResult> _labs = new();
-    private MedicationEntry? _medEdit;
-    private LabResult? _labEdit;
+    private bool _loading = true, _busy;
+    private string? _error, _msg;
+    private IReadOnlyList<MedicationDose> _meds = Array.Empty<MedicationDose>();
+    private IReadOnlyList<LabResult> _labs = Array.Empty<LabResult>();
+    private MedDraft? _med;
+    private LabDraft? _lab;
+
+    private sealed class MedDraft
+    {
+        public Guid? Id; public DateTime TakenAt = DateTime.Now; public string? Name, Dose, Frequency, InjectionSite, ReactionNotes;
+        public static MedDraft From(MedicationDose m) => new() { Id = m.Id, TakenAt = m.TakenAt, Name = m.Name, Dose = m.Dose, Frequency = m.Frequency, InjectionSite = m.InjectionSite, ReactionNotes = m.ReactionNotes };
+        public MedicationDoseData ToData() => new(TakenAt, Name ?? "", Dose, Frequency, InjectionSite, ReactionNotes);
+    }
+
+    private sealed class LabDraft
+    {
+        public Guid? Id; public DateOnly Date = DateOnly.FromDateTime(DateTime.Now); public string? LabName, Unit, Notes; public double? Value;
+        public static LabDraft From(LabResult l) => new() { Id = l.Id, Date = l.Date, LabName = l.LabName, Value = l.Value, Unit = l.Unit, Notes = l.Notes };
+        public LabData ToData() => new(Date, LabName ?? "", Value, Unit, Notes);
+    }
 
     protected override async Task OnInitializedAsync() => await Load();
 
-    private async Task Load(bool refresh = false)
+    private async Task Load()
     {
         _loading = true; _error = null;
-        try
-        {
-            var pull = await State.DataAsync(refresh);
-            _meds = WebSyncClient.Rows<MedicationEntry>(pull);
-            _labs = WebSyncClient.Rows<LabResult>(pull);
-        }
+        try { _meds = await MedSvc.ListAsync(); _labs = await LabSvc.ListAsync(); }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; }
     }
 
-    // Medication log
-    private void AddMed() { _medEdit = new MedicationEntry { TakenAt = DateTime.Now }; _medNew = true; }
-    private void EditMed(MedicationEntry m) { _medEdit = WebSyncClient.Clone(m); _medNew = false; }
+    private void AddMed() { _med = new MedDraft(); _msg = null; }
+    private void EditMed(MedicationDose m) { _med = MedDraft.From(m); _msg = null; }
     private async Task SaveMed()
     {
-        if (_medEdit is null) return;
-        _saving = true;
-        try { await Sync.PushAsync(_medEdit); State.Invalidate(); await Load(true); _medEdit = null; }
-        catch (Exception ex) { _error = ex.Message; }
-        finally { _saving = false; }
+        if (_med is null) return;
+        _busy = true; _msg = null;
+        try
+        {
+            var ok = _med.Id is Guid id ? (await MedSvc.UpdateAsync(id, _med.ToData())).IsSuccess
+                                        : (await MedSvc.CreateAsync(_med.ToData())).IsSuccess;
+            if (!ok) { _msg = "Save failed (a name is required)."; return; }
+            _med = null; await Load();
+        }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
     }
     private async Task DeleteMed()
     {
-        if (_medEdit is null) return;
-        _saving = true;
-        try { _medEdit.IsDeleted = true; _medEdit.DeletedAt = DateTime.UtcNow; await Sync.PushAsync(_medEdit); State.Invalidate(); await Load(true); _medEdit = null; }
-        catch (Exception ex) { _error = ex.Message; }
-        finally { _saving = false; }
+        if (_med?.Id is not Guid id) return;
+        _busy = true; try { await MedSvc.DeleteAsync(id); _med = null; await Load(); } catch (Exception ex) { _msg = ex.Message; } finally { _busy = false; }
     }
 
-    // Labs
-    private void AddLab() { _labEdit = new LabResult { Date = DateOnly.FromDateTime(DateTime.Now) }; _labNew = true; }
-    private void EditLab(LabResult l) { _labEdit = WebSyncClient.Clone(l); _labNew = false; }
+    private void AddLab() { _lab = new LabDraft(); _msg = null; }
+    private void EditLab(LabResult l) { _lab = LabDraft.From(l); _msg = null; }
     private async Task SaveLab()
     {
-        if (_labEdit is null) return;
-        _saving = true;
-        try { await Sync.PushAsync(_labEdit); State.Invalidate(); await Load(true); _labEdit = null; }
-        catch (Exception ex) { _error = ex.Message; }
-        finally { _saving = false; }
+        if (_lab is null) return;
+        _busy = true; _msg = null;
+        try
+        {
+            var ok = _lab.Id is Guid id ? (await LabSvc.UpdateAsync(id, _lab.ToData())).IsSuccess
+                                        : (await LabSvc.CreateAsync(_lab.ToData())).IsSuccess;
+            if (!ok) { _msg = "Save failed (a lab name is required)."; return; }
+            _lab = null; await Load();
+        }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _busy = false; }
     }
     private async Task DeleteLab()
     {
-        if (_labEdit is null) return;
-        _saving = true;
-        try { _labEdit.IsDeleted = true; _labEdit.DeletedAt = DateTime.UtcNow; await Sync.PushAsync(_labEdit); State.Invalidate(); await Load(true); _labEdit = null; }
-        catch (Exception ex) { _error = ex.Message; }
-        finally { _saving = false; }
+        if (_lab?.Id is not Guid id) return;
+        _busy = true; try { await LabSvc.DeleteAsync(id); _lab = null; await Load(); } catch (Exception ex) { _msg = ex.Message; } finally { _busy = false; }
     }
 }
