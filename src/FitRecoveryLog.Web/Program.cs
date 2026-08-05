@@ -48,4 +48,12 @@ builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.MealService>();
 builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.IDrinkRepository, FitRecoveryLog.Web.Infrastructure.ApiDrinkRepository>();
 builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.DrinkService>();
 
+// Body + recovery
+builder.Services.AddScoped<FitRecoveryLog.Application.Body.IMeasurementRepository, FitRecoveryLog.Web.Infrastructure.ApiMeasurementRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Body.MeasurementService>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Recovery.ISleepRepository, FitRecoveryLog.Web.Infrastructure.ApiSleepRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Recovery.SleepService>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Recovery.IRecoveryRepository, FitRecoveryLog.Web.Infrastructure.ApiRecoveryRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Recovery.RecoveryService>();
+
 await builder.Build().RunAsync();

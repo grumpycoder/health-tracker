@@ -1,9 +1,9 @@
 @page "/measurements"
 @using Microsoft.AspNetCore.Authorization
-@using FitRecoveryLog.Data
+@using FitRecoveryLog.Application.Body
+@using FitRecoveryLog.Domain.Body
 @attribute [Authorize]
-@inject AppState State
-@inject WebSyncClient Sync
+@inject MeasurementService MeasurementSvc
 
 <PageTitle>Measurements — Fit Log</PageTitle>
 
@@ -19,7 +19,7 @@
 else if (_error is not null)
 {
     <div class="alert alert-danger">@_error</div>
-    <button class="btn btn-primary" @onclick="() => Load(true)">Retry</button>
+    <button class="btn btn-primary" @onclick="Load">Retry</button>
 }
 else
 {
@@ -46,9 +46,9 @@ else
                 <div class="col-12"><label class="form-label">Clothing-fit notes</label><input class="form-control" @bind="_edit.ClothingFitNotes" /></div>
             </div>
             <div class="mt-3 d-flex gap-2">
-                <button class="btn btn-primary" @onclick="Save" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
-                <button class="btn btn-secondary" @onclick="Cancel" disabled="@_saving">Cancel</button>
-                @if (!_isNew) { <button class="btn btn-outline-danger ms-auto" @onclick="Delete" disabled="@_saving">Delete</button> }
+                <button class="btn btn-primary" @onclick="Save" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
+                <button class="btn btn-secondary" @onclick="Cancel" disabled="@_busy">Cancel</button>
+                @if (!_isNew) { <button class="btn btn-outline-danger ms-auto" @onclick="Delete" disabled="@_busy">Delete</button> }
             </div>
             @if (_msg is not null) { <div class="form-text mt-2">@_msg</div> }
         </div>
@@ -73,44 +73,70 @@ else
 }
 
 @code {
-    private bool _loading = true, _saving, _isNew;
+    private bool _loading = true, _busy, _isNew;
     private string? _error, _msg;
-    private List<BodyMeasurement> _rows = new();
-    private BodyMeasurement? _edit;
+    private IReadOnlyList<Measurement> _rows = Array.Empty<Measurement>();
+    private Draft? _edit;
+
+    private sealed class Draft
+    {
+        public Guid? Id;
+        public DateOnly Date = DateOnly.FromDateTime(DateTime.Now);
+        public double? WeightLbs, WaistInches, ChestInches, HipsInches, ArmsInches, ThighsInches,
+            BodyFatPercent, MuscleMassLbs, VisceralFat, BodyWaterPercent;
+        public int? BasalMetabolicRate, MetabolicAge;
+        public string? ClothingFitNotes;
+
+        public static Draft From(Measurement m) => new()
+        {
+            Id = m.Id, Date = m.Date, WeightLbs = m.WeightLbs, WaistInches = m.WaistInches, ChestInches = m.ChestInches,
+            HipsInches = m.HipsInches, ArmsInches = m.ArmsInches, ThighsInches = m.ThighsInches,
+            BodyFatPercent = m.BodyFatPercent, MuscleMassLbs = m.MuscleMassLbs, VisceralFat = m.VisceralFat,
+            BodyWaterPercent = m.BodyWaterPercent, BasalMetabolicRate = m.BasalMetabolicRate,
+            MetabolicAge = m.MetabolicAge, ClothingFitNotes = m.ClothingFitNotes,
+        };
+
+        public MeasurementData ToData() => new(Date, WeightLbs, WaistInches, ChestInches, HipsInches, ArmsInches,
+            ThighsInches, BodyFatPercent, MuscleMassLbs, VisceralFat, BodyWaterPercent, BasalMetabolicRate, MetabolicAge, ClothingFitNotes);
+    }
 
     protected override async Task OnInitializedAsync() => await Load();
 
-    private async Task Load(bool refresh = false)
+    private async Task Load()
     {
         _loading = true; _error = null;
-        try { _rows = WebSyncClient.Rows<BodyMeasurement>(await State.DataAsync(refresh)); }
+        try { _rows = await MeasurementSvc.ListAsync(); }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; }
     }
 
-    private void AddNew() { _edit = new BodyMeasurement { Date = DateOnly.FromDateTime(DateTime.Now) }; _isNew = true; _msg = null; }
-    private void Edit(BodyMeasurement m) { _edit = WebSyncClient.Clone(m); _isNew = false; _msg = null; }
+    private void AddNew() { _edit = new Draft(); _isNew = true; _msg = null; }
+    private void Edit(Measurement m) { _edit = Draft.From(m); _isNew = false; _msg = null; }
     private void Cancel() { _edit = null; _msg = null; }
 
     private async Task Save()
     {
         if (_edit is null) return;
-        _saving = true; _msg = null;
-        try { await Sync.PushAsync(_edit); State.Invalidate(); await Load(true); _edit = null; }
+        _busy = true; _msg = null;
+        try
+        {
+            var ok = _isNew
+                ? (await MeasurementSvc.CreateAsync(_edit.ToData())).IsSuccess
+                : (await MeasurementSvc.UpdateAsync(_edit.Id!.Value, _edit.ToData())).IsSuccess;
+            if (!ok) { _msg = "Save failed (values must be non-negative)."; return; }
+            _edit = null;
+            await Load();
+        }
         catch (Exception ex) { _msg = "Failed: " + ex.Message; }
-        finally { _saving = false; }
+        finally { _busy = false; }
     }
 
     private async Task Delete()
     {
-        if (_edit is null) return;
-        _saving = true; _msg = null;
-        try
-        {
-            _edit.IsDeleted = true; _edit.DeletedAt = DateTime.UtcNow;
-            await Sync.PushAsync(_edit); State.Invalidate(); await Load(true); _edit = null;
-        }
+        if (_edit?.Id is not Guid id) return;
+        _busy = true; _msg = null;
+        try { await MeasurementSvc.DeleteAsync(id); _edit = null; await Load(); }
         catch (Exception ex) { _msg = "Failed: " + ex.Message; }
-        finally { _saving = false; }
+        finally { _busy = false; }
     }
 }
