@@ -1,0 +1,199 @@
+@page "/routines"
+@using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Data
+@attribute [Authorize]
+@inject AppState State
+@inject WebSyncClient Sync
+
+<PageTitle>Routines — Fit Log</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Routines</h1>
+    @if (_editRoutine is null)
+    {
+        <button class="btn btn-primary" @onclick="AddRoutine">+ New routine</button>
+    }
+</div>
+
+@if (_loading)
+{
+    <p><em>Loading…</em></p>
+}
+else if (_error is not null)
+{
+    <div class="alert alert-danger">@_error</div>
+    <button class="btn btn-primary" @onclick="() => Load(true)">Retry</button>
+}
+else if (_editRoutine is not null)
+{
+    <div class="card p-3 mb-4">
+        <div class="d-flex justify-content-between">
+            <h5>@(_isNew ? "New routine" : "Edit routine")</h5>
+            <button class="btn btn-sm btn-secondary" @onclick="Cancel">Back to list</button>
+        </div>
+        <div class="row g-2 mb-3">
+            <div class="col-md-6"><label class="form-label">Name</label><input class="form-control" @bind="_editRoutine.Name" /></div>
+            <div class="col-12"><label class="form-label">Notes</label><textarea class="form-control" rows="2" @bind="_editRoutine.Notes"></textarea></div>
+        </div>
+
+        <h6>Exercises</h6>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr><th style="width:4rem">Order</th><th>Exercise</th><th>Sets</th><th>Reps</th><th>Dur (s)</th><th>Weight</th><th>Rest (s)</th><th>Note</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var re in _editEx.Where(x => !x.IsDeleted).OrderBy(x => x.Order))
+                    {
+                        <tr>
+                            <td><input type="number" class="form-control form-control-sm" @bind="re.Order" /></td>
+                            <td>
+                                <select class="form-select form-select-sm" @bind="re.ExerciseDefinitionId" style="min-width:11rem">
+                                    @foreach (var ex in _exercises) { <option value="@ex.Id">@ex.Name</option> }
+                                </select>
+                            </td>
+                            <td style="width:5rem"><input type="number" class="form-control form-control-sm" @bind="re.TargetSets" /></td>
+                            <td style="width:5rem"><input type="number" class="form-control form-control-sm" @bind="re.TargetReps" /></td>
+                            <td style="width:5rem"><input type="number" class="form-control form-control-sm" @bind="re.TargetDurationSeconds" /></td>
+                            <td style="width:6rem"><input type="number" step="0.5" class="form-control form-control-sm" @bind="re.TargetWeight" /></td>
+                            <td style="width:5rem"><input type="number" class="form-control form-control-sm" @bind="re.RestSeconds" /></td>
+                            <td style="min-width:9rem"><input class="form-control form-control-sm" @bind="re.TargetNote" placeholder="10-12, each side…" /></td>
+                            <td class="text-end"><button class="btn btn-sm btn-outline-danger" title="Remove" @onclick="() => RemoveEx(re)">✕</button></td>
+                        </tr>
+                    }
+                    @if (!_editEx.Any(x => !x.IsDeleted)) { <tr><td colspan="9" class="text-muted">No exercises.</td></tr> }
+                </tbody>
+            </table>
+        </div>
+        <div class="d-flex gap-2 align-items-end mb-2">
+            <div>
+                <label class="form-label mb-0"><small>Add exercise</small></label>
+                <select class="form-select form-select-sm" @bind="_addExId" style="min-width:14rem">
+                    @foreach (var ex in _exercises) { <option value="@ex.Id">@ex.Name</option> }
+                </select>
+            </div>
+            <button class="btn btn-sm btn-outline-primary" @onclick="AddEx" disabled="@(_addExId == Guid.Empty)">+ Add exercise</button>
+        </div>
+
+        <div class="mt-2 d-flex gap-2">
+            <button class="btn btn-primary" @onclick="Save" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+            <button class="btn btn-secondary" @onclick="Cancel" disabled="@_saving">Cancel</button>
+            @if (!_isNew) { <button class="btn btn-outline-danger ms-auto" @onclick="DeleteRoutine" disabled="@_saving">Delete routine</button> }
+        </div>
+        @if (_msg is not null) { <div class="form-text mt-2">@_msg</div> }
+    </div>
+}
+else
+{
+    <table class="table table-hover align-middle">
+        <thead><tr><th>Name</th><th class="text-end">Exercises</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var r in _routines.OrderBy(x => x.Name))
+            {
+                <tr>
+                    <td>@r.Name</td>
+                    <td class="text-end">@(_exByRoutine.GetValueOrDefault(r.Id)?.Count ?? 0)</td>
+                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => Open(r)">Open</button></td>
+                </tr>
+            }
+            @if (_routines.Count == 0) { <tr><td colspan="3" class="text-muted">No routines.</td></tr> }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool _loading = true, _saving, _isNew;
+    private string? _error, _msg;
+    private List<WorkoutRoutine> _routines = new();
+    private List<ExerciseDefinition> _exercises = new();
+    private Dictionary<Guid, List<RoutineExercise>> _exByRoutine = new();
+
+    private WorkoutRoutine? _editRoutine;
+    private List<RoutineExercise> _editEx = new();
+    private Guid _addExId;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load(bool refresh = false)
+    {
+        _loading = true; _error = null;
+        try
+        {
+            var pull = await State.DataAsync(refresh);
+            _routines = WebSyncClient.Rows<WorkoutRoutine>(pull);
+            _exercises = WebSyncClient.Rows<ExerciseDefinition>(pull).Where(e => !e.Retired).OrderBy(e => e.Name).ToList();
+            _exByRoutine = WebSyncClient.Rows<RoutineExercise>(pull).GroupBy(x => x.RoutineId).ToDictionary(g => g.Key, g => g.ToList());
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private Guid DefaultEx => _exercises.FirstOrDefault()?.Id ?? Guid.Empty;
+
+    private void AddRoutine()
+    {
+        _editRoutine = new WorkoutRoutine();
+        _editEx = new();
+        _addExId = DefaultEx;
+        _isNew = true; _msg = null;
+    }
+
+    private void Open(WorkoutRoutine r)
+    {
+        _editRoutine = WebSyncClient.Clone(r);
+        _editEx = (_exByRoutine.GetValueOrDefault(r.Id) ?? new()).Select(WebSyncClient.Clone).ToList();
+        _addExId = DefaultEx;
+        _isNew = false; _msg = null;
+    }
+
+    private void Cancel() { _editRoutine = null; _editEx = new(); _msg = null; }
+
+    private void AddEx()
+    {
+        if (_editRoutine is null || _addExId == Guid.Empty) return;
+        var nextOrder = _editEx.Where(x => !x.IsDeleted).Select(x => x.Order).DefaultIfEmpty(0).Max() + 1;
+        _editEx.Add(new RoutineExercise
+        {
+            RoutineId = _editRoutine.Id,
+            ExerciseDefinitionId = _addExId,
+            Order = nextOrder,
+        });
+    }
+
+    private void RemoveEx(RoutineExercise re) { re.IsDeleted = true; re.DeletedAt = DateTime.UtcNow; }
+
+    private async Task Save()
+    {
+        if (_editRoutine is null) return;
+        _saving = true; _msg = null;
+        try
+        {
+            await Sync.PushAsync(_editRoutine);        // parent first (FK)
+            await Sync.PushAsync(_editEx);             // children (adds/edits/removes)
+            State.Invalidate();
+            await Load(true);
+            _editRoutine = null;
+        }
+        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
+        finally { _saving = false; }
+    }
+
+    private async Task DeleteRoutine()
+    {
+        if (_editRoutine is null) return;
+        _saving = true; _msg = null;
+        try
+        {
+            // Tombstone the routine and all its exercises (children don't cascade over sync).
+            foreach (var re in _editEx) { re.IsDeleted = true; re.DeletedAt = DateTime.UtcNow; }
+            _editRoutine.IsDeleted = true; _editRoutine.DeletedAt = DateTime.UtcNow;
+            await Sync.PushAsync(_editEx);
+            await Sync.PushAsync(_editRoutine);
+            State.Invalidate();
+            await Load(true);
+            _editRoutine = null;
+        }
+        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
+        finally { _saving = false; }
+    }
+}
