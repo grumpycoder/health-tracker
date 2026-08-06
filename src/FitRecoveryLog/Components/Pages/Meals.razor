@@ -1,6 +1,9 @@
 @page "/meals"
 @using FitRecoveryLog.Services
+@using FitRecoveryLog.Application.Nutrition
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject MealService MealSvc
+@inject DrinkService DrinkSvc
 @inject NavigationManager Nav
 @inject ToastService Toast
 
@@ -1127,33 +1130,21 @@
     private async Task SaveMealEdit()
     {
         if (_editMealId is not { } id) return;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.MealEntries.FindAsync(id);
-        if (e is not null)
-        {
-            e.Description = _mealEdit.Description;
-            e.MealType = _mealEdit.MealType;
-            e.PortionNote = _mealEdit.PortionNote;
-            e.Satiety = _mealEdit.Satiety;
-            e.Time = _mealEditTime;
-            e.Tags = CsvField.Join(_mealEditTagBox.Selected);
-            e.QualityStars = _mealEditTagBox.Stars;
-            e.Calories = _mealEdit.Calories; e.ProteinG = _mealEdit.ProteinG; e.CarbsG = _mealEdit.CarbsG;
-            e.SugarG = _mealEdit.SugarG; e.FatG = _mealEdit.FatG; e.SodiumMg = _mealEdit.SodiumMg;
-            e.FiberG = _mealEdit.FiberG; e.AddedSugarG = _mealEdit.AddedSugarG;
-            await db.SaveChangesAsync();
-            if (_mealEdit.Satiety != Satiety.Unset)
-                ReminderNotifier.Cancel(ReminderNotifier.MealRatingNotificationId);
-        }
+        _mealEdit.Time = _mealEditTime;
+        _mealEdit.Tags = CsvField.Join(_mealEditTagBox.Selected);
+        _mealEdit.QualityStars = _mealEditTagBox.Stars;
+        var result = await MealSvc.UpdateAsync(id, MealToData(_mealEdit));
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
+        if (_mealEdit.Satiety != Satiety.Unset)
+            ReminderNotifier.Cancel(ReminderNotifier.MealRatingNotificationId);
         _editMealId = null;
         await LoadToday();
     }
 
     private async Task DeleteMeal(MealEntry m)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.MealEntries.FindAsync(m.Id);
-        if (e is not null) { db.MealEntries.Remove(e); await db.SaveChangesAsync(); }
+        var result = await MealSvc.DeleteAsync(m.Id);
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         if (_editMealId == m.Id) _editMealId = null;
         await LoadToday();
     }
@@ -1175,39 +1166,46 @@
     private async Task SaveDrinkEdit()
     {
         if (_editDrinkId is not { } id) return;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.DrinkEntries.FindAsync(id);
-        if (e is not null)
-        {
-            e.Description = _drinkEdit.Description;
-            e.Ounces = _drinkEdit.Ounces;
-            e.SugarCount = _drinkEdit.SugarCount;
-            e.Time = _drinkEditTime;
-            e.Tags = CsvField.Join(_drinkEditTagBox.Selected);
-            e.Calories = _drinkEdit.Calories; e.ProteinG = _drinkEdit.ProteinG; e.CarbsG = _drinkEdit.CarbsG;
-            e.SugarG = _drinkEdit.SugarG; e.FatG = _drinkEdit.FatG; e.SodiumMg = _drinkEdit.SodiumMg;
-            e.FiberG = _drinkEdit.FiberG; e.AddedSugarG = _drinkEdit.AddedSugarG;
-            await db.SaveChangesAsync();
-        }
+        _drinkEdit.Time = _drinkEditTime;
+        _drinkEdit.Tags = CsvField.Join(_drinkEditTagBox.Selected);
+        var result = await DrinkSvc.UpdateAsync(id, DrinkToData(_drinkEdit));
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         _editDrinkId = null;
         await LoadToday();
     }
 
     private async Task DeleteDrink(DrinkEntry d)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.DrinkEntries.FindAsync(d.Id);
-        if (e is not null) { db.DrinkEntries.Remove(e); await db.SaveChangesAsync(); }
+        var result = await DrinkSvc.DeleteAsync(d.Id);
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         if (_editDrinkId == d.Id) _editDrinkId = null;
         await LoadToday();
     }
 
+    // Bridge the form/display POCOs to the aggregates' save DTOs (reads/scan keep the POCO).
+    // Persistence enums map by ordinal to the domain enums; Macros arg order is
+    // (calories, protein, carbs, fat, fiber, sugar, addedSugar, sodium).
+    private static MealData MealToData(MealEntry e) =>
+        new(e.Time,
+            (FitRecoveryLog.Domain.Nutrition.MealType)(int)e.MealType,
+            e.Description,
+            e.PortionNote,
+            (FitRecoveryLog.Domain.Nutrition.Satiety)(int)e.Satiety,
+            e.QualityStars,
+            new FitRecoveryLog.Domain.Nutrition.Macros(e.Calories, e.ProteinG, e.CarbsG, e.FatG, e.FiberG, e.SugarG, e.AddedSugarG, e.SodiumMg),
+            FitRecoveryLog.Domain.Common.Tags.FromCsv(e.Tags));
+
+    private static DrinkData DrinkToData(DrinkEntry e) =>
+        new(e.Time, e.Description, e.Ounces, e.SugarCount,
+            new FitRecoveryLog.Domain.Nutrition.Macros(e.Calories, e.ProteinG, e.CarbsG, e.FatG, e.FiberG, e.SugarG, e.AddedSugarG, e.SodiumMg),
+            FitRecoveryLog.Domain.Common.Tags.FromCsv(e.Tags));
+
     /// <summary>One-tap fullness rating for an unrated logged meal (from the reminder).</summary>
     private async Task RateMeal(MealEntry m, Satiety satiety)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.MealEntries.FindAsync(m.Id);
-        if (e is not null) { e.Satiety = satiety; await db.SaveChangesAsync(); }
+        m.Satiety = satiety; // m carries all the meal's fields; ToData preserves the rest
+        var result = await MealSvc.UpdateAsync(m.Id, MealToData(m));
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         // Rated before the reminder fired — cancel the pending nudge.
         ReminderNotifier.Cancel(ReminderNotifier.MealRatingNotificationId);
         await LoadToday();
@@ -1226,9 +1224,8 @@
         var isSnack = _meal.MealType == MealType.Snack;
         var foodName = _meal.Description;
 
-        await using var db = await DbFactory.CreateDbContextAsync();
-        db.MealEntries.Add(_meal);
-        await db.SaveChangesAsync();
+        var result = await MealSvc.CreateAsync(MealToData(_meal));
+        if (!result.IsSuccess) { _mealWarn = result.Error; return; }
 
         if (remind)
             try { await ReminderNotifier.ScheduleMealRatingAsync(foodName, isSnack); } catch { }
@@ -1248,9 +1245,8 @@
         _drinkWarn = null;
         _drink.Time = DateTime.Now;
         _drink.Tags = CsvField.Join(_drinkTagBox.Selected);
-        await using var db = await DbFactory.CreateDbContextAsync();
-        db.DrinkEntries.Add(_drink);
-        await db.SaveChangesAsync();
+        var result = await DrinkSvc.CreateAsync(DrinkToData(_drink));
+        if (!result.IsSuccess) { _drinkWarn = result.Error; return; }
 
         _drink = new DrinkEntry();
         _drinkTagBox.Reset();

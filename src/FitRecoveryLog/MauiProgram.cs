@@ -64,6 +64,10 @@ public static class MauiProgram
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.RoutineService>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Body.IMeasurementRepository, FitRecoveryLog.Infrastructure.Body.EfMeasurementRepository>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Body.MeasurementService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.IMealRepository, FitRecoveryLog.Infrastructure.Nutrition.EfMealRepository>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.MealService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.IDrinkRepository, FitRecoveryLog.Infrastructure.Nutrition.EfDrinkRepository>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.DrinkService>();
 
 #if IOS || MACCATALYST
 		// Silent sync when the app returns to the foreground (in addition to the launch
