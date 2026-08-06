@@ -1,100 +1,264 @@
 @page "/meals"
 @using Microsoft.AspNetCore.Authorization
-@using FitRecoveryLog.Application.Common
 @using FitRecoveryLog.Application.Nutrition
 @using FitRecoveryLog.Domain.Common
 @using FitRecoveryLog.Domain.Nutrition
 @attribute [Authorize]
 @inject MealService MealSvc
+@inject DrinkService DrinkSvc
 
-<PageTitle>Meals — Fit Log</PageTitle>
+<PageTitle>Meals &amp; Drinks — Fit Log</PageTitle>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="mb-0">Meals</h1>
-    <button class="btn btn-primary" @onclick="AddNew" disabled="@(_edit is not null)">+ Add meal</button>
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Meals &amp; Drinks</div>
+        <div class="dash-date-sub">@DateTime.Now.ToString("dddd, MMM d")</div>
+    </header>
+
+    <div class="segmented">
+        <button class="seg @(_tab == "meal" ? "active" : "")" @onclick='() => Switch("meal")'>🍽️ Meals</button>
+        <button class="seg @(_tab == "drink" ? "active" : "")" @onclick='() => Switch("drink")'>🥤 Drinks</button>
+    </div>
+
+    @if (_loading)
+    {
+        <section class="card"><p class="muted">Loading…</p></section>
+    }
+    else if (_error is not null)
+    {
+        <section class="card"><p class="warn-msg" style="margin:0">@_error</p><button class="save-btn" @onclick="Load">Retry</button></section>
+    }
+    else if (_tab == "meal")
+    {
+        <div class="routine-head">
+            <h2 style="margin:0;color:var(--text)">Meal log</h2>
+            <button class="link-btn" @onclick="AddMeal" disabled="@(_meal is not null)">+ Add meal</button>
+        </div>
+
+        @if (_meal is not null)
+        {
+            <section class="card">
+                @if (_meal.Id is null && _foodNames.Count > 0)
+                {
+                    <div class="field">
+                        <label>Repeat a recent meal</label>
+                        <select @onchange="RepeatFood">
+                            <option value="">— pick to prefill macros &amp; tags —</option>
+                            @foreach (var n in _foodNames) { <option value="@n">@n</option> }
+                        </select>
+                    </div>
+                }
+                <div class="field"><label>Description</label><input @bind="_meal.Description" /></div>
+                <div class="inline-fields">
+                    <div class="field"><label>Type</label><select @bind="_meal.MealType">@foreach (var v in Enum.GetValues<MealType>()) { <option value="@v">@v</option> }</select></div>
+                    <div class="field"><label>Time</label><input type="datetime-local" @bind="_meal.Time" /></div>
+                    <div class="field"><label>Satiety</label><select @bind="_meal.Satiety">@foreach (var v in Enum.GetValues<Satiety>()) { <option value="@v">@v</option> }</select></div>
+                </div>
+                <div class="inline-fields">
+                    <div class="field"><label>Calories</label><input type="number" @bind="_meal.Calories" /></div>
+                    <div class="field"><label>Protein (g)</label><input type="number" step="0.1" @bind="_meal.ProteinG" /></div>
+                    <div class="field"><label>Carbs (g)</label><input type="number" step="0.1" @bind="_meal.CarbsG" /></div>
+                    <div class="field"><label>Fat (g)</label><input type="number" step="0.1" @bind="_meal.FatG" /></div>
+                </div>
+                <div class="inline-fields">
+                    <div class="field"><label>Sugar (g)</label><input type="number" step="0.1" @bind="_meal.SugarG" /></div>
+                    <div class="field"><label>Added sugar (g)</label><input type="number" step="0.1" @bind="_meal.AddedSugarG" /></div>
+                    <div class="field"><label>Fiber (g)</label><input type="number" step="0.1" @bind="_meal.FiberG" /></div>
+                    <div class="field"><label>Sodium (mg)</label><input type="number" @bind="_meal.SodiumMg" /></div>
+                </div>
+                <div class="field"><label>Portion note</label><input @bind="_meal.PortionNote" /></div>
+                <div class="field"><label>Tags (comma-separated)</label><input @bind="_meal.Tags" /></div>
+                <div class="routine-actions">
+                    <button class="save-btn" @onclick="SaveMeal" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
+                    <button class="link-btn" @onclick="() => _meal = null" disabled="@_busy">Cancel</button>
+                    @if (_meal.Id is Guid) { <button class="link-btn danger" style="margin-left:auto" @onclick="DeleteMeal" disabled="@_busy">Delete</button> }
+                </div>
+                @if (_msg is not null) { <p class="muted" style="margin:0.4rem 0 0">@_msg</p> }
+            </section>
+        }
+
+        <section class="card">
+            @if (_meals.Count == 0) { <p class="muted">No meals logged.</p> }
+            <ul class="timeline">
+                @foreach (var m in _meals.OrderByDescending(x => x.Time))
+                {
+                    <li>
+                        <div>
+                            <span class="time">@m.Time.ToLocalTime().ToString("g")</span>
+                            <span class="entry"><strong>@m.MealType</strong> — @m.Description
+                                @if (m.Macros.Calories is { } c) { <span class="muted"> · @c cal</span> }
+                            </span>
+                        </div>
+                        <div class="routine-actions"><button class="icon-action" title="Edit" @onclick="() => EditMeal(m)">✏️</button></div>
+                    </li>
+                }
+            </ul>
+        </section>
+    }
+    else
+    {
+        <div class="routine-head">
+            <h2 style="margin:0;color:var(--text)">Drink log</h2>
+            <button class="link-btn" @onclick="AddDrink" disabled="@(_drink is not null)">+ Add drink</button>
+        </div>
+
+        @if (_drink is not null)
+        {
+            <section class="card">
+                @if (_drink.Id is null && _drinkNames.Count > 0)
+                {
+                    <div class="field">
+                        <label>Repeat a recent drink</label>
+                        <select @onchange="RepeatDrink">
+                            <option value="">— pick to prefill oz, sugar &amp; macros —</option>
+                            @foreach (var n in _drinkNames) { <option value="@n">@n</option> }
+                        </select>
+                    </div>
+                }
+                <div class="field"><label>Description</label><input @bind="_drink.Description" /></div>
+                <div class="inline-fields">
+                    <div class="field"><label>Time</label><input type="datetime-local" @bind="_drink.Time" /></div>
+                    <div class="field"><label>Ounces</label><input type="number" step="0.1" @bind="_drink.Ounces" /></div>
+                    <div class="field"><label>Sugar added (tsp)</label><input type="number" @bind="_drink.SugarCount" /></div>
+                </div>
+                <div class="inline-fields">
+                    <div class="field"><label>Calories</label><input type="number" @bind="_drink.Calories" /></div>
+                    <div class="field"><label>Protein (g)</label><input type="number" step="0.1" @bind="_drink.ProteinG" /></div>
+                    <div class="field"><label>Carbs (g)</label><input type="number" step="0.1" @bind="_drink.CarbsG" /></div>
+                    <div class="field"><label>Fat (g)</label><input type="number" step="0.1" @bind="_drink.FatG" /></div>
+                </div>
+                <div class="inline-fields">
+                    <div class="field"><label>Sugar (g)</label><input type="number" step="0.1" @bind="_drink.SugarG" /></div>
+                    <div class="field"><label>Added sugar (g)</label><input type="number" step="0.1" @bind="_drink.AddedSugarG" /></div>
+                    <div class="field"><label>Fiber (g)</label><input type="number" step="0.1" @bind="_drink.FiberG" /></div>
+                    <div class="field"><label>Sodium (mg)</label><input type="number" @bind="_drink.SodiumMg" /></div>
+                </div>
+                <div class="field"><label>Tags (comma-separated)</label><input @bind="_drink.Tags" /></div>
+                <div class="routine-actions">
+                    <button class="save-btn" @onclick="SaveDrink" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
+                    <button class="link-btn" @onclick="() => _drink = null" disabled="@_busy">Cancel</button>
+                    @if (_drink.Id is Guid) { <button class="link-btn danger" style="margin-left:auto" @onclick="DeleteDrink" disabled="@_busy">Delete</button> }
+                </div>
+                @if (_msg is not null) { <p class="muted" style="margin:0.4rem 0 0">@_msg</p> }
+            </section>
+        }
+
+        <section class="card">
+            @if (_drinks.Count == 0) { <p class="muted">No drinks logged.</p> }
+            <ul class="timeline">
+                @foreach (var d in _drinks.OrderByDescending(x => x.Time))
+                {
+                    <li>
+                        <div>
+                            <span class="time">@d.Time.ToLocalTime().ToString("g")</span>
+                            <span class="entry">🥤 @d.Description
+                                @if (d.Ounces is { } oz) { <span class="muted"> · @oz.ToString("0.#") oz</span> }
+                                @if (d.Macros.Calories is { } c) { <span class="muted"> · @c cal</span> }
+                            </span>
+                        </div>
+                        <div class="routine-actions"><button class="icon-action" title="Edit" @onclick="() => EditDrink(d)">✏️</button></div>
+                    </li>
+                }
+            </ul>
+        </section>
+    }
 </div>
 
-@if (_loading)
-{
-    <p><em>Loading…</em></p>
-}
-else if (_error is not null)
-{
-    <div class="alert alert-danger">@_error</div>
-    <button class="btn btn-primary" @onclick="Load">Retry</button>
-}
-else
-{
-    @if (_edit is not null)
+@code {
+    private string _tab = "meal";
+    private bool _loading = true, _busy;
+    private string? _error, _msg;
+
+    private IReadOnlyList<Meal> _meals = Array.Empty<Meal>();
+    private IReadOnlyList<Drink> _drinks = Array.Empty<Drink>();
+    private MealDraft? _meal;
+    private DrinkDraft? _drink;
+    private Dictionary<string, Meal> _foodMemory = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, Drink> _drinkMemory = new(StringComparer.OrdinalIgnoreCase);
+    private List<string> _foodNames = new();
+    private List<string> _drinkNames = new();
+
+    private void Switch(string tab) { _tab = tab; _meal = null; _drink = null; _msg = null; }
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
     {
-        <div class="card p-3 mb-4">
-            <h5>@(_isNew ? "New meal" : "Edit meal")</h5>
-            @if (_isNew && _foodNames.Count > 0)
-            {
-                <div class="mb-3">
-                    <label class="form-label">Repeat a recent meal</label>
-                    <select class="form-select" @onchange="RepeatFood">
-                        <option value="">— pick to prefill macros &amp; tags —</option>
-                        @foreach (var n in _foodNames) { <option value="@n">@n</option> }
-                    </select>
-                </div>
-            }
-            <div class="row g-2">
-                <div class="col-12"><label class="form-label">Description</label><input class="form-control" @bind="_edit.Description" /></div>
-                <div class="col-sm-4"><label class="form-label">Type</label>
-                    <select class="form-select" @bind="_edit.MealType">@foreach (var v in Enum.GetValues<MealType>()) { <option value="@v">@v</option> }</select></div>
-                <div class="col-sm-5"><label class="form-label">Time</label><input type="datetime-local" class="form-control" @bind="_edit.Time" /></div>
-                <div class="col-sm-3"><label class="form-label">Satiety</label>
-                    <select class="form-select" @bind="_edit.Satiety">@foreach (var v in Enum.GetValues<Satiety>()) { <option value="@v">@v</option> }</select></div>
-
-                <div class="col-6 col-md-3"><label class="form-label">Calories</label><input type="number" class="form-control" @bind="_edit.Calories" /></div>
-                <div class="col-6 col-md-3"><label class="form-label">Protein (g)</label><input type="number" step="0.1" class="form-control" @bind="_edit.ProteinG" /></div>
-                <div class="col-6 col-md-3"><label class="form-label">Carbs (g)</label><input type="number" step="0.1" class="form-control" @bind="_edit.CarbsG" /></div>
-                <div class="col-6 col-md-3"><label class="form-label">Fat (g)</label><input type="number" step="0.1" class="form-control" @bind="_edit.FatG" /></div>
-                <div class="col-6 col-md-3"><label class="form-label">Fiber (g)</label><input type="number" step="0.1" class="form-control" @bind="_edit.FiberG" /></div>
-                <div class="col-6 col-md-3"><label class="form-label">Sugar (g)</label><input type="number" step="0.1" class="form-control" @bind="_edit.SugarG" /></div>
-                <div class="col-6 col-md-3"><label class="form-label">Added sugar (g)</label><input type="number" step="0.1" class="form-control" @bind="_edit.AddedSugarG" /></div>
-                <div class="col-6 col-md-3"><label class="form-label">Sodium (mg)</label><input type="number" class="form-control" @bind="_edit.SodiumMg" /></div>
-
-                <div class="col-md-6"><label class="form-label">Portion note</label><input class="form-control" @bind="_edit.PortionNote" /></div>
-                <div class="col-md-6"><label class="form-label">Tags (comma-separated)</label><input class="form-control" @bind="_edit.Tags" /></div>
-            </div>
-            <div class="mt-3 d-flex gap-2">
-                <button class="btn btn-primary" @onclick="Save" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
-                <button class="btn btn-secondary" @onclick="Cancel" disabled="@_busy">Cancel</button>
-                @if (!_isNew) { <button class="btn btn-outline-danger ms-auto" @onclick="Delete" disabled="@_busy">Delete</button> }
-            </div>
-            @if (_msg is not null) { <div class="form-text mt-2">@_msg</div> }
-        </div>
+        _loading = true; _error = null;
+        try
+        {
+            _meals = await MealSvc.ListAsync();
+            _drinks = await DrinkSvc.ListAsync();
+            _foodMemory = _meals.Where(m => !string.IsNullOrWhiteSpace(m.Description))
+                .GroupBy(m => m.Description.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(m => m.Time).First(), StringComparer.OrdinalIgnoreCase);
+            _foodNames = _foodMemory.Values.OrderByDescending(m => m.Time).Select(m => m.Description.Trim()).ToList();
+            _drinkMemory = _drinks.Where(d => !string.IsNullOrWhiteSpace(d.Description))
+                .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(d => d.Time).First(), StringComparer.OrdinalIgnoreCase);
+            _drinkNames = _drinkMemory.Values.OrderByDescending(d => d.Time).Select(d => d.Description.Trim()).ToList();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
     }
 
-    <table class="table table-hover align-middle">
-        <thead><tr><th>When</th><th>Type</th><th>Description</th><th class="text-end">Cal</th><th></th></tr></thead>
-        <tbody>
-            @foreach (var m in _meals.OrderByDescending(x => x.Time))
-            {
-                <tr>
-                    <td><small>@m.Time.ToLocalTime().ToString("g")</small></td>
-                    <td>@m.MealType</td>
-                    <td>@m.Description</td>
-                    <td class="text-end">@(m.Macros.Calories?.ToString() ?? "—")</td>
-                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => Edit(m)">Edit</button></td>
-                </tr>
-            }
-            @if (_meals.Count == 0) { <tr><td colspan="5" class="text-muted">No meals.</td></tr> }
-        </tbody>
-    </table>
-}
+    // ---- meals ----
+    private void AddMeal() { _meal = new MealDraft { Time = DateTime.Now }; _msg = null; }
+    private void EditMeal(Meal m) { _meal = MealDraft.From(m); _msg = null; }
+    private void RepeatFood(ChangeEventArgs e)
+    {
+        if (_meal is null || e.Value?.ToString() is not { Length: > 0 } name || !_foodMemory.TryGetValue(name, out var src)) return;
+        var d = MealDraft.From(src); d.Id = null; d.Time = DateTime.Now; _meal = d;
+    }
+    private async Task SaveMeal()
+    {
+        if (_meal is null) return;
+        _busy = true; _msg = null;
+        try
+        {
+            var ok = _meal.Id is Guid id ? (await MealSvc.UpdateAsync(id, _meal.ToData())).IsSuccess
+                                         : (await MealSvc.CreateAsync(_meal.ToData())).IsSuccess;
+            if (!ok) { _msg = "Save failed."; return; }
+            _meal = null; await Load();
+        }
+        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
+        finally { _busy = false; }
+    }
+    private async Task DeleteMeal()
+    {
+        if (_meal?.Id is not Guid id) return;
+        _busy = true; try { await MealSvc.DeleteAsync(id); _meal = null; await Load(); } catch (Exception ex) { _msg = ex.Message; } finally { _busy = false; }
+    }
 
-@code {
-    private bool _loading = true, _busy, _isNew;
-    private string? _error, _msg;
-    private IReadOnlyList<Meal> _meals = Array.Empty<Meal>();
-    private Draft? _edit;
-    private Dictionary<string, Meal> _foodMemory = new(StringComparer.OrdinalIgnoreCase);
-    private List<string> _foodNames = new();
+    // ---- drinks ----
+    private void AddDrink() { _drink = new DrinkDraft { Time = DateTime.Now }; _msg = null; }
+    private void EditDrink(Drink d) { _drink = DrinkDraft.From(d); _msg = null; }
+    private void RepeatDrink(ChangeEventArgs e)
+    {
+        if (_drink is null || e.Value?.ToString() is not { Length: > 0 } name || !_drinkMemory.TryGetValue(name, out var src)) return;
+        var d = DrinkDraft.From(src); d.Id = null; d.Time = DateTime.Now; _drink = d;
+    }
+    private async Task SaveDrink()
+    {
+        if (_drink is null) return;
+        _busy = true; _msg = null;
+        try
+        {
+            var ok = _drink.Id is Guid id ? (await DrinkSvc.UpdateAsync(id, _drink.ToData())).IsSuccess
+                                          : (await DrinkSvc.CreateAsync(_drink.ToData())).IsSuccess;
+            if (!ok) { _msg = "Save failed (check amounts)."; return; }
+            _drink = null; await Load();
+        }
+        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
+        finally { _busy = false; }
+    }
+    private async Task DeleteDrink()
+    {
+        if (_drink?.Id is not Guid id) return;
+        _busy = true; try { await DrinkSvc.DeleteAsync(id); _drink = null; await Load(); } catch (Exception ex) { _msg = ex.Message; } finally { _busy = false; }
+    }
 
-    private sealed class Draft
+    private sealed class MealDraft
     {
         public Guid? Id;
         public DateTime Time = DateTime.Now;
@@ -104,7 +268,7 @@ else
         public int? QualityStars, Calories, SodiumMg;
         public double? ProteinG, CarbsG, SugarG, FatG, FiberG, AddedSugarG;
 
-        public static Draft From(Meal m) => new()
+        public static MealDraft From(Meal m) => new()
         {
             Id = m.Id, Time = m.Time, MealType = m.MealType, Description = m.Description, PortionNote = m.PortionNote,
             Satiety = m.Satiety, QualityStars = m.QualityStars, Calories = m.Macros.Calories, SodiumMg = m.Macros.SodiumMg,
@@ -117,59 +281,25 @@ else
             FitRecoveryLog.Domain.Common.Tags.FromCsv(Tags));
     }
 
-    protected override async Task OnInitializedAsync() => await Load();
-
-    private async Task Load()
+    private sealed class DrinkDraft
     {
-        _loading = true; _error = null;
-        try
+        public Guid? Id;
+        public DateTime Time = DateTime.Now;
+        public string? Description, Tags;
+        public double? Ounces;
+        public int? SugarCount, Calories, SodiumMg;
+        public double? ProteinG, CarbsG, SugarG, FatG, FiberG, AddedSugarG;
+
+        public static DrinkDraft From(Drink d) => new()
         {
-            _meals = await MealSvc.ListAsync();
-            _foodMemory = _meals.Where(m => !string.IsNullOrWhiteSpace(m.Description))
-                .GroupBy(m => m.Description.Trim(), StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.OrderByDescending(m => m.Time).First(), StringComparer.OrdinalIgnoreCase);
-            _foodNames = _foodMemory.Values.OrderByDescending(m => m.Time).Select(m => m.Description.Trim()).ToList();
-        }
-        catch (Exception ex) { _error = ex.Message; }
-        finally { _loading = false; }
-    }
+            Id = d.Id, Time = d.Time, Description = d.Description, Ounces = d.Ounces, SugarCount = d.SugarCount,
+            Calories = d.Macros.Calories, SodiumMg = d.Macros.SodiumMg, ProteinG = d.Macros.ProteinG,
+            CarbsG = d.Macros.CarbsG, SugarG = d.Macros.SugarG, FatG = d.Macros.FatG, FiberG = d.Macros.FiberG,
+            AddedSugarG = d.Macros.AddedSugarG, Tags = d.Tags.ToCsv(),
+        };
 
-    private void AddNew() { _edit = new Draft { Time = DateTime.Now }; _isNew = true; _msg = null; }
-    private void Edit(Meal m) { _edit = Draft.From(m); _isNew = false; _msg = null; }
-    private void Cancel() { _edit = null; _msg = null; }
-
-    private void RepeatFood(ChangeEventArgs e)
-    {
-        var name = e.Value?.ToString();
-        if (_edit is null || string.IsNullOrEmpty(name) || !_foodMemory.TryGetValue(name, out var src)) return;
-        var d = Draft.From(src);
-        d.Id = null; d.Time = DateTime.Now;   // a repeat is a new entry
-        _edit = d;
-    }
-
-    private async Task Save()
-    {
-        if (_edit is null) return;
-        _busy = true; _msg = null;
-        try
-        {
-            var result = _isNew
-                ? (await MealSvc.CreateAsync(_edit.ToData())) is { IsSuccess: true }
-                : (await MealSvc.UpdateAsync(_edit.Id!.Value, _edit.ToData())).IsSuccess;
-            if (!result) { _msg = "Save failed."; return; }
-            _edit = null;
-            await Load();
-        }
-        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
-        finally { _busy = false; }
-    }
-
-    private async Task Delete()
-    {
-        if (_edit?.Id is not Guid id) return;
-        _busy = true; _msg = null;
-        try { await MealSvc.DeleteAsync(id); _edit = null; await Load(); }
-        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
-        finally { _busy = false; }
+        public DrinkData ToData() => new(Time, Description, Ounces, SugarCount,
+            new Macros(Calories, ProteinG, CarbsG, FatG, FiberG, SugarG, AddedSugarG, SodiumMg),
+            FitRecoveryLog.Domain.Common.Tags.FromCsv(Tags));
     }
 }

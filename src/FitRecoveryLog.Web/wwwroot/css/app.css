@@ -53,7 +53,7 @@ a, .btn-link { color: var(--accent); }
 .app-brand .dot { color: var(--accent); }
 .app-header .auth { font-size: 0.85rem; color: var(--muted); display: flex; align-items: center; gap: 0.5rem; }
 
-.app-body { flex: 1; padding-bottom: 4.5rem; } /* room for the fixed tab bar */
+.app-body { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; box-sizing: border-box; padding: 0.25rem 0.75rem 4.5rem; } /* centered column; room for the fixed tab bar */
 
 .app-nav {
     position: fixed;
@@ -172,6 +172,32 @@ a, .btn-link { color: var(--accent); }
     background: #16a34a; color: #fff; font-weight: 600; padding: 0.6rem 1.1rem; border-radius: 999px;
     box-shadow: 0 4px 16px rgba(0,0,0,0.25); max-width: 90vw; text-align: center;
 }
+
+/* ---- Bootstrap compatibility: skin the not-yet-rebuilt pages with the theme so the
+   whole app reads consistently until each page is fully ported to the vocabulary above. ---- */
+.app-body h1 { font-size: 1.55rem; font-weight: 700; margin: 0.4rem 0 1rem; }
+.btn { border-radius: 10px; font-weight: 600; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+.btn-primary:hover, .btn-primary:focus { background: var(--accent); border-color: var(--accent); filter: brightness(0.95); }
+.btn-secondary { background: var(--bg); border-color: var(--border); color: var(--text); }
+.btn-outline-primary { color: var(--accent); border-color: var(--accent); background: transparent; }
+.btn-outline-primary:hover { background: var(--accent); color: var(--accent-contrast); }
+.btn-outline-danger { color: #dc2626; border-color: #dc2626; background: transparent; }
+.form-control, .form-select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+}
+.form-control:focus, .form-select:focus {
+    background: var(--bg); color: var(--text); border-color: var(--accent);
+    box-shadow: 0 0 0 0.15rem rgba(37, 99, 235, 0.25);
+}
+.form-label { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.25rem; }
+.table { color: var(--text); }
+.table > :not(caption) > * > * { background: transparent; border-color: var(--border); color: var(--text); }
+.table-hover > tbody > tr:hover > * { background: var(--bg); }
+.list-group-item { background: var(--card); color: var(--text); border-color: var(--border); }
+.alert-danger { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+.text-muted, small.text-muted { color: var(--muted) !important; }
+@media (prefers-color-scheme: dark) { .alert-danger { background: #3a1414; border-color: #7f1d1d; color: #fca5a5; } }
 
 /* ---- Blazor plumbing ---- */
 .valid.modified:not([type=checkbox]) { outline: 1px solid #26b050; }
