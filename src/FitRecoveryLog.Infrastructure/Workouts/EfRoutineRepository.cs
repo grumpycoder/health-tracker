@@ -63,6 +63,11 @@ public sealed class EfRoutineRepository : IRoutineRepository
             {
                 pe = new Persistence.RoutineExercise { Id = e.Id, RoutineId = routine.Id };
                 row.Exercises.Add(pe);
+                // The Id is a store-generated key already set to the aggregate's value. When the
+                // parent is pre-existing (tracked as Unchanged), EF's graph heuristic would treat
+                // this new child as an existing row and emit an UPDATE (0 rows affected). Force
+                // Added so it INSERTs.
+                db.Entry(pe).State = EntityState.Added;
             }
             pe.ExerciseDefinitionId = e.ExerciseDefinitionId;
             pe.Order = e.Order;

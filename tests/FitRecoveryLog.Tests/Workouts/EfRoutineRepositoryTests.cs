@@ -53,6 +53,24 @@ public class EfRoutineRepositoryTests
     }
 
     [Test]
+    public async Task AddExercise_ToAlreadyPersistedRoutine_Inserts()
+    {
+        // Regression: create the routine first, then add an exercise in a SECOND save (the
+        // on-device flow). The new child must INSERT — EF's graph heuristic would otherwise
+        // treat its pre-set store-generated key as an existing row and emit an UPDATE that
+        // affects 0 rows (DbUpdateConcurrencyException). See EfRoutineRepository.SaveAsync.
+        var routine = Routine.Create("Legs");
+        await _repo.SaveAsync(routine);
+
+        routine.AddExercise(await SeedExerciseAsync("Squat"), new ExercisePrescription(3, 10, null, 60, null, null));
+        await _repo.SaveAsync(routine);
+
+        var loaded = await _repo.GetAsync(routine.Id);
+        Assert.That(loaded!.Exercises, Has.Count.EqualTo(1));
+        Assert.That(loaded.Exercises[0].Prescription.TargetReps, Is.EqualTo(10));
+    }
+
+    [Test]
     public async Task Save_ReconcilesRemovedExercise()
     {
         var routine = Routine.Create("Legs");
