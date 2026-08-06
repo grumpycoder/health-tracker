@@ -1,64 +1,8 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">Fit Log</a>
-        <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-    </div>
-</div>
-
-<div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="meals">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Meals
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="workouts">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Workouts
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="routines">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Routines
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="drinks">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Drinks
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="measurements">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Measurements
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="sleep">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Sleep &amp; Recovery
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="meds">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Medication &amp; Labs
-            </NavLink>
-        </div>
-    </nav>
-</div>
-
-@code {
-    private bool collapseNavMenu = true;
-
-    private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
-
-    private void ToggleNavMenu()
-    {
-        collapseNavMenu = !collapseNavMenu;
-    }
-}
+@* App-like bottom tab bar (mirrors the phone's primary navigation). *@
+<nav class="app-nav">
+    <NavLink href="" Match="NavLinkMatch.All" ActiveClass="active"><span class="tab-emoji">🏠</span>Home</NavLink>
+    <NavLink href="workouts" ActiveClass="active"><span class="tab-emoji">🏋️</span>Workout</NavLink>
+    <NavLink href="meals" ActiveClass="active"><span class="tab-emoji">🍽️</span>Meals</NavLink>
+    <NavLink href="sleep" ActiveClass="active"><span class="tab-emoji">😴</span>Sleep</NavLink>
+    <NavLink href="more" ActiveClass="active"><span class="tab-emoji">☰</span>More</NavLink>
+</nav>

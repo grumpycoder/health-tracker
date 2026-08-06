@@ -1,17 +1,14 @@
-﻿@inherits LayoutComponentBase
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
+@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <header class="app-header">
+        <span class="app-brand">Fit&nbsp;Log<span class="dot">.</span></span>
+        <span class="auth"><LoginDisplay /></span>
+    </header>
+
+    <div class="app-body">
+        @Body
     </div>
 
-    <main>
-        <div class="top-row px-4 auth">
-            <LoginDisplay />
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
-
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
+    <NavMenu />
 </div>

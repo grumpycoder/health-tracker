@@ -1,82 +1,109 @@
 @page "/"
 @using Microsoft.AspNetCore.Authorization
 @using FitRecoveryLog.Application.Notes
+@using FitRecoveryLog.Application.Nutrition
 @using FitRecoveryLog.Data
 @using DomainNote = FitRecoveryLog.Domain.Notes.Note
 @attribute [Authorize]
 @inject AppState State
 @inject NoteService NoteSvc
+@inject DrinkService DrinkSvc
 
-<PageTitle>Fit Log — Web</PageTitle>
+<PageTitle>Fit Log</PageTitle>
 
-<h1>Fit Log</h1>
-<p class="text-muted">Your data, live from the cloud. Changes here sync to your phone.</p>
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">@DateTime.Now.ToString("dddd")</div>
+        <div class="dash-date-sub">@DateTime.Now.ToString("MMMM d, yyyy") · synced from the cloud</div>
+    </header>
 
-@if (_loading)
-{
-    <p><em>Loading your data from the cloud…</em></p>
-}
-else if (_error is not null)
-{
-    <div class="alert alert-danger">Error: @_error</div>
-    <button class="btn btn-primary" @onclick="Load">Retry</button>
-}
-else
-{
-    <div class="row g-3 mb-4">
-        <div class="col"><div class="card p-3 text-center"><div class="h3 mb-0">@_meals.Count</div><small>Meals</small></div></div>
-        <div class="col"><div class="card p-3 text-center"><div class="h3 mb-0">@_drinks.Count</div><small>Drinks</small></div></div>
-        <div class="col"><div class="card p-3 text-center"><div class="h3 mb-0">@_workouts.Count</div><small>Workouts</small></div></div>
-        <div class="col"><div class="card p-3 text-center"><div class="h3 mb-0">@_measurements.Count</div><small>Measurements</small></div></div>
-        <div class="col"><div class="card p-3 text-center"><div class="h3 mb-0">@_notes.Count</div><small>Notes</small></div></div>
-    </div>
+    @if (_loading)
+    {
+        <section class="card"><p class="muted">Loading your data from the cloud…</p></section>
+    }
+    else if (_error is not null)
+    {
+        <section class="card">
+            <p class="warn-msg" style="margin:0">@_error</p>
+            <button class="save-btn" @onclick="Load">Retry</button>
+        </section>
+    }
+    else
+    {
+        <section class="card">
+            <h2>Today</h2>
+            <div class="chip-row" style="gap:0.6rem 1.4rem;font-size:0.95rem">
+                <span><strong>@_todayMeals.Count</strong> <span class="muted">meals</span></span>
+                <span><strong>@_todayDrinks.Count</strong> <span class="muted">drinks</span></span>
+                <span><strong>@(_todayWorkouts.Count > 0 ? "✓" : "—")</strong> <span class="muted">workout</span></span>
+            </div>
+            @if (NutritionMath.HasData(_todayMeals, _todayDrinks))
+            {
+                <div class="chip-row" style="gap:0.5rem 1.2rem;margin-top:0.6rem;font-size:0.9rem">
+                    <span><strong>@NutritionMath.Calories(_todayMeals, _todayDrinks)</strong> <span class="muted">cal</span></span>
+                    <span><strong>@NutritionMath.Protein(_todayMeals, _todayDrinks).ToString("0")</strong> <span class="muted">g protein</span></span>
+                    <span><strong>@NutritionMath.Sugar(_todayMeals, _todayDrinks).ToString("0")</strong> <span class="muted">g sugar</span></span>
+                    <span><strong>@NutritionMath.FluidOz(_todayDrinks)</strong> <span class="muted">oz fluids</span></span>
+                </div>
+            }
+        </section>
 
-    <div class="card p-3 mb-4">
-        <h5>Add a note</h5>
-        <div class="input-group">
-            <input class="form-control" @bind="_newNote" @bind:event="oninput" placeholder="Type a note…" />
-            <button class="btn btn-primary" @onclick="AddNote" disabled="@(_saving || string.IsNullOrWhiteSpace(_newNote))">
-                @(_saving ? "Saving…" : "Add")
+        <section class="card">
+            <h2>Quick add water</h2>
+            <div class="quick-grid" style="grid-template-columns:repeat(4,1fr)">
+                @foreach (var oz in new[] { 8, 12, 16, 24 })
+                {
+                    <button class="quick-btn" disabled="@_saving" @onclick="() => AddWater(oz)">+@oz oz</button>
+                }
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Add a note</h2>
+            <div class="field" style="margin:0">
+                <textarea class="note" rows="2" @bind="_newNote" @bind:event="oninput" placeholder="How are you feeling right now?"></textarea>
+            </div>
+            <button class="save-btn" @onclick="AddNote" disabled="@(_saving || string.IsNullOrWhiteSpace(_newNote))">
+                @(_saving ? "Saving…" : "Add Note")
             </button>
-        </div>
-        @if (_saveMsg is not null) { <div class="form-text">@_saveMsg</div> }
-    </div>
+            @if (_saveMsg is not null) { <span class="saved-msg">@_saveMsg</span> }
+        </section>
 
-    <div class="row">
-        <div class="col-md-6">
-            <h5>Recent notes</h5>
-            <ul class="list-group mb-4">
-                @foreach (var n in _notes.OrderByDescending(x => x.Time).Take(15))
+        <section class="card">
+            <h2>Recent notes</h2>
+            @if (_notes.Count == 0) { <p class="muted">No notes yet.</p> }
+            <ul class="timeline">
+                @foreach (var n in _notes.OrderByDescending(x => x.Time).Take(10))
                 {
-                    <li class="list-group-item"><small class="text-muted">@n.Time.ToLocalTime().ToString("g")</small><br />@n.Text</li>
+                    <li><div><span class="time">@n.Time.ToLocalTime().ToString("g")</span><span class="entry">@n.Text</span></div></li>
                 }
-                @if (_notes.Count == 0) { <li class="list-group-item text-muted">No notes yet.</li> }
             </ul>
-        </div>
-        <div class="col-md-6">
-            <h5>Recent measurements</h5>
-            <ul class="list-group mb-4">
-                @foreach (var m in _measurements.OrderByDescending(x => x.Date).Take(15))
+        </section>
+
+        <section class="card">
+            <h2>Recent measurements</h2>
+            @if (_measurements.Count == 0) { <p class="muted">No measurements yet.</p> }
+            <ul class="timeline">
+                @foreach (var m in _measurements.OrderByDescending(x => x.Date).Take(8))
                 {
-                    <li class="list-group-item">
-                        <small class="text-muted">@m.Date.ToString("d")</small> —
-                        @(m.WeightLbs?.ToString("0.#") ?? "—") lbs, waist @(m.WaistInches?.ToString("0.#") ?? "—")"
-                    </li>
+                    <li><div>
+                        <span class="time">@m.Date.ToString("MMM d, yyyy")</span>
+                        <span class="entry">@(m.WeightLbs?.ToString("0.#") ?? "—") lbs · waist @(m.WaistInches?.ToString("0.#") ?? "—")"</span>
+                    </div></li>
                 }
-                @if (_measurements.Count == 0) { <li class="list-group-item text-muted">No measurements yet.</li> }
             </ul>
-        </div>
-    </div>
-}
+        </section>
+    }
+</div>
 
 @code {
     private bool _loading = true, _saving;
     private string? _error, _saveMsg, _newNote;
-    private List<MealEntry> _meals = new();
-    private List<DrinkEntry> _drinks = new();
+    private List<MealEntry> _todayMeals = new();
+    private List<DrinkEntry> _todayDrinks = new();
+    private List<WorkoutSession> _todayWorkouts = new();
     private List<BodyMeasurement> _measurements = new();
     private IReadOnlyList<DomainNote> _notes = Array.Empty<DomainNote>();
-    private List<WorkoutSession> _workouts = new();
 
     protected override async Task OnInitializedAsync() => await Load();
 
@@ -86,14 +113,31 @@ else
         try
         {
             var pull = await State.DataAsync();
-            _meals = WebSyncClient.Rows<MealEntry>(pull);
-            _drinks = WebSyncClient.Rows<DrinkEntry>(pull);
+            var todayStart = DateTime.Today;
+            var todayEnd = todayStart.AddDays(1);
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            _todayMeals = WebSyncClient.Rows<MealEntry>(pull).Where(m => m.Time >= todayStart && m.Time < todayEnd).ToList();
+            _todayDrinks = WebSyncClient.Rows<DrinkEntry>(pull).Where(d => d.Time >= todayStart && d.Time < todayEnd).ToList();
+            _todayWorkouts = WebSyncClient.Rows<WorkoutSession>(pull).Where(w => w.Date == today).ToList();
             _measurements = WebSyncClient.Rows<BodyMeasurement>(pull);
-            _workouts = WebSyncClient.Rows<WorkoutSession>(pull);
             _notes = await NoteSvc.ListAsync();
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; }
+    }
+
+    private async Task AddWater(int oz)
+    {
+        _saving = true;
+        try
+        {
+            await DrinkSvc.CreateAsync(new DrinkData(DateTime.Now, "Water", oz, null,
+                new FitRecoveryLog.Domain.Nutrition.Macros(null, null, null, null, null, null, null, null),
+                FitRecoveryLog.Domain.Common.Tags.Empty));
+            await Load();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _saving = false; }
     }
 
     private async Task AddNote()
@@ -105,7 +149,7 @@ else
             var result = await NoteSvc.AddAsync(DateTime.Now, _newNote.Trim());
             if (!result.IsSuccess) { _saveMsg = "Failed: " + result.Error; return; }
             _newNote = "";
-            _saveMsg = "Saved to the cloud ✓ — it'll appear on your phone next sync.";
+            _saveMsg = "Saved ✓";
             await Load();
         }
         catch (Exception ex) { _saveMsg = "Failed: " + ex.Message; }

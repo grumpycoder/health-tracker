@@ -1,0 +1,22 @@
+@page "/more"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+
+<PageTitle>More — Fit Log</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">More</div>
+        <div class="dash-date-sub">All your logs &amp; tools</div>
+    </header>
+
+    <section class="card">
+        <div class="quick-grid">
+            <a class="quick-btn" href="measurements"><span class="quick-emoji">📏</span> Measurements</a>
+            <a class="quick-btn" href="sleep"><span class="quick-emoji">😴</span> Sleep &amp; Recovery</a>
+            <a class="quick-btn" href="meds"><span class="quick-emoji">💊</span> Medication &amp; Labs</a>
+            <a class="quick-btn" href="routines"><span class="quick-emoji">📋</span> Routines</a>
+            <a class="quick-btn" href="drinks"><span class="quick-emoji">🥤</span> Drinks</a>
+        </div>
+    </section>
+</div>
