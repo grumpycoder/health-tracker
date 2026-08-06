@@ -1,6 +1,8 @@
 @page "/insights"
 @using FitRecoveryLog.Services
+@using FitRecoveryLog.Application.Ai
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject IAiCoach AiCoach
 @inject NavigationManager Nav
 
 <PageTitle>Insights</PageTitle>
@@ -255,12 +257,7 @@
         StateHasChanged();
         try
         {
-            var key = await GeminiAnalyzer.KeyStore.GetAsync()
-                ?? throw new InvalidOperationException("No API key set.");
-            string prompt;
-            await using (var db = await DbFactory.CreateDbContextAsync())
-                prompt = await GeminiAnalyzer.BuildPromptAsync(db);
-            var outcome = await GeminiAnalyzer.AnalyzeAsync(key, prompt);
+            var outcome = await AiCoach.AnalyzeAsync();
             _aiResult = outcome.Analysis;
             _aiWhen = DateTime.Now.ToString("MMM d, h:mm tt");
             AiAdviceStore.Save(outcome, _aiWhen);
@@ -280,7 +277,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _hasAiKey = !string.IsNullOrEmpty(await GeminiAnalyzer.KeyStore.GetAsync());
+        _hasAiKey = await AiCoach.IsConfiguredAsync();
         (_aiResult, _aiWhen) = AiAdviceStore.LoadAnalysis();
 
         await using var db = await DbFactory.CreateDbContextAsync();

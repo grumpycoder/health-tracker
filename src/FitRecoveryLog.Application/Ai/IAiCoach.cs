@@ -19,6 +19,15 @@ public interface IAiCoach
     /// <summary>Pre-meal advisor: judge something the user is considering eating against today.</summary>
     Task<MealAdvice?> AdviseMealAsync(string considering, CancellationToken ct = default);
 
+    /// <summary>Full 8-week analysis of workouts, nutrition, body, and sleep.</summary>
+    Task<AiOutcome> AnalyzeAsync(CancellationToken ct = default);
+
+    /// <summary>Draft a new routine from training history; null if unusable.</summary>
+    Task<RoutineSuggestion?> SuggestRoutineAsync(string? hint, bool bodyweightOnly = true, CancellationToken ct = default);
+
+    /// <summary>Exercises rated "Easy" most recently — a backstop for routine drafting.</summary>
+    Task<IReadOnlyCollection<string>> RecentlyEasyExercisesAsync(CancellationToken ct = default);
+
     Task<WorkloadSuggestion> SuggestWorkloadAsync(string activity, int? minutes, string? notes,
         IReadOnlyList<string> areaVocabulary, CancellationToken ct = default);
 

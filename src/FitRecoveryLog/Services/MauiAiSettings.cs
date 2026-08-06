@@ -7,9 +7,14 @@ namespace FitRecoveryLog.Services;
 /// Settings screen writes, and snapshots the macro targets from <see cref="NutritionGoals"/>.</summary>
 public sealed class MauiAiSettings : IAiSettings
 {
-    public string? CoachingGoals => Preferences.Default.Get<string?>("ai_user_goals", null);
+    /// <summary>Preferences keys — shared so the Settings/Cessation screens write the same slots
+    /// this adapter reads.</summary>
+    public const string CoachingGoalsKey = "ai_user_goals";
+    public const string IncludeCessationKey = "ai_include_cessation";
 
-    public bool IncludeCessationData => Preferences.Default.Get("ai_include_cessation", false);
+    public string? CoachingGoals => Preferences.Default.Get<string?>(CoachingGoalsKey, null);
+
+    public bool IncludeCessationData => Preferences.Default.Get(IncludeCessationKey, false);
 
     public MacroTargets MacroTargets => new(
         Range(NutritionGoals.Protein), Range(NutritionGoals.Fat), Range(NutritionGoals.Fiber),

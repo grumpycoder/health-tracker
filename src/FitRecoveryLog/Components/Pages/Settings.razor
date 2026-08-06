@@ -1,8 +1,10 @@
 @page "/settings"
 @using FitRecoveryLog.Services
+@using FitRecoveryLog.Application.Ai
 @inject IJSRuntime JS
 @inject CloudSyncService Sync
 @inject IAccessTokenProvider Auth
+@inject ILlmKeyStore Keys
 @implements IDisposable
 
 <PageTitle>Settings</PageTitle>
@@ -205,10 +207,10 @@
     {
         Auth.StateChanged += OnSyncState;
         Sync.StateChanged += OnSyncState;
-        var existing = await GeminiAnalyzer.KeyStore.GetAsync();
+        var existing = await Keys.GetAsync();
         _hasKey = !string.IsNullOrEmpty(existing);
         if (_hasKey) _key = existing!;
-        _goals = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.UserGoalsPrefKey, "");
+        _goals = Microsoft.Maui.Storage.Preferences.Default.Get(MauiAiSettings.CoachingGoalsKey, "");
         var p = NutritionGoals.Get(NutritionGoals.Protein); _pMin = p.Min; _pMax = p.Max;
         var f = NutritionGoals.Get(NutritionGoals.Fat); _fMin = f.Min; _fMax = f.Max;
         var fib = NutritionGoals.Get(NutritionGoals.Fiber); _fibMin = fib.Min; _fibMax = fib.Max;
@@ -231,7 +233,7 @@
 
     private void SaveGoals()
     {
-        Microsoft.Maui.Storage.Preferences.Default.Set(GeminiAnalyzer.UserGoalsPrefKey, _goals.Trim());
+        Microsoft.Maui.Storage.Preferences.Default.Set(MauiAiSettings.CoachingGoalsKey, _goals.Trim());
         NutritionGoals.Set(NutritionGoals.Protein, _pMin, _pMax);
         NutritionGoals.Set(NutritionGoals.Fat, _fMin, _fMax);
         NutritionGoals.Set(NutritionGoals.Fiber, _fibMin, _fibMax);
@@ -249,14 +251,14 @@
     {
         var k = _key.Trim();
         if (k.Length == 0) return;
-        await GeminiAnalyzer.KeyStore.SetAsync(k);
+        await Keys.SetAsync(k);
         _saved = true;
         _hasKey = true;
     }
 
     private async Task ClearKey()
     {
-        await GeminiAnalyzer.KeyStore.SetAsync("");
+        await Keys.SetAsync("");
         _key = "";
         _hasKey = false;
         _saved = false;

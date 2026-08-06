@@ -77,6 +77,43 @@ public class AiCoachTests
         });
     }
 
+    [Test]
+    public async Task Analyze_ParsesAnalysisExercisesAndBodyTrend()
+    {
+        var llm = new StubLlm("""
+{ "analysis": "Solid 8 weeks.", "exercises": [{ "name": "Squat", "action": "PROGRESS", "target": "3x12" }],
+  "topActions": ["add a pull day"], "mealFlags": [], "bodyTrend": { "status": "on-track", "note": "steady" } }
+""");
+        var outcome = await new AiCoach(llm, new StubSettings(), new StubData()).AnalyzeAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outcome.Analysis, Is.EqualTo("Solid 8 weeks."));
+            Assert.That(outcome.Exercises, Has.Count.EqualTo(1));
+            Assert.That(outcome.Exercises[0].Action, Is.EqualTo("progress")); // lowercased
+            Assert.That(outcome.TopActions, Has.Count.EqualTo(1));
+            Assert.That(outcome.BodyTrendStatus, Is.EqualTo("on-track"));
+        });
+    }
+
+    [Test]
+    public async Task SuggestRoutine_ParsesDraft()
+    {
+        var llm = new StubLlm("""
+{ "name": "Push", "rationale": "chest is low", "exercises": [
+  { "name": "Push-ups", "isNew": false, "muscles": "chest/triceps", "measure": "reps", "sets": 3, "reps": 12, "restSeconds": 60 } ] }
+""");
+        var draft = await new AiCoach(llm, new StubSettings(), new StubData()).SuggestRoutineAsync(hint: null);
+
+        Assert.That(draft, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(draft!.Name, Is.EqualTo("Push"));
+            Assert.That(draft.Exercises, Has.Count.EqualTo(1));
+            Assert.That(draft.Exercises[0].Sets, Is.EqualTo(3));
+        });
+    }
+
     private sealed class StubLlm : ILlmClient
     {
         private readonly string _response;
@@ -98,5 +135,9 @@ public class AiCoachTests
     {
         public Task<string> GetTodayContextAsync(bool includeCessation, CancellationToken ct = default) =>
             Task.FromResult("(no data)");
+        public Task<string> GetEightWeekContextAsync(CancellationToken ct = default) => Task.FromResult("(no data)");
+        public Task<string> GetRoutineDesignContextAsync(CancellationToken ct = default) => Task.FromResult("(no data)");
+        public Task<IReadOnlyCollection<string>> RecentlyEasyExercisesAsync(CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyCollection<string>>(new List<string>());
     }
 }

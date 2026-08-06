@@ -5,6 +5,7 @@
 @implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject RoutineService RoutineSvc
+@inject IAiCoach AiCoach
 @inject ToastService Toast
 @inject NavigationManager Nav
 @inject IJSRuntime JS
@@ -429,7 +430,7 @@
     protected override async Task OnInitializedAsync()
     {
         _advice = AiAdviceStore.LoadExercises();
-        _hasAiKey = !string.IsNullOrEmpty(await GeminiAnalyzer.KeyStore.GetAsync());
+        _hasAiKey = await AiCoach.IsConfiguredAsync();
         await Load();
     }
 
@@ -440,17 +441,9 @@
         StateHasChanged();
         try
         {
-            var key = await GeminiAnalyzer.KeyStore.GetAsync()
-                ?? throw new InvalidOperationException("No API key set (Settings).");
-            string prompt;
-            HashSet<string> easy;
-            await using (var db = await DbFactory.CreateDbContextAsync())
-            {
-                prompt = await GeminiAnalyzer.BuildRoutinePromptAsync(db, _aiHint, _aiBodyweightOnly);
-                easy = await GeminiAnalyzer.RecentlyEasyExercisesAsync(db);
-            }
-            _aiDraft = await GeminiAnalyzer.SuggestRoutineAsync(key, prompt)
-                ?? throw new InvalidOperationException("Gemini returned nothing usable — try again.");
+            var easy = (await AiCoach.RecentlyEasyExercisesAsync()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _aiDraft = await AiCoach.SuggestRoutineAsync(_aiHint, _aiBodyweightOnly)
+                ?? throw new InvalidOperationException("The AI returned nothing usable — try again.");
             // Backstop the Easy rule in code: drop reused exercises rated Easy last time.
             _aiExercises = _aiDraft.Exercises.Where(e => e.IsNew || !easy.Contains(e.Name)).ToList();
             var dropped = _aiDraft.Exercises.Count - _aiExercises.Count;

@@ -151,4 +151,186 @@ public sealed class EfAiDataProvider : IAiDataProvider
 
         static string Trunc(string s, int len) => s.Length <= len ? s : s[..(len - 1)] + "…";
     }
+
+    public async Task<string> GetEightWeekContextAsync(CancellationToken ct = default)
+    {
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        var since = DateOnly.FromDateTime(DateTime.Now).AddDays(-WindowDays);
+        var sinceDt = since.ToDateTime(TimeOnly.MinValue);
+        var sb = new StringBuilder();
+
+        sb.AppendLine("WORKOUTS:");
+        var sessions = await db.WorkoutSessions
+            .Where(s => s.Date >= since)
+            .Include(s => s.Routine)
+            .Include(s => s.Sets).ThenInclude(x => x.ExerciseDefinition)
+            .Include(s => s.Feedback).ThenInclude(f => f.ExerciseDefinition)
+            .OrderBy(s => s.Date).ToListAsync(ct);
+        if (sessions.Count == 0) sb.AppendLine("(none)");
+        foreach (var s in sessions)
+        {
+            sb.AppendLine($"{s.Date:yyyy-MM-dd} {s.Routine?.Name ?? "Workout"} {(s.TotalSeconds ?? 0) / 60}min" +
+                          (string.IsNullOrWhiteSpace(s.Notes) ? "" : $" note:\"{s.Notes}\""));
+            foreach (var g in s.Sets.GroupBy(x => x.ExerciseDefinition?.Name ?? "?"))
+            {
+                var fb = s.Feedback.FirstOrDefault(f => f.ExerciseDefinition?.Name == g.Key);
+                var vals = string.Join(",", g.OrderBy(x => x.SetNumber)
+                    .Select(x => x.DurationSeconds is { } t ? $"{t}s" : x.Reps?.ToString() ?? "-"));
+                var done = g.Count(x => x.Completed);
+                sb.AppendLine($"  {g.Key}: {vals} ({done}/{g.Count()} sets done)" +
+                              (fb is null || fb.Difficulty == Difficulty.Unset ? "" : $" rated:{fb.Difficulty}") +
+                              (string.IsNullOrWhiteSpace(fb?.Comment) ? "" : $" comment:\"{fb!.Comment}\""));
+            }
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("MEALS (date time type description [portion] [tags] [satiety]):");
+        var meals = await db.MealEntries.Where(m => m.Time >= sinceDt).OrderBy(m => m.Time).ToListAsync(ct);
+        if (meals.Count == 0) sb.AppendLine("(none)");
+        foreach (var m in meals)
+            sb.AppendLine($"{m.Time:yyyy-MM-dd HH:mm} {m.MealType} \"{m.Description}\"" +
+                          (string.IsNullOrWhiteSpace(m.PortionNote) ? "" : $" portion:\"{m.PortionNote}\"") +
+                          (m.TagList.Count == 0 ? "" : $" tags:{string.Join("/", m.TagList)}") +
+                          (m.Satiety == Satiety.Unset ? "" : $" satiety:{m.Satiety}"));
+
+        sb.AppendLine();
+        sb.AppendLine("DRINKS:");
+        var drinks = await db.DrinkEntries.Where(d => d.Time >= sinceDt).OrderBy(d => d.Time).ToListAsync(ct);
+        if (drinks.Count == 0) sb.AppendLine("(none)");
+        foreach (var d in drinks)
+            sb.AppendLine($"{d.Time:yyyy-MM-dd HH:mm} \"{d.Description}\"" +
+                          (d.Ounces is { } oz ? $" {oz:0.#}oz" : "") +
+                          (d.SugarCount is { } su ? $" sugar:{su}" : ""));
+
+        var withOz = drinks.Where(d => d.Ounces is not null && !string.IsNullOrWhiteSpace(d.Description)).ToList();
+        if (withOz.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("DRINK VOLUME BY WEEK (total oz, week 1 = oldest):");
+            foreach (var g in withOz.GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase))
+            {
+                var weeks = g.GroupBy(d => (DateOnly.FromDateTime(d.Time).DayNumber - since.DayNumber) / 7)
+                    .OrderBy(w => w.Key)
+                    .Select(w => $"wk{w.Key + 1}:{w.Sum(x => x.Ounces ?? 0):0}oz");
+                sb.AppendLine($"- {g.Key}: {string.Join(" ", weeks)}");
+            }
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("BODY MEASUREMENTS (numbers only):");
+        var measurements = await db.BodyMeasurements.Where(m => m.Date >= since).OrderBy(m => m.Date).ToListAsync(ct);
+        if (measurements.Count == 0) sb.AppendLine("(none)");
+        foreach (var m in measurements)
+            sb.AppendLine($"{m.Date:yyyy-MM-dd}" +
+                          (m.WeightLbs is { } w ? $" weight:{w:0.#}lbs" : "") +
+                          (m.WaistInches is { } wa ? $" waist:{wa:0.##}in" : "") +
+                          (m.ChestInches is { } c ? $" chest:{c:0.##}in" : "") +
+                          (m.ArmsInches is { } a ? $" arms:{a:0.##}in" : "") +
+                          (m.ThighsInches is { } t ? $" thighs:{t:0.##}in" : ""));
+
+        sb.AppendLine();
+        sb.AppendLine("SLEEP:");
+        var sleep = await db.SleepEntries.Where(s => s.Date >= since).OrderBy(s => s.Date).ToListAsync(ct);
+        if (sleep.Count == 0) sb.AppendLine("(none)");
+        foreach (var s in sleep)
+            sb.AppendLine($"{s.Date:yyyy-MM-dd}" +
+                          (s.DurationHours is { } h ? $" {h:0.#}h" : "") +
+                          (s.SleepScore is { } sc ? $" score:{sc}{(s.ScoreEstimated ? "(rough estimate, not Apple's)" : "")}" : "") +
+                          (s.Interruptions is { } i ? $" interruptions:{i}" : "") +
+                          (string.IsNullOrWhiteSpace(s.Notes) ? "" : $" note:\"{s.Notes}\""));
+
+        return sb.ToString();
+    }
+
+    public async Task<string> GetRoutineDesignContextAsync(CancellationToken ct = default)
+    {
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        var since = DateOnly.FromDateTime(DateTime.Now).AddDays(-WindowDays);
+        var sb = new StringBuilder();
+
+        sb.AppendLine("EXERCISE LIBRARY (name | measure | muscles | equipment):");
+        var defs = await db.ExerciseDefinitions.Where(e => !e.Retired).OrderBy(e => e.Name).ToListAsync(ct);
+        if (defs.Count == 0) sb.AppendLine("(empty)");
+        foreach (var d in defs)
+            sb.AppendLine($"- {d.Name} | {(d.Measure == ExerciseMeasure.Duration ? "duration" : "reps")}" +
+                          $" | {(string.IsNullOrWhiteSpace(d.MuscleGroups) ? "muscles unset" : d.MuscleGroups)}" +
+                          (string.IsNullOrWhiteSpace(d.EquipmentNotes) ? "" : $" | {d.EquipmentNotes}"));
+
+        sb.AppendLine();
+        sb.AppendLine("EXISTING ROUTINES (do not duplicate these):");
+        var routines = await db.WorkoutRoutines
+            .Include(r => r.Exercises).ThenInclude(e => e.ExerciseDefinition)
+            .Where(r => !r.Archived).ToListAsync(ct);
+        if (routines.Count == 0) sb.AppendLine("(none)");
+        foreach (var r in routines)
+            sb.AppendLine($"- {r.Name}: {string.Join(", ", r.Exercises.OrderBy(e => e.Order).Select(e => e.ExerciseDefinition?.Name ?? "?"))}");
+
+        sb.AppendLine();
+        sb.AppendLine("TRAINING HISTORY (last 8 weeks; per exercise: sessions, best set, latest rating):");
+        var sessions = await db.WorkoutSessions.Where(s => s.Date >= since)
+            .Include(s => s.Sets).ThenInclude(x => x.ExerciseDefinition)
+            .Include(s => s.Feedback).ThenInclude(f => f.ExerciseDefinition)
+            .OrderByDescending(s => s.Date).ToListAsync(ct);
+        var byExercise = sessions.SelectMany(s => s.Sets)
+            .Where(x => x.ExerciseDefinition is not null)
+            .GroupBy(x => x.ExerciseDefinition!.Name)
+            .ToList();
+        if (byExercise.Count == 0) sb.AppendLine("(none)");
+        foreach (var g in byExercise)
+        {
+            var sessCount = sessions.Count(s => s.Sets.Any(x => x.ExerciseDefinition?.Name == g.Key));
+            var bestSecs = g.Max(x => x.DurationSeconds ?? 0);
+            var bestReps = g.Max(x => x.Reps ?? 0);
+            var lastFb = sessions.SelectMany(s => s.Feedback)
+                .FirstOrDefault(f => f.ExerciseDefinition?.Name == g.Key && f.Difficulty != Difficulty.Unset);
+            sb.AppendLine($"- {g.Key}: {sessCount} session(s), best {(bestSecs > 0 ? $"{bestSecs}s" : $"{bestReps} reps")}" +
+                          (lastFb is null ? "" : $", rated {lastFb.Difficulty}") +
+                          (lastFb?.PainOrDiscomfort == true ? ", PAIN flagged" : ""));
+        }
+
+        var muscleByName = defs.ToDictionary(d => d.Name, d => d.MuscleGroupList, StringComparer.OrdinalIgnoreCase);
+        var volume = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var set in sessions.SelectMany(s => s.Sets))
+        {
+            var name = set.ExerciseDefinition?.Name;
+            if (name is null || !muscleByName.TryGetValue(name, out var groups)) continue;
+            foreach (var mg in groups) volume[mg] = volume.GetValueOrDefault(mg) + 1;
+        }
+        sb.AppendLine();
+        if (volume.Count > 0)
+        {
+            sb.AppendLine("MUSCLE VOLUME (last 8 weeks, total sets per group — LOW groups are under-trained; prioritize them):");
+            foreach (var kv in volume.OrderBy(x => x.Value))
+                sb.AppendLine($"- {kv.Key}: {kv.Value} sets");
+            var untouched = MuscleCatalog.Where(m => !volume.ContainsKey(m)).ToList();
+            if (untouched.Count > 0)
+                sb.AppendLine($"- Not trained at all: {string.Join(", ", untouched)}");
+        }
+        else
+        {
+            sb.AppendLine("MUSCLE VOLUME: unavailable — library exercises have no muscle-group tags yet. Infer muscle groups from exercise names instead.");
+        }
+
+        return sb.ToString();
+    }
+
+    public async Task<IReadOnlyCollection<string>> RecentlyEasyExercisesAsync(CancellationToken ct = default)
+    {
+        await using var db = await _factory.CreateDbContextAsync(ct);
+        var since = DateOnly.FromDateTime(DateTime.Now).AddDays(-WindowDays);
+        var sessions = await db.WorkoutSessions.Where(s => s.Date >= since)
+            .Include(s => s.Feedback).ThenInclude(f => f.ExerciseDefinition)
+            .OrderByDescending(s => s.Date).ToListAsync(ct);
+        var latest = new Dictionary<string, Difficulty>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in sessions.SelectMany(s => s.Feedback))
+            if (f.Difficulty != Difficulty.Unset && f.ExerciseDefinition?.Name is { } n && !latest.ContainsKey(n))
+                latest[n] = f.Difficulty;
+        return latest.Where(kv => kv.Value == Difficulty.Easy).Select(kv => kv.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private const int WindowDays = 56; // 8 weeks
+
+    private static readonly string[] MuscleCatalog =
+        { "Chest", "Back", "Shoulders", "Biceps", "Triceps", "Forearms", "Core", "Glutes", "Quads", "Hamstrings", "Calves" };
 }

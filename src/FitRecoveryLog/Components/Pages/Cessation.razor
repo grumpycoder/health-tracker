@@ -442,7 +442,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _aiOptIn = Microsoft.Maui.Storage.Preferences.Default.Get(GeminiAnalyzer.IncludeCessationPrefKey, false);
+        _aiOptIn = Microsoft.Maui.Storage.Preferences.Default.Get(MauiAiSettings.IncludeCessationKey, false);
         _clockTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, 60_000, 60_000);
         await Load();
 
@@ -884,7 +884,7 @@
     private void ToggleAiOptIn()
     {
         _aiOptIn = !_aiOptIn;
-        Microsoft.Maui.Storage.Preferences.Default.Set(GeminiAnalyzer.IncludeCessationPrefKey, _aiOptIn);
+        Microsoft.Maui.Storage.Preferences.Default.Set(MauiAiSettings.IncludeCessationKey, _aiOptIn);
     }
 
     public void Dispose()
