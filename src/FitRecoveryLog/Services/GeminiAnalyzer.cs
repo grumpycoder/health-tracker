@@ -1,7 +1,9 @@
 using System.Text;
 using System.Text.Json;
+using FitRecoveryLog.Application.Ai;
 using FitRecoveryLog.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace FitRecoveryLog.Services;
 
@@ -68,34 +70,19 @@ public static class GeminiAnalyzer
                 sb.AppendLine($"  - {label}: rest-day {rest.Min}-{rest.Max}{unit}, workout-day {act.Min}-{act.Max}{unit}");
         }
     }
-    private const string Model = "gemini-2.5-flash";
     private const int WindowDays = 56; // 8 weeks
 
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
+    // Transitional service-locator: pages still call the static GeminiAnalyzer API while they're
+    // migrated onto the injected ports (ILlmClient / ILlmKeyStore) in later commits.
+    private static T Resolve<T>() where T : notnull =>
+        IPlatformApplication.Current!.Services.GetRequiredService<T>();
 
-    /// <summary>Stores the API key (Keychain when available, Preferences otherwise).</summary>
+    /// <summary>Stores the API key. Now delegates to the <see cref="ILlmKeyStore"/> port
+    /// (Keychain-backed); kept as a static shim until callers move to the injected port.</summary>
     public static class KeyStore
     {
-        private const string Name = "gemini_api_key";
-
-        public static async Task<string?> GetAsync()
-        {
-            try
-            {
-                var v = await Microsoft.Maui.Storage.SecureStorage.Default.GetAsync(Name);
-                if (!string.IsNullOrEmpty(v)) return v;
-            }
-            catch { /* SecureStorage unavailable (e.g. unsigned Catalyst dev build) */ }
-            var p = Microsoft.Maui.Storage.Preferences.Default.Get<string?>(Name, null);
-            return string.IsNullOrEmpty(p) ? null : p;
-        }
-
-        public static async Task SetAsync(string value)
-        {
-            try { await Microsoft.Maui.Storage.SecureStorage.Default.SetAsync(Name, value); return; }
-            catch { }
-            Microsoft.Maui.Storage.Preferences.Default.Set(Name, value);
-        }
+        public static Task<string?> GetAsync() => Resolve<ILlmKeyStore>().GetAsync();
+        public static Task SetAsync(string value) => Resolve<ILlmKeyStore>().SetAsync(value);
     }
 
     /// <summary>Builds the analysis prompt from the last 8 weeks of
@@ -888,46 +875,11 @@ public static class GeminiAnalyzer
         catch (JsonException) { return null; }
     }
 
-    /// <summary>Raw JSON-mode generateContent call; returns the response text.
-    /// Pass <paramref name="imageJpeg"/> to include an image part (vision).</summary>
-    private static async Task<string?> GenerateAsync(string apiKey, string prompt, byte[]? imageJpeg = null)
-    {
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Model}:generateContent";
-        using var req = new HttpRequestMessage(HttpMethod.Post, url);
-        req.Headers.Add("x-goog-api-key", apiKey);
-        object parts = imageJpeg is null
-            ? new object[] { new { text = prompt } }
-            : new object[]
-            {
-                new { text = prompt },
-                new { inline_data = new { mime_type = "image/jpeg", data = Convert.ToBase64String(imageJpeg) } }
-            };
-        req.Content = new StringContent(JsonSerializer.Serialize(new
-        {
-            contents = new[] { new { parts } },
-            generationConfig = new { response_mime_type = "application/json" }
-        }), Encoding.UTF8, "application/json");
-
-        using var resp = await Http.SendAsync(req);
-        var body = await resp.Content.ReadAsStringAsync();
-        if (!resp.IsSuccessStatusCode)
-        {
-            // Surface Gemini's error message (bad key, quota, etc.) without the JSON noise.
-            try
-            {
-                using var err = JsonDocument.Parse(body);
-                throw new InvalidOperationException(
-                    err.RootElement.GetProperty("error").GetProperty("message").GetString());
-            }
-            catch (KeyNotFoundException) { }
-            catch (JsonException) { }
-            throw new InvalidOperationException($"Gemini returned {(int)resp.StatusCode}");
-        }
-
-        using var doc = JsonDocument.Parse(body);
-        return doc.RootElement.GetProperty("candidates")[0]
-            .GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
-    }
+    /// <summary>Provider-agnostic JSON-mode generate call. Delegates to the registered
+    /// <see cref="ILlmClient"/> adapter (Gemini today). The <paramref name="apiKey"/> parameter
+    /// is legacy — the adapter now owns the key — and is ignored; callers drop it as they migrate.</summary>
+    private static Task<string?> GenerateAsync(string apiKey, string prompt, byte[]? imageJpeg = null) =>
+        Resolve<ILlmClient>().GenerateJsonAsync(prompt, imageJpeg);
 
     /// <summary>Full 8-week analysis (JSON mode) returning the parsed outcome.</summary>
     public static async Task<AiOutcome> AnalyzeAsync(string apiKey, string prompt)

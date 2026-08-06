@@ -58,6 +58,11 @@ public static class MauiProgram
 		builder.Services.AddSingleton<FitRecoveryLog.Services.IAccessTokenProvider, FitRecoveryLog.Services.MsalAuthService>();
 		builder.Services.AddSingleton<FitRecoveryLog.Services.CloudSyncService>();
 
+		// AI: provider-agnostic LLM transport (swap Gemini -> another LLM = swap this adapter)
+		// + the Keychain-backed key store. The key lives behind the port; callers never pass it.
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.ILlmKeyStore, FitRecoveryLog.Services.SecureLlmKeyStore>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.ILlmClient, FitRecoveryLog.Infrastructure.Ai.GeminiLlmClient>();
+
 		// Clean Architecture: application use cases over real (EF) repositories.
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.IRoutineRepository, FitRecoveryLog.Infrastructure.Workouts.EfRoutineRepository>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.IWorkoutSessionRepository, FitRecoveryLog.Infrastructure.Workouts.EfWorkoutSessionRepository>();
