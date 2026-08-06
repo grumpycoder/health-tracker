@@ -63,12 +63,28 @@ public sealed class RoutineService
         return Result<Guid>.Success(exerciseId);
     }
 
-    /// <summary>Delete a routine, first detaching its past sessions so their history survives.</summary>
-    public async Task<Result> DeleteAsync(Guid id, CancellationToken ct = default)
+    /// <summary>
+    /// Delete a routine. Refused when it has logged workouts — those are real history, so the
+    /// routine should be <see cref="Routine.Archive">archived</see> instead. Deleting is only
+    /// for routines with no history, or, when <paramref name="deleteSessions"/> is set, together
+    /// with a cascade delete of the sessions (a test/cleanup affordance, never normal use).
+    /// This cross-aggregate rule lives here because a <see cref="Routine"/> can't see its
+    /// sessions; it's an invariant, not a domain event.
+    /// </summary>
+    public async Task<Result> DeleteAsync(Guid id, bool deleteSessions = false, CancellationToken ct = default)
     {
         var routine = await _routines.GetAsync(id, ct);
         if (routine is null) return Result.Failure("Routine not found.");
-        await _sessions.DetachFromRoutineAsync(id, ct);
+
+        var sessionCount = await _sessions.CountByRoutineAsync(id, ct);
+        if (sessionCount > 0 && !deleteSessions)
+            return Result.Failure(
+                $"This routine has {sessionCount} logged workout{(sessionCount == 1 ? "" : "s")}. " +
+                "Archive it to keep that history, or delete those workouts first.");
+
+        if (sessionCount > 0)
+            await _sessions.DeleteByRoutineAsync(id, ct);
+
         await _routines.RemoveAsync(id, ct);
         return Result.Success();
     }

@@ -16,9 +16,14 @@ public interface IRoutineRepository
     Task RemoveAsync(Guid id, CancellationToken ct = default);
 }
 
-/// <summary>Just the session operation the routine use cases need — detaching a deleted
-/// routine's past sessions so their history survives.</summary>
+/// <summary>The session operations the routine use cases need to protect workout history: a
+/// routine with any logged sessions is archived, never deleted, so we count them; the cascade
+/// delete exists only for the explicit "delete the history too" path (test/cleanup).</summary>
 public interface IWorkoutSessionRepository
 {
-    Task DetachFromRoutineAsync(Guid routineId, CancellationToken ct = default);
+    /// <summary>How many live (non-deleted) sessions reference this routine.</summary>
+    Task<int> CountByRoutineAsync(Guid routineId, CancellationToken ct = default);
+    /// <summary>Soft-delete every session of this routine. Invoked only when a caller
+    /// explicitly opts into deleting the logged workouts along with the routine.</summary>
+    Task DeleteByRoutineAsync(Guid routineId, CancellationToken ct = default);
 }

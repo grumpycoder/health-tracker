@@ -3,8 +3,9 @@ using Persistence = FitRecoveryLog.Data;
 
 namespace FitRecoveryLog.Web.Infrastructure;
 
-/// <summary>Web implementation: detaches a deleted routine's sessions by pushing them with a
-/// null RoutineId, preserving their history.</summary>
+/// <summary>Web implementation of the session queries the routine use cases need: count a
+/// routine's sessions (to protect history from deletion) and, for the explicit cascade path,
+/// soft-delete them.</summary>
 public sealed class ApiWorkoutSessionRepository : IWorkoutSessionRepository
 {
     private readonly AppState _state;
@@ -16,13 +17,17 @@ public sealed class ApiWorkoutSessionRepository : IWorkoutSessionRepository
         _sync = sync;
     }
 
-    public async Task DetachFromRoutineAsync(Guid routineId, CancellationToken ct = default)
+    public async Task<int> CountByRoutineAsync(Guid routineId, CancellationToken ct = default) =>
+        WebSyncClient.Rows<Persistence.WorkoutSession>(await _state.DataAsync())
+            .Count(s => s.RoutineId == routineId);
+
+    public async Task DeleteByRoutineAsync(Guid routineId, CancellationToken ct = default)
     {
         var pull = await _state.DataAsync();
         var sessions = WebSyncClient.Rows<Persistence.WorkoutSession>(pull)
             .Where(s => s.RoutineId == routineId).ToList();
         if (sessions.Count == 0) return;
-        foreach (var s in sessions) s.RoutineId = null;
+        foreach (var s in sessions) { s.IsDeleted = true; s.DeletedAt = DateTime.UtcNow; }
         await _sync.PushAsync(sessions);
         _state.Invalidate();
     }

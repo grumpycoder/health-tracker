@@ -99,7 +99,24 @@ public class EfRoutineRepositoryTests
     }
 
     [Test]
-    public async Task DetachFromRoutine_NullsSessionRoutineId()
+    public async Task CountByRoutine_CountsLiveSessions()
+    {
+        var routine = Routine.Create("Legs");
+        await _repo.SaveAsync(routine);
+        using (var db = _factory.CreateDbContext())
+        {
+            db.WorkoutSessions.Add(new FitRecoveryLog.Data.WorkoutSession { Date = new DateOnly(2026, 8, 1), RoutineId = routine.Id });
+            db.WorkoutSessions.Add(new FitRecoveryLog.Data.WorkoutSession { Date = new DateOnly(2026, 8, 2), RoutineId = routine.Id });
+            await db.SaveChangesAsync();
+        }
+
+        var count = await new EfWorkoutSessionRepository(_factory).CountByRoutineAsync(routine.Id);
+
+        Assert.That(count, Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task DeleteByRoutine_SoftDeletesSessions()
     {
         var routine = Routine.Create("Legs");
         await _repo.SaveAsync(routine);
@@ -109,10 +126,19 @@ public class EfRoutineRepositoryTests
             await db.SaveChangesAsync();
         }
 
-        await new EfWorkoutSessionRepository(_factory).DetachFromRoutineAsync(routine.Id);
+        var sessions = new EfWorkoutSessionRepository(_factory);
+        await sessions.DeleteByRoutineAsync(routine.Id);
 
-        using (var db = _factory.CreateDbContext())
-            Assert.That(db.WorkoutSessions.Single().RoutineId, Is.Null);
+        var liveCount = await sessions.CountByRoutineAsync(routine.Id);
+        using var verifyDb = _factory.CreateDbContext();
+        var tombstone = verifyDb.WorkoutSessions.IgnoreQueryFilters().Single();
+        Assert.Multiple(() =>
+        {
+            // Gone from normal (tombstone-filtered) queries…
+            Assert.That(liveCount, Is.EqualTo(0));
+            // …but the row survives as a tombstone so the delete syncs to other devices.
+            Assert.That(tombstone.IsDeleted, Is.True);
+        });
     }
 
     private async Task<Guid> SeedExerciseAsync(string name)

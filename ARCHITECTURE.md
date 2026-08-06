@@ -67,7 +67,9 @@ can't do them.
   (`+`, `Scale(servings)`), reused by meals and drinks.
 - **Aggregates** — consistency boundaries with enforced invariants:
   - **`Routine`** (root) + its ordered exercises; rules: exercise ordering, archive state,
-    "deleting a routine detaches its past sessions" (history preserved).
+    and — enforced by `RoutineService` as a cross-aggregate invariant — "a routine with logged
+    workouts is archived, never deleted" (history is never orphaned; deletion is allowed only
+    with no history, or with an explicit opt-in cascade for test/cleanup).
   - **`Workout`** (session) + sets + feedback; "completing a workout sets the day type."
   - **`ExerciseLibrary` / `ExerciseDefinition`** — unique-name invariant.
 - **Domain services** — logic that doesn't belong to one entity: `NutritionCalculator`

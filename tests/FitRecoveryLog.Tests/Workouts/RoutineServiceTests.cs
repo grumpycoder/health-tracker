@@ -61,7 +61,7 @@ public class RoutineServiceTests
     }
 
     [Test]
-    public async Task Delete_DetachesSessions_ThenRemovesRoutine()
+    public async Task Delete_NoSessions_RemovesRoutine()
     {
         var id = (await _service.CreateAsync("Legs")).Value;
 
@@ -70,7 +70,40 @@ public class RoutineServiceTests
         Assert.Multiple(() =>
         {
             Assert.That(result.IsSuccess, Is.True);
-            Assert.That(_sessions.Detached, Does.Contain(id), "sessions must be detached to preserve history");
+            Assert.That(_routines.Store.ContainsKey(id), Is.False);
+            Assert.That(_sessions.CascadeDeleted, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task Delete_WithSessions_IsRefused_KeepingRoutineAndHistory()
+    {
+        var id = (await _service.CreateAsync("Legs")).Value;
+        _sessions.Counts[id] = 3;
+
+        var result = await _service.DeleteAsync(id);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.IsSuccess, Is.False, "a routine with logged workouts must not be deletable");
+            Assert.That(result.Error, Does.Contain("Archive"));
+            Assert.That(_routines.Store.ContainsKey(id), Is.True, "routine must survive");
+            Assert.That(_sessions.CascadeDeleted, Is.Empty, "history must be left untouched");
+        });
+    }
+
+    [Test]
+    public async Task Delete_WithSessions_AndDeleteSessionsFlag_CascadesThenRemoves()
+    {
+        var id = (await _service.CreateAsync("Legs")).Value;
+        _sessions.Counts[id] = 2;
+
+        var result = await _service.DeleteAsync(id, deleteSessions: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.IsSuccess, Is.True);
+            Assert.That(_sessions.CascadeDeleted, Does.Contain(id), "opt-in cascade must delete the sessions");
             Assert.That(_routines.Store.ContainsKey(id), Is.False);
         });
     }
@@ -104,10 +137,14 @@ public class RoutineServiceTests
 
     private sealed class FakeSessionRepository : IWorkoutSessionRepository
     {
-        public readonly List<Guid> Detached = new();
-        public Task DetachFromRoutineAsync(Guid routineId, CancellationToken ct = default)
+        public readonly Dictionary<Guid, int> Counts = new();
+        public readonly List<Guid> CascadeDeleted = new();
+        public Task<int> CountByRoutineAsync(Guid routineId, CancellationToken ct = default) =>
+            Task.FromResult(Counts.GetValueOrDefault(routineId));
+        public Task DeleteByRoutineAsync(Guid routineId, CancellationToken ct = default)
         {
-            Detached.Add(routineId);
+            CascadeDeleted.Add(routineId);
+            Counts[routineId] = 0;
             return Task.CompletedTask;
         }
     }
