@@ -1,10 +1,14 @@
+using FitRecoveryLog.Domain.Body.Events;
+using FitRecoveryLog.Domain.Common;
+
 namespace FitRecoveryLog.Domain.Body;
 
 /// <summary>
 /// A day's body measurements (weight, tape measures, smart-scale body composition). A flat
-/// single-entity aggregate saved as a whole; all values optional but non-negative.
+/// single-entity aggregate saved as a whole; all values optional but non-negative. Recording a
+/// weight or waist raises <see cref="MeasurementRecorded"/> so it can be mirrored to Apple Health.
 /// </summary>
-public sealed class Measurement
+public sealed class Measurement : AggregateRoot
 {
     public Guid Id { get; }
     public DateOnly Date { get; private set; }
@@ -31,14 +35,15 @@ public sealed class Measurement
         double? water, int? bmr, int? metabolicAge, string? notes)
     {
         var m = new Measurement(id, date);
-        m.SetDate(date);
-        m.Update(weight, waist, chest, hips, arms, thighs, bodyFat, muscle, visceral, water, bmr, metabolicAge, notes);
+        // Assign directly — reconstructing persisted state must not raise a domain event.
+        m.Assign(weight, waist, chest, hips, arms, thighs, bodyFat, muscle, visceral, water, bmr, metabolicAge, notes);
         return m;
     }
 
     public void SetDate(DateOnly date) => Date = date;
 
-    /// <summary>Set all measurement values at once (the entry is saved as a whole).</summary>
+    /// <summary>Set all measurement values at once (the entry is saved as a whole). Raises
+    /// <see cref="MeasurementRecorded"/> when a weight or waist is present.</summary>
     public void Update(double? weight, double? waist, double? chest, double? hips, double? arms, double? thighs,
         double? bodyFat, double? muscle, double? visceral, double? water, int? bmr, int? metabolicAge, string? notes)
     {
@@ -46,6 +51,15 @@ public sealed class Measurement
             || bmr < 0 || metabolicAge < 0)
             throw new ArgumentOutOfRangeException(nameof(weight), "Measurement values cannot be negative.");
 
+        Assign(weight, waist, chest, hips, arms, thighs, bodyFat, muscle, visceral, water, bmr, metabolicAge, notes);
+
+        if (WeightLbs is not null || WaistInches is not null)
+            Raise(new MeasurementRecorded(Id, Date, WeightLbs, WaistInches));
+    }
+
+    private void Assign(double? weight, double? waist, double? chest, double? hips, double? arms, double? thighs,
+        double? bodyFat, double? muscle, double? visceral, double? water, int? bmr, int? metabolicAge, string? notes)
+    {
         WeightLbs = weight; WaistInches = waist; ChestInches = chest; HipsInches = hips;
         ArmsInches = arms; ThighsInches = thighs; BodyFatPercent = bodyFat; MuscleMassLbs = muscle;
         VisceralFat = visceral; BodyWaterPercent = water; BasalMetabolicRate = bmr; MetabolicAge = metabolicAge;

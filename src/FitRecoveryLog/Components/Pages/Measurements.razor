@@ -370,18 +370,8 @@
         var result = await MeasurementSvc.UpdateAsync(id, ToData(_edit, date));
         if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         _editId = null;
-
-        // Mirror to Apple Health on edit too — weight added via an edit (common when
-        // you log measurements first and fill in the scale weight later) must still
-        // reach Health. The write replaces any prior same-day sample this app wrote.
-        if (Health.IsAvailable)
-        {
-            if (_edit.WeightLbs is { } lbs)
-                try { await Health.WriteWeightAsync(date, lbs, id); } catch { }
-            if (_edit.WaistInches is { } waist)
-                try { await Health.WriteWaistAsync(date, waist, id); } catch { }
-        }
-
+        // Mirroring to Apple Health (including a weight added via a later edit) is handled by
+        // the MeasurementRecorded domain event, so no inline write is needed here.
         await LoadHistory();
     }
 
@@ -422,15 +412,7 @@
         var date = DateOnly.FromDateTime(_dateInput);
         var result = await MeasurementSvc.CreateAsync(ToData(_entry, date));
         if (!result.IsSuccess) { _warn = result.Error; return; }
-
-        // Mirror weight and waist to Apple Health (iOS only; no-op otherwise).
-        if (Health.IsAvailable)
-        {
-            if (_entry.WeightLbs is { } lbs)
-                try { await Health.WriteWeightAsync(date, lbs, result.Value); } catch { }
-            if (_entry.WaistInches is { } waist)
-                try { await Health.WriteWaistAsync(date, waist, result.Value); } catch { }
-        }
+        // Weight/waist are mirrored to Apple Health by the MeasurementRecorded domain event.
 
         _entry = new BodyMeasurement { Date = date };
         await LoadHistory();
