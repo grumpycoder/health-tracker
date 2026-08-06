@@ -1,5 +1,7 @@
 @page "/workout-history"
+@using FitRecoveryLog.Application.Workouts
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject WorkoutService WorkoutSvc
 @inject NavigationManager Nav
 @inject FitRecoveryLog.Services.ToastService Toast
 
@@ -140,24 +142,15 @@ else
     /// reps/duration/completed.</summary>
     private async Task SaveSession(WorkoutSession s)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.WorkoutSessions.Include(x => x.Sets).FirstOrDefaultAsync(x => x.Id == s.Id);
-        if (e is not null)
-        {
-            e.TotalSeconds = Math.Max(0, _editMinutes) * 60;
-            e.Notes = string.IsNullOrWhiteSpace(s.Notes) ? null : s.Notes.Trim();
-            foreach (var set in e.Sets)
-            {
-                var edited = s.Sets.FirstOrDefault(x => x.Id == set.Id);
-                if (edited is null) continue;
-                set.Reps = edited.Reps;
-                set.Weight = edited.Weight;
-                set.DurationSeconds = edited.DurationSeconds;
-                set.Completed = edited.Completed;
-            }
-            await db.SaveChangesAsync();
-            s.TotalSeconds = e.TotalSeconds;
-        }
+        var seconds = Math.Max(0, _editMinutes) * 60;
+        var r = await WorkoutSvc.SetDurationAsync(s.Id, seconds);
+        if (!r.IsSuccess) { _ = Toast.Show(r.Error!); return; }
+        await WorkoutSvc.SetNotesAsync(s.Id, s.Notes);
+        foreach (var set in s.Sets)
+            await WorkoutSvc.UpdateSetAsync(s.Id, set.Id,
+                new FitRecoveryLog.Domain.Workouts.SetResult(set.Reps, set.Weight, set.DurationSeconds, set.RestSeconds),
+                set.Completed);
+        s.TotalSeconds = seconds;
         _ = Toast.Show("Workout updated ✓");
     }
 
@@ -177,9 +170,8 @@ else
 
     private async Task DeleteSession(WorkoutSession s)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.WorkoutSessions.FindAsync(s.Id);
-        if (e is not null) { db.WorkoutSessions.Remove(e); await db.SaveChangesAsync(); }
+        var result = await WorkoutSvc.DeleteAsync(s.Id);
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         _selected = null;
         await Load();
     }

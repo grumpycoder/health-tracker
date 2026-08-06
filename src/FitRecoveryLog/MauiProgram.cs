@@ -62,6 +62,19 @@ public static class MauiProgram
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.IRoutineRepository, FitRecoveryLog.Infrastructure.Workouts.EfRoutineRepository>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.IWorkoutSessionRepository, FitRecoveryLog.Infrastructure.Workouts.EfWorkoutSessionRepository>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.RoutineService>();
+
+		// Workouts: the aggregate use cases + domain-event dispatch. The EF repo is wrapped in
+		// the event-dispatching decorator so finishing a workout dispatches WorkoutCompleted
+		// (-> marks the workout day) at the save boundary.
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Common.IDomainEventDispatcher, FitRecoveryLog.Application.Common.DomainEventDispatcher>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.IDayTypeService, FitRecoveryLog.Infrastructure.Workouts.EfDayTypeService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Common.IDomainEventHandler<FitRecoveryLog.Domain.Workouts.Events.WorkoutCompleted>, FitRecoveryLog.Application.Workouts.WorkoutCompletedHandler>();
+		builder.Services.AddSingleton<FitRecoveryLog.Infrastructure.Workouts.EfWorkoutRepository>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.IWorkoutRepository>(sp =>
+			new FitRecoveryLog.Application.Workouts.EventDispatchingWorkoutRepository(
+				sp.GetRequiredService<FitRecoveryLog.Infrastructure.Workouts.EfWorkoutRepository>(),
+				sp.GetRequiredService<FitRecoveryLog.Application.Common.IDomainEventDispatcher>()));
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.WorkoutService>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Body.IMeasurementRepository, FitRecoveryLog.Infrastructure.Body.EfMeasurementRepository>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Body.MeasurementService>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.IMealRepository, FitRecoveryLog.Infrastructure.Nutrition.EfMealRepository>();

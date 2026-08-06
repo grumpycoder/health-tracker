@@ -1,7 +1,9 @@
 @page "/workout"
 @using FitRecoveryLog.Services
+@using FitRecoveryLog.Application.Workouts
 @implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject WorkoutService WorkoutSvc
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject IHealthService Health
@@ -594,61 +596,45 @@ else // Feedback
         _saving = true;
         _saveError = null;
 
-        var session = new WorkoutSession
-        {
-            Date = DateOnly.FromDateTime(_startedAt),
-            RoutineId = _routineId,
-            StartedAt = _startedAt,
-            EndedAt = DateTime.Now,
-            TotalSeconds = _totalMinutes * 60,
-            Notes = _sessionNotes
-        };
-
+        // Assemble the completed workout from the in-progress view models. Rest isn't captured
+        // per set here (matches the prior behavior), so SetResult's rest stays null.
+        var sets = new List<WorkoutSetData>();
+        var feedback = new List<WorkoutFeedbackData>();
         foreach (var ex in _exercises)
         {
             foreach (var s in ex.Sets)
-            {
-                session.Sets.Add(new ExerciseSet
-                {
-                    ExerciseDefinitionId = ex.Def.Id,
-                    SetNumber = s.SetNumber,
-                    Reps = s.Reps,
-                    Weight = s.Weight,
-                    DurationSeconds = s.DurationSeconds,
-                    Completed = s.Completed
-                });
-            }
-            ex.Feedback.ExerciseDefinitionId = ex.Def.Id;
+                sets.Add(new WorkoutSetData(ex.Def.Id,
+                    new FitRecoveryLog.Domain.Workouts.SetResult(s.Reps, s.Weight, s.DurationSeconds, null),
+                    s.Completed));
+
             if (ex.Skipped && string.IsNullOrWhiteSpace(ex.Feedback.Comment))
                 ex.Feedback.Comment = "Skipped";
-            session.Feedback.Add(ex.Feedback);
+            feedback.Add(new WorkoutFeedbackData(ex.Def.Id,
+                (FitRecoveryLog.Domain.Workouts.Difficulty)(int)ex.Feedback.Difficulty,
+                ex.Feedback.PainOrDiscomfort, ex.Feedback.BreathingDifficulty, ex.Feedback.FormIssues, ex.Feedback.Comment));
         }
+
+        var endedAt = DateTime.Now;
+        var data = new CompletedWorkoutData(
+            DateOnly.FromDateTime(_startedAt), _routineId, _startedAt, endedAt,
+            _totalMinutes * 60, _sessionNotes, sets, feedback);
 
         double? weightLbs = null;
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
+            // Read the latest weight first (for the Health mirror) — BEFORE the commit, so a
+            // successful save is always followed by navigation.
+            await using (var db = await DbFactory.CreateDbContextAsync())
+                weightLbs = await db.BodyMeasurements
+                    .Where(m => m.WeightLbs != null)
+                    .OrderByDescending(m => m.Date)
+                    .Select(m => m.WeightLbs)
+                    .FirstOrDefaultAsync();
 
-            // Read first — anything that could throw happens BEFORE the commit, so a
-            // successful save is always followed by navigation (never strands a
-            // committed workout on this screen).
-            weightLbs = await db.BodyMeasurements
-                .Where(m => m.WeightLbs != null)
-                .OrderByDescending(m => m.Date)
-                .Select(m => m.WeightLbs)
-                .FirstOrDefaultAsync();
-
-            db.WorkoutSessions.Add(session);
-
-            // Forgot to plan the day? A completed workout makes it a workout day.
-            // (Deliberately chosen day types are left alone.)
-            var day = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == session.Date);
-            if (day is null)
-                db.DailyLogs.Add(new DailyLog { Date = session.Date, DayType = DayType.Workout });
-            else if (day.DayType == DayType.Unset)
-                day.DayType = DayType.Workout;
-
-            await db.SaveChangesAsync();
+            // Persist through the domain: Finish() raises WorkoutCompleted and the repository
+            // decorator dispatches it -> marks the workout day (only when the day is Unset).
+            var result = await WorkoutSvc.LogCompletedAsync(data);
+            if (!result.IsSuccess) { _saveError = $"Couldn't save: {result.Error}"; _saving = false; return; }
             _savedOk = true; // commit succeeded — safe to leave even if Health write hiccups
             Active.Current = null; // session is persisted; drop the in-progress copy
         }
@@ -662,13 +648,13 @@ else // Feedback
 
         // Mirror to Apple Health/Fitness — fire-and-forget so a hung or slow
         // HealthKit query can never block leaving this screen (the DB save is done).
-        if (Health.IsAvailable && session.EndedAt is { } ended && ended > session.StartedAt)
+        if (Health.IsAvailable && endedAt > _startedAt)
         {
-            var startedAt = session.StartedAt!.Value;
+            var startedAt = _startedAt;
             var name = _routineName;
             _ = Task.Run(async () =>
             {
-                try { await Health.WriteWorkoutAsync(startedAt, ended, name, weightLbs); } catch { }
+                try { await Health.WriteWorkoutAsync(startedAt, endedAt, name, weightLbs); } catch { }
             });
         }
 

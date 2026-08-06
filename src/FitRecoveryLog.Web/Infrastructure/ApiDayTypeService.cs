@@ -19,8 +19,10 @@ public sealed class ApiDayTypeService : IDayTypeService
     public async Task MarkWorkoutDayAsync(DateOnly date, CancellationToken ct = default)
     {
         var pull = await _state.DataAsync();
-        var log = WebSyncClient.Rows<Persistence.DailyLog>(pull).FirstOrDefault(d => d.Date == date)
-                  ?? new Persistence.DailyLog { Date = date };
+        var log = WebSyncClient.Rows<Persistence.DailyLog>(pull).FirstOrDefault(d => d.Date == date);
+        // Leave a deliberately-chosen day type alone; only set it when new or Unset.
+        if (log is not null && log.DayType != Persistence.DayType.Unset) return;
+        log ??= new Persistence.DailyLog { Date = date };
         log.DayType = Persistence.DayType.Workout;
         await _sync.PushAsync(log);
         _state.Invalidate();
