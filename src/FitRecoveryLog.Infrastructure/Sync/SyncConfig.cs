@@ -1,9 +1,9 @@
-namespace FitRecoveryLog.Services;
+namespace FitRecoveryLog.Infrastructure.Sync;
 
 /// <summary>
 /// Cloud sync endpoints and identity coordinates. None of these are secrets — they're
 /// public client/tenant identifiers and a hostname. The SQL password and tokens never
-/// live in the app. See docs/sync-architecture.md and infra/ for the backend.
+/// live in the app.
 /// </summary>
 public static class SyncConfig
 {

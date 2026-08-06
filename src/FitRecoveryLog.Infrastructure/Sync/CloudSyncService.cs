@@ -2,12 +2,12 @@ using System.Net.Http.Json;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using FitRecoveryLog.Application.Sync;
 using FitRecoveryLog.Data;
 using FitRecoveryLog.Data.Sync;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Maui.Storage;
 
-namespace FitRecoveryLog.Services;
+namespace FitRecoveryLog.Infrastructure.Sync;
 
 public sealed record SyncResult(bool Success, int Pushed, int Pulled, string? Error)
 {
@@ -18,7 +18,9 @@ public sealed record SyncResult(bool Success, int Pushed, int Pulled, string? Er
 /// <summary>
 /// Local-first sync client: pushes locally-changed rows to the cloud, then pulls newer
 /// rows down, over <c>/api/v1/sync</c>. Entity-agnostic (discovers types from the model;
-/// reflection only supplies the type argument — the LINQ/JSON is compile-checked).
+/// reflection only supplies the type argument — the LINQ/JSON is compile-checked). Lives in
+/// Infrastructure so any client can share it; cursors/last-sync are persisted through
+/// <see cref="ISyncStateStore"/> (the phone backs it with Preferences).
 ///
 /// Cursors (v1, matching the server's UpdatedAt cursor):
 ///  - <b>pull cursor</b> = highest server UpdatedAt seen (server clock).
@@ -35,10 +37,6 @@ public sealed class CloudSyncService
         ReferenceHandler = ReferenceHandler.IgnoreCycles,
     };
 
-    private const string PushKey = "sync.pushCursor";
-    private const string PullKey = "sync.pullCursor";
-    private const string LastKey = "sync.lastUtc";
-
     private static readonly MethodInfo CollectMi =
         typeof(CloudSyncService).GetMethod(nameof(CollectAsync), BindingFlags.NonPublic | BindingFlags.Instance)!;
     private static readonly MethodInfo ApplyMi =
@@ -46,20 +44,19 @@ public sealed class CloudSyncService
 
     private readonly IDbContextFactory<AppDbContext> _factory;
     private readonly IAccessTokenProvider _auth;
+    private readonly ISyncStateStore _state;
     private readonly HttpClient _http;
 
     public event Action? StateChanged;
     public bool IsSyncing { get; private set; }
 
-    public DateTime? LastSyncUtc
-    {
-        get { var t = Preferences.Default.Get(LastKey, 0L); return t == 0 ? null : new DateTime(t, DateTimeKind.Utc); }
-    }
+    public DateTime? LastSyncUtc => _state.LastSyncUtc;
 
-    public CloudSyncService(IDbContextFactory<AppDbContext> factory, IAccessTokenProvider auth)
+    public CloudSyncService(IDbContextFactory<AppDbContext> factory, IAccessTokenProvider auth, ISyncStateStore state)
     {
         _factory = factory;
         _auth = auth;
+        _state = state;
         // Generous timeout for the first full sync (thousands of rows in one push/pull);
         // steady-state syncs are tiny.
         _http = new HttpClient { BaseAddress = new Uri(SyncConfig.ApiBaseUrl), Timeout = TimeSpan.FromSeconds(180) };
@@ -80,7 +77,7 @@ public sealed class CloudSyncService
             var pushed = await PushAsync(token, ct);
             var pulled = await PullAsync(token, ct);
 
-            Preferences.Default.Set(LastKey, DateTime.UtcNow.Ticks);
+            _state.LastSyncUtc = DateTime.UtcNow;
             return SyncResult.Ok(pushed, pulled);
         }
         catch (Exception ex)
@@ -98,7 +95,7 @@ public sealed class CloudSyncService
 
     private async Task<int> PushAsync(string token, CancellationToken ct)
     {
-        long pushCursor = Preferences.Default.Get(PushKey, 0L);
+        long pushCursor = _state.PushCursor;
         await using var db = await _factory.CreateDbContextAsync(ct);
         var since = TicksToUtc(pushCursor);
         var req = new SyncPushRequest();
@@ -118,7 +115,7 @@ public sealed class CloudSyncService
         res.EnsureSuccessStatusCode();
         var pr = await res.Content.ReadFromJsonAsync<SyncPushResponse>(JsonOpts, ct);
 
-        Preferences.Default.Set(PushKey, max.V);
+        _state.PushCursor = max.V;
         return pr?.Applied ?? req.Changes.Sum(c => c.Value.Count);
     }
 
@@ -139,7 +136,7 @@ public sealed class CloudSyncService
 
     private async Task<int> PullAsync(string token, CancellationToken ct)
     {
-        long pullCursor = Preferences.Default.Get(PullKey, 0L);
+        long pullCursor = _state.PullCursor;
 
         using var msg = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/sync?since={pullCursor}");
         msg.Headers.Authorization = new("Bearer", token);
@@ -150,7 +147,7 @@ public sealed class CloudSyncService
         if (resp.FullResyncRequired)
         {
             // Cursor too old (post-purge). Reset so the next pull starts from scratch.
-            Preferences.Default.Set(PullKey, 0L);
+            _state.PullCursor = 0L;
             return 0;
         }
 
@@ -160,7 +157,7 @@ public sealed class CloudSyncService
             await using var db = await _factory.CreateDbContextAsync(ct);
             db.SuppressTimestamps = true; // write server rows verbatim (keep server UpdatedAt)
             var map = EntityTypes(db).ToDictionary(t => t.Name);
-            var maxApplied = new Box { V = Preferences.Default.Get(PushKey, 0L) };
+            var maxApplied = new Box { V = _state.PushCursor };
 
             foreach (var (name, rows) in resp.Changes)
             {
@@ -172,10 +169,10 @@ public sealed class CloudSyncService
             await db.SaveChangesAsync(ct);
             // Applied rows carry server UpdatedAt; advance the push cursor past them so they
             // aren't seen as local edits and pushed straight back.
-            Preferences.Default.Set(PushKey, maxApplied.V);
+            _state.PushCursor = maxApplied.V;
         }
 
-        Preferences.Default.Set(PullKey, resp.Cursor);
+        _state.PullCursor = resp.Cursor;
         return pulled;
     }
 

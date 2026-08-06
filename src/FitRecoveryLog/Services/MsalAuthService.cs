@@ -1,3 +1,5 @@
+using FitRecoveryLog.Application.Sync;
+using FitRecoveryLog.Infrastructure.Sync;
 using Microsoft.Identity.Client;
 
 namespace FitRecoveryLog.Services;

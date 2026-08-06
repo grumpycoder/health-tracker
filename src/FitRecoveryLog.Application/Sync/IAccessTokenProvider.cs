@@ -1,8 +1,9 @@
-namespace FitRecoveryLog.Services;
+namespace FitRecoveryLog.Application.Sync;
 
 /// <summary>
-/// Supplies bearer tokens for the sync API. Abstracted from MSAL so the sync engine is
-/// testable without a real identity provider.
+/// Supplies bearer tokens for the sync API. Abstracted from the identity library so the sync
+/// engine is testable and client-agnostic — each client (phone MSAL, a future desktop client)
+/// supplies its own implementation.
 /// </summary>
 public interface IAccessTokenProvider
 {

@@ -55,8 +55,9 @@ public static class MauiProgram
 		builder.Services.AddSingleton<FitRecoveryLog.Services.AutoBackup>();
 
 		// Cloud sync (MSAL sign-in + push/pull against the Azure sync API).
-		builder.Services.AddSingleton<FitRecoveryLog.Services.IAccessTokenProvider, FitRecoveryLog.Services.MsalAuthService>();
-		builder.Services.AddSingleton<FitRecoveryLog.Services.CloudSyncService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Sync.IAccessTokenProvider, FitRecoveryLog.Services.MsalAuthService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Sync.ISyncStateStore, FitRecoveryLog.Services.PreferencesSyncStateStore>();
+		builder.Services.AddSingleton<FitRecoveryLog.Infrastructure.Sync.CloudSyncService>();
 
 		// AI: provider-agnostic LLM transport (swap Gemini -> another LLM = swap this adapter)
 		// + the Keychain-backed key store. The key lives behind the port; callers never pass it.
@@ -114,7 +115,7 @@ public static class MauiProgram
 		builder.ConfigureLifecycleEvents(events =>
 			events.AddiOS(ios => ios.WillEnterForeground(app =>
 			{
-				var sync = IPlatformApplication.Current?.Services?.GetService<FitRecoveryLog.Services.CloudSyncService>();
+				var sync = IPlatformApplication.Current?.Services?.GetService<FitRecoveryLog.Infrastructure.Sync.CloudSyncService>();
 				if (sync is not null)
 					_ = Task.Run(() => sync.SyncAsync(allowInteractive: false));
 			})));
@@ -163,7 +164,7 @@ public static class MauiProgram
 		// (never pops UI here; interactive sign-in happens from the Settings page).
 		_ = Task.Run(async () =>
 		{
-			try { await app.Services.GetRequiredService<FitRecoveryLog.Services.CloudSyncService>().SyncAsync(allowInteractive: false); }
+			try { await app.Services.GetRequiredService<FitRecoveryLog.Infrastructure.Sync.CloudSyncService>().SyncAsync(allowInteractive: false); }
 			catch { /* surfaced on manual sync in Settings */ }
 		});
 
