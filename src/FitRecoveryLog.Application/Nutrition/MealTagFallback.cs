@@ -1,7 +1,7 @@
-namespace FitRecoveryLog.Services;
+namespace FitRecoveryLog.Application.Nutrition;
 
 /// <summary>
-/// Offline keyword-match tag suggestions — used ONLY when the Gemini call can't
+/// Offline keyword-match tag suggestions — used ONLY when the LLM call can't
 /// happen (no key, offline, API error). Deliberately small and conservative;
 /// it fills what it can and stays quiet otherwise.
 /// </summary>

@@ -1,11 +1,10 @@
-using FitRecoveryLog.Data;
-
-namespace FitRecoveryLog.Services;
+namespace FitRecoveryLog.Data;
 
 /// <summary>Daily nutrition roll-ups shared by the Home dashboard and the Meals Log
 /// tab, so both compute totals the same way. Totals only cover items that carry
 /// macros; sugar uses a scanned drink's grams when present, else the teaspoon count
-/// (~4g each) so added-sugar coffee still counts without double-counting.</summary>
+/// (~4g each) so added-sugar coffee still counts without double-counting. Lives with
+/// the entities it sums so both the app and the infrastructure read model reuse it.</summary>
 public static class NutritionMath
 {
     public static int Calories(IEnumerable<MealEntry> meals, IEnumerable<DrinkEntry> drinks) =>

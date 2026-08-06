@@ -70,24 +70,14 @@ public sealed class EfAiDataProvider : IAiDataProvider
                           (d.Ounces is { } oz ? $" {oz:0.#}oz" : "") +
                           (d.SugarCount is { } su ? $" sugar:{su}" : ""));
 
-        // Running totals (only items logged with macros). Coffee teaspoons (~4g each) count as
-        // sugar/added-sugar; scanned SugarG wins for total sugar when present.
-        int cal = meals.Sum(m => m.Calories ?? 0) + drinks.Sum(d => d.Calories ?? 0);
-        double protein = meals.Sum(m => m.ProteinG ?? 0) + drinks.Sum(d => d.ProteinG ?? 0);
-        double carbs = meals.Sum(m => m.CarbsG ?? 0) + drinks.Sum(d => d.CarbsG ?? 0);
-        double fat = meals.Sum(m => m.FatG ?? 0) + drinks.Sum(d => d.FatG ?? 0);
-        double fiber = meals.Sum(m => m.FiberG ?? 0) + drinks.Sum(d => d.FiberG ?? 0);
-        double addedSugar = meals.Sum(m => m.AddedSugarG ?? 0)
-            + drinks.Sum(d => (d.AddedSugarG ?? 0) + (d.SugarCount ?? 0) * 4.0);
-        int fluidOz = (int)Math.Round(drinks.Sum(d => d.Ounces ?? 0));
         sb.AppendLine("TODAY'S TOTALS SO FAR (only counts items logged with macros — may be incomplete):");
-        sb.AppendLine($"  Calories: {cal}");
-        sb.AppendLine($"  Protein: {protein:0} g");
-        sb.AppendLine($"  Carbs: {carbs:0} g");
-        sb.AppendLine($"  Fat: {fat:0} g");
-        sb.AppendLine($"  Fiber: {fiber:0} g");
-        sb.AppendLine($"  Added sugar: {addedSugar:0} g");
-        sb.AppendLine($"  Fluids (all drinks): {fluidOz} oz");
+        sb.AppendLine($"  Calories: {NutritionMath.Calories(meals, drinks)}");
+        sb.AppendLine($"  Protein: {NutritionMath.Protein(meals, drinks):0} g");
+        sb.AppendLine($"  Carbs: {NutritionMath.Carbs(meals, drinks):0} g");
+        sb.AppendLine($"  Fat: {NutritionMath.Fat(meals, drinks):0} g");
+        sb.AppendLine($"  Fiber: {NutritionMath.Fiber(meals, drinks):0} g");
+        sb.AppendLine($"  Added sugar: {NutritionMath.AddedSugar(meals, drinks):0} g");
+        sb.AppendLine($"  Fluids (all drinks): {NutritionMath.FluidOz(drinks)} oz");
         sb.AppendLine("Compare these to the DAILY MACRO/HYDRATION TARGETS above and note where the day is " +
                       "tracking under/in/over range — but remember totals may be incomplete if not everything " +
                       "was logged with macros, so don't scold a low number that's just unlogged food.");
