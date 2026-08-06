@@ -1,7 +1,10 @@
 @page "/routines"
 @using FitRecoveryLog.Services
+@using FitRecoveryLog.Application.Workouts
 @implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject RoutineService RoutineSvc
+@inject ToastService Toast
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 
@@ -352,9 +355,8 @@
     {
         var name = _renameDraft.Trim();
         if (string.IsNullOrWhiteSpace(name) || name == r.Name) return;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.WorkoutRoutines.FindAsync(r.Id);
-        if (e is not null) { e.Name = name; await db.SaveChangesAsync(); }
+        var result = await RoutineSvc.RenameAsync(r.Id, name);
+        if (!result.IsSuccess) { await Toast.Show(result.Error!); return; }
         await Load();
     }
 
@@ -374,19 +376,14 @@
     {
         if (_expandedId is not { } routineId || oldIndex == newIndex) return;
 
-        await using (var db = await DbFactory.CreateDbContextAsync())
-        {
-            var ordered = await db.RoutineExercises
-                .Where(e => e.RoutineId == routineId)
-                .OrderBy(e => e.Order).ToListAsync();
-            if (oldIndex < 0 || oldIndex >= ordered.Count || newIndex < 0 || newIndex >= ordered.Count) return;
+        var routine = _routines.FirstOrDefault(r => r.Id == routineId);
+        if (routine is null) return;
+        var ordered = routine.Exercises.OrderBy(e => e.Order).ToList();
+        if (oldIndex < 0 || oldIndex >= ordered.Count || newIndex < 0 || newIndex >= ordered.Count) return;
 
-            var moved = ordered[oldIndex];
-            ordered.RemoveAt(oldIndex);
-            ordered.Insert(newIndex, moved);
-            for (var i = 0; i < ordered.Count; i++) ordered[i].Order = i;
-            await db.SaveChangesAsync();
-        }
+        // Domain positions are 1-based; the drag indices are 0-based.
+        var result = await RoutineSvc.MoveExerciseAsync(routineId, ordered[oldIndex].Id, newIndex + 1);
+        if (!result.IsSuccess) { await Toast.Show(result.Error!); return; }
 
         await Load();
         StateHasChanged();
@@ -480,55 +477,60 @@
     private async Task SaveAiDraft()
     {
         if (_aiDraft is null || _aiExercises.Count == 0) return;
-        await using var db = await DbFactory.CreateDbContextAsync();
 
         // Unique routine name (append a number if taken).
-        var baseName = _aiDraft.Name.Trim();
-        var name = baseName;
-        for (var i = 2; await db.WorkoutRoutines.AnyAsync(r => r.Name == name); i++)
-            name = $"{baseName} {i}";
-        var routine = new WorkoutRoutine { Name = name };
-        db.WorkoutRoutines.Add(routine);
+        string name;
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            var baseName = _aiDraft.Name.Trim();
+            name = baseName;
+            for (var i = 2; await db.WorkoutRoutines.AnyAsync(r => r.Name == name); i++)
+                name = $"{baseName} {i}";
+        }
 
-        var order = 0;
-        var created = new Dictionary<string, ExerciseDefinition>(StringComparer.OrdinalIgnoreCase);
+        var createResult = await RoutineSvc.CreateAsync(name);
+        if (!createResult.IsSuccess) { await Toast.Show(createResult.Error!); return; }
+        var routineId = createResult.Value;
+
+        // Resolve each exercise to a library definition (pick-or-create — the library isn't a
+        // domain aggregate yet), then add it to the routine through the aggregate.
+        var resolved = new Dictionary<string, (Guid Id, ExerciseMeasure Measure)>(StringComparer.OrdinalIgnoreCase);
         foreach (var ex in _aiExercises)
         {
-            // Pick-or-create, also catching duplicates within this draft.
-            var def = created.GetValueOrDefault(ex.Name)
-                      ?? await db.ExerciseDefinitions.FirstOrDefaultAsync(e => e.Name == ex.Name);
-            if (def is null)
+            if (!resolved.TryGetValue(ex.Name, out var def))
             {
-                def = new ExerciseDefinition
+                await using var db = await DbFactory.CreateDbContextAsync();
+                var entity = await db.ExerciseDefinitions.FirstOrDefaultAsync(e => e.Name == ex.Name);
+                if (entity is null)
                 {
-                    Name = ex.Name,
-                    Measure = ex.Measure == "duration" ? ExerciseMeasure.Duration : ExerciseMeasure.Reps,
-                    // Seed muscle groups from the AI suggestion so volume tracking works
-                    // for new exercises without manual tagging.
-                    MuscleGroups = string.IsNullOrWhiteSpace(ex.Muscles) ? null : ex.Muscles
-                };
-                db.ExerciseDefinitions.Add(def);
+                    entity = new ExerciseDefinition
+                    {
+                        Name = ex.Name,
+                        Measure = ex.Measure == "duration" ? ExerciseMeasure.Duration : ExerciseMeasure.Reps,
+                        // Seed muscle groups from the AI suggestion so volume tracking works
+                        // for new exercises without manual tagging.
+                        MuscleGroups = string.IsNullOrWhiteSpace(ex.Muscles) ? null : ex.Muscles
+                    };
+                    db.ExerciseDefinitions.Add(entity);
+                    await db.SaveChangesAsync();
+                }
+                def = (entity.Id, entity.Measure);
+                resolved[ex.Name] = def;
             }
-            created[ex.Name] = def;
 
-            var measure = def.Measure; // an existing library exercise keeps its own
-            db.RoutineExercises.Add(new RoutineExercise
-            {
-                RoutineId = routine.Id,
-                ExerciseDefinitionId = def.Id,
-                Order = order++,
-                TargetSets = ex.Sets,
-                TargetReps = measure == ExerciseMeasure.Reps ? (ex.Reps ?? 10) : null,
-                TargetDurationSeconds = measure == ExerciseMeasure.Duration ? (ex.DurationSeconds ?? 30) : null,
-                RestSeconds = ex.RestSeconds ?? 60
-            });
+            var prescription = new FitRecoveryLog.Domain.Workouts.ExercisePrescription(
+                ex.Sets,
+                def.Measure == ExerciseMeasure.Reps ? (ex.Reps ?? 10) : null,
+                def.Measure == ExerciseMeasure.Duration ? (ex.DurationSeconds ?? 30) : null,
+                ex.RestSeconds ?? 60, null, null);
+            var addResult = await RoutineSvc.AddExerciseAsync(routineId, def.Id, prescription);
+            if (!addResult.IsSuccess) { await Toast.Show(addResult.Error!); return; }
         }
-        await db.SaveChangesAsync();
 
         DiscardAiDraft();
         _aiHint = "";
         await Load();
-        _expandedId = routine.Id; // open it for review/edits
+        _expandedId = routineId; // open it for review/edits
     }
 
     private async Task Load()
@@ -584,38 +586,29 @@
     private async Task AddRoutine()
     {
         if (string.IsNullOrWhiteSpace(_newRoutineName)) return;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var routine = new WorkoutRoutine { Name = _newRoutineName.Trim() };
-        db.WorkoutRoutines.Add(routine);
-        await db.SaveChangesAsync();
+        var result = await RoutineSvc.CreateAsync(_newRoutineName.Trim());
+        if (!result.IsSuccess) { await Toast.Show(result.Error!); return; }
         _newRoutineName = "";
         await Load();
-        _expandedId = routine.Id; // open the new routine so exercises can be added now
+        _expandedId = result.Value; // open the new routine so exercises can be added now
     }
 
+    /// <summary>Delete a routine. The domain refuses this when the routine has logged
+    /// workouts — those are real history, so it must be archived instead; the refusal is
+    /// surfaced as a toast.</summary>
     private async Task DeleteRoutine(WorkoutRoutine r)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        // Detach past workout sessions from this routine (keep their history),
-        // otherwise the WorkoutSession.RoutineId FK blocks the delete.
-        await db.WorkoutSessions.Where(s => s.RoutineId == r.Id)
-            .ExecuteUpdateAsync(u => u.SetProperty(s => s.RoutineId, (Guid?)null));
-        // The routine's RoutineExercises cascade at the DB.
-        var e = await db.WorkoutRoutines.FindAsync(r.Id);
-        if (e is not null)
-        {
-            db.WorkoutRoutines.Remove(e);
-            await db.SaveChangesAsync();
-        }
-        if (_editId == r.Id) _editId = null;
+        var result = await RoutineSvc.DeleteAsync(r.Id);
+        if (!result.IsSuccess) { await Toast.Show(result.Error!); return; }
+        _editId = null;
+        if (_expandedId == r.Id) _expandedId = null;
         await Load();
     }
 
     private async Task SetArchived(WorkoutRoutine r, bool archived)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.WorkoutRoutines.FindAsync(r.Id);
-        if (e is not null) { e.Archived = archived; await db.SaveChangesAsync(); }
+        var result = archived ? await RoutineSvc.ArchiveAsync(r.Id) : await RoutineSvc.RestoreAsync(r.Id);
+        if (!result.IsSuccess) { await Toast.Show(result.Error!); return; }
         if (_expandedId == r.Id) _expandedId = null;
         await Load();
     }
@@ -626,32 +619,32 @@
         var name = d.Name.Trim();
         if (string.IsNullOrWhiteSpace(name)) return;
 
-        await using var db = await DbFactory.CreateDbContextAsync();
-
-        // Pick-or-create: reuse the library exercise if the name already exists
-        // (case-insensitive), otherwise add a new one.
-        var def = await db.ExerciseDefinitions.FirstOrDefaultAsync(e => e.Name == name);
-        if (def is null)
+        // Pick-or-create the library exercise (the library isn't a domain aggregate yet), then
+        // add it to the routine through the aggregate so its ordering invariant is enforced.
+        Guid defId;
+        ExerciseMeasure measure;
+        await using (var db = await DbFactory.CreateDbContextAsync())
         {
-            def = new ExerciseDefinition { Name = name, Measure = d.Measure };
-            db.ExerciseDefinitions.Add(def);
+            var def = await db.ExerciseDefinitions.FirstOrDefaultAsync(e => e.Name == name);
+            if (def is null)
+            {
+                def = new ExerciseDefinition { Name = name, Measure = d.Measure };
+                db.ExerciseDefinitions.Add(def);
+                await db.SaveChangesAsync();
+            }
+            defId = def.Id;
+            measure = def.Measure; // an existing library exercise keeps its own
         }
 
-        // The library exercise's measure wins (an existing one keeps its own).
-        var measure = def.Measure;
-        db.RoutineExercises.Add(new RoutineExercise
-        {
-            RoutineId = r.Id,
-            ExerciseDefinitionId = def.Id,
-            Order = r.Exercises.Count,
-            TargetSets = d.Sets,
-            TargetReps = measure == ExerciseMeasure.Reps ? d.Reps : null,
-            TargetDurationSeconds = measure == ExerciseMeasure.Duration ? d.Duration : null,
-            RestSeconds = d.Rest,
-            TargetWeight = d.Weight,
-            TargetNote = string.IsNullOrWhiteSpace(d.Note) ? null : d.Note.Trim()
-        });
-        await db.SaveChangesAsync();
+        var prescription = new FitRecoveryLog.Domain.Workouts.ExercisePrescription(
+            d.Sets,
+            measure == ExerciseMeasure.Reps ? d.Reps : null,
+            measure == ExerciseMeasure.Duration ? d.Duration : null,
+            d.Rest, d.Weight,
+            string.IsNullOrWhiteSpace(d.Note) ? null : d.Note.Trim());
+
+        var result = await RoutineSvc.AddExerciseAsync(r.Id, defId, prescription);
+        if (!result.IsSuccess) { await Toast.Show(result.Error!); return; }
 
         _draft[r.Id] = new ExerciseDraft();
         await Load();
@@ -675,31 +668,26 @@
 
     private async Task SaveEdit(RoutineExercise ex)
     {
+        if (_expandedId is not { } routineId) return;
         var isTime = ex.ExerciseDefinition?.Measure == ExerciseMeasure.Duration;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var entity = await db.RoutineExercises.FindAsync(ex.Id);
-        if (entity is not null)
-        {
-            entity.TargetSets = _editDraft.Sets;
-            entity.TargetReps = isTime ? null : _editDraft.Reps;
-            entity.TargetDurationSeconds = isTime ? _editDraft.Duration : null;
-            entity.RestSeconds = _editDraft.Rest;
-            entity.TargetWeight = _editDraft.Weight;
-            entity.TargetNote = string.IsNullOrWhiteSpace(_editDraft.Note) ? null : _editDraft.Note.Trim();
-            await db.SaveChangesAsync();
-        }
+        var prescription = new FitRecoveryLog.Domain.Workouts.ExercisePrescription(
+            _editDraft.Sets,
+            isTime ? null : _editDraft.Reps,
+            isTime ? _editDraft.Duration : null,
+            _editDraft.Rest, _editDraft.Weight,
+            string.IsNullOrWhiteSpace(_editDraft.Note) ? null : _editDraft.Note.Trim());
+        var result = await RoutineSvc.UpdateExerciseAsync(routineId, ex.Id, prescription);
+        if (!result.IsSuccess) { await Toast.Show(result.Error!); return; }
         _editId = null;
         await Load();
     }
 
     private async Task RemoveExercise(RoutineExercise ex)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
+        if (_expandedId is not { } routineId) return;
         // Unlink from the routine only — keep the library exercise (and its history).
-        var join = await db.RoutineExercises.FindAsync(ex.Id);
-        if (join is not null) db.RoutineExercises.Remove(join);
-        await db.SaveChangesAsync();
-
+        var result = await RoutineSvc.RemoveExerciseAsync(routineId, ex.Id);
+        if (!result.IsSuccess) { await Toast.Show(result.Error!); return; }
         if (_editId == ex.Id) _editId = null;
         await Load();
     }
