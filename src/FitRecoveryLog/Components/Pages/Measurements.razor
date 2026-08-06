@@ -1,5 +1,7 @@
 @page "/measurements"
+@using FitRecoveryLog.Application.Body
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject MeasurementService MeasurementSvc
 @inject IHealthService Health
 @inject FitRecoveryLog.Services.ToastService Toast
 
@@ -364,30 +366,20 @@
     private async Task SaveEdit()
     {
         if (_editId is not { } id) return;
-        BodyMeasurement? saved = null;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.BodyMeasurements.FindAsync(id);
-        if (e is not null)
-        {
-            e.Date = DateOnly.FromDateTime(_editDate);
-            e.WeightLbs = _edit.WeightLbs; e.WaistInches = _edit.WaistInches; e.ChestInches = _edit.ChestInches;
-            e.ArmsInches = _edit.ArmsInches; e.ThighsInches = _edit.ThighsInches; e.ClothingFitNotes = _edit.ClothingFitNotes;
-            e.BodyFatPercent = _edit.BodyFatPercent; e.MuscleMassLbs = _edit.MuscleMassLbs; e.VisceralFat = _edit.VisceralFat;
-            e.BodyWaterPercent = _edit.BodyWaterPercent; e.BasalMetabolicRate = _edit.BasalMetabolicRate; e.MetabolicAge = _edit.MetabolicAge;
-            await db.SaveChangesAsync();
-            saved = e;
-        }
+        var date = DateOnly.FromDateTime(_editDate);
+        var result = await MeasurementSvc.UpdateAsync(id, ToData(_edit, date));
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         _editId = null;
 
         // Mirror to Apple Health on edit too — weight added via an edit (common when
         // you log measurements first and fill in the scale weight later) must still
         // reach Health. The write replaces any prior same-day sample this app wrote.
-        if (saved is not null && Health.IsAvailable)
+        if (Health.IsAvailable)
         {
-            if (saved.WeightLbs is { } lbs)
-                try { await Health.WriteWeightAsync(saved.Date, lbs, saved.Id); } catch { }
-            if (saved.WaistInches is { } waist)
-                try { await Health.WriteWaistAsync(saved.Date, waist, saved.Id); } catch { }
+            if (_edit.WeightLbs is { } lbs)
+                try { await Health.WriteWeightAsync(date, lbs, id); } catch { }
+            if (_edit.WaistInches is { } waist)
+                try { await Health.WriteWaistAsync(date, waist, id); } catch { }
         }
 
         await LoadHistory();
@@ -395,9 +387,8 @@
 
     private async Task Delete(BodyMeasurement m)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.BodyMeasurements.FindAsync(m.Id);
-        if (e is not null) { db.BodyMeasurements.Remove(e); await db.SaveChangesAsync(); }
+        var result = await MeasurementSvc.DeleteAsync(m.Id);
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         if (_editId == m.Id) _editId = null;
         await LoadHistory();
     }
@@ -428,23 +419,27 @@
             return;
         }
         _warn = null;
-        _entry.Date = DateOnly.FromDateTime(_dateInput);
-        var entry = _entry;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        db.BodyMeasurements.Add(entry);
-        await db.SaveChangesAsync();
+        var date = DateOnly.FromDateTime(_dateInput);
+        var result = await MeasurementSvc.CreateAsync(ToData(_entry, date));
+        if (!result.IsSuccess) { _warn = result.Error; return; }
 
         // Mirror weight and waist to Apple Health (iOS only; no-op otherwise).
         if (Health.IsAvailable)
         {
-            if (entry.WeightLbs is { } lbs)
-                try { await Health.WriteWeightAsync(entry.Date, lbs, entry.Id); } catch { }
-            if (entry.WaistInches is { } waist)
-                try { await Health.WriteWaistAsync(entry.Date, waist, entry.Id); } catch { }
+            if (_entry.WeightLbs is { } lbs)
+                try { await Health.WriteWeightAsync(date, lbs, result.Value); } catch { }
+            if (_entry.WaistInches is { } waist)
+                try { await Health.WriteWaistAsync(date, waist, result.Value); } catch { }
         }
 
-        _entry = new BodyMeasurement { Date = DateOnly.FromDateTime(_dateInput) };
+        _entry = new BodyMeasurement { Date = date };
         await LoadHistory();
         _ = Toast.Show("Measurement saved ✓");
     }
+
+    // Bridge the form's Data POCO to the aggregate's save DTO (photos/reads keep the POCO).
+    private static MeasurementData ToData(BodyMeasurement e, DateOnly date) =>
+        new(date, e.WeightLbs, e.WaistInches, e.ChestInches, e.HipsInches, e.ArmsInches, e.ThighsInches,
+            e.BodyFatPercent, e.MuscleMassLbs, e.VisceralFat, e.BodyWaterPercent, e.BasalMetabolicRate,
+            e.MetabolicAge, e.ClothingFitNotes);
 }
