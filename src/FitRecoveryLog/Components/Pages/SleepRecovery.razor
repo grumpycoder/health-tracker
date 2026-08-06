@@ -1,5 +1,8 @@
 @page "/sleep"
+@using FitRecoveryLog.Application.Recovery
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject SleepService SleepSvc
+@inject RecoveryService RecoverySvc
 @inject IHealthService Health
 @inject FitRecoveryLog.Services.ToastService Toast
 
@@ -254,27 +257,19 @@
     private async Task SaveEdit()
     {
         if (_editId is not { } id) return;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.SleepEntries.FindAsync(id);
-        if (e is not null)
-        {
-            e.Date = DateOnly.FromDateTime(_editDate);
-            // Changing the score means the user put in the real number (Apple's) —
-            // it's no longer our estimate.
-            if (_edit.SleepScore != e.SleepScore) e.ScoreEstimated = false;
-            e.DurationHours = _edit.DurationHours; e.SleepScore = _edit.SleepScore;
-            e.Interruptions = _edit.Interruptions; e.Notes = _edit.Notes;
-            await db.SaveChangesAsync();
-        }
+        // A hand-entered/edited score is treated as a real one (the aggregate clears the
+        // "estimated" flag on any manual save).
+        var result = await SleepSvc.UpdateAsync(id,
+            new SleepData(DateOnly.FromDateTime(_editDate), _edit.DurationHours, _edit.SleepScore, _edit.Interruptions, _edit.Notes));
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         _editId = null;
         await LoadRecent();
     }
 
     private async Task Delete(SleepEntry s)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.SleepEntries.FindAsync(s.Id);
-        if (e is not null) { db.SleepEntries.Remove(e); await db.SaveChangesAsync(); }
+        var result = await SleepSvc.DeleteAsync(s.Id);
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         if (_editId == s.Id) _editId = null;
         await LoadRecent();
     }
@@ -292,10 +287,9 @@
             _sleepWarn = "Enter sleep duration, score, or a note."; return;
         }
         _sleepWarn = null;
-        _sleep.Date = DateOnly.FromDateTime(_date);
-        await using var db = await DbFactory.CreateDbContextAsync();
-        db.SleepEntries.Add(_sleep);
-        await db.SaveChangesAsync();
+        var result = await SleepSvc.CreateAsync(
+            new SleepData(DateOnly.FromDateTime(_date), _sleep.DurationHours, _sleep.SleepScore, _sleep.Interruptions, _sleep.Notes));
+        if (!result.IsSuccess) { _sleepWarn = result.Error; return; }
 
         _sleep = new SleepEntry();
         await LoadRecent();
@@ -310,11 +304,15 @@
             _recoveryWarn = "Enter a rating, soreness, or a note."; return;
         }
         _recoveryWarn = null;
-        _recovery.Date = DateOnly.FromDateTime(_date);
-        _recovery.SorenessLocations = CsvField.Join(_soreLocs);
-        await using var db = await DbFactory.CreateDbContextAsync();
-        db.RecoveryEntries.Add(_recovery);
-        await db.SaveChangesAsync();
+        var data = new RecoveryData(
+            DateOnly.FromDateTime(_date),
+            _recovery.RecoveryRating,
+            _recovery.FatigueRating,
+            FitRecoveryLog.Domain.Common.Tags.FromCsv(CsvField.Join(_soreLocs)),
+            (FitRecoveryLog.Domain.Recovery.SorenessSeverity)(int)_recovery.SorenessSeverity,
+            _recovery.Notes);
+        var result = await RecoverySvc.CreateAsync(data);
+        if (!result.IsSuccess) { _recoveryWarn = result.Error; return; }
 
         _recovery = new RecoveryEntry();
         _soreLocs.Clear();

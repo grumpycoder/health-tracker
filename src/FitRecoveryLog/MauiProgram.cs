@@ -68,6 +68,16 @@ public static class MauiProgram
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.MealService>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.IDrinkRepository, FitRecoveryLog.Infrastructure.Nutrition.EfDrinkRepository>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.DrinkService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Recovery.ISleepRepository, FitRecoveryLog.Infrastructure.Recovery.EfSleepRepository>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Recovery.SleepService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Recovery.IRecoveryRepository, FitRecoveryLog.Infrastructure.Recovery.EfRecoveryRepository>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Recovery.RecoveryService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Meds.IMedicationRepository, FitRecoveryLog.Infrastructure.Meds.EfMedicationRepository>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Meds.MedicationService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Labs.ILabRepository, FitRecoveryLog.Infrastructure.Labs.EfLabRepository>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Labs.LabService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Notes.INoteRepository, FitRecoveryLog.Infrastructure.Notes.EfNoteRepository>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Notes.NoteService>();
 
 #if IOS || MACCATALYST
 		// Silent sync when the app returns to the foreground (in addition to the launch

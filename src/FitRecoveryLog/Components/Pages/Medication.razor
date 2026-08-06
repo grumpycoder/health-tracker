@@ -1,5 +1,9 @@
 @page "/medication"
+@using FitRecoveryLog.Application.Meds
+@using FitRecoveryLog.Application.Labs
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject MedicationService MedSvc
+@inject LabService LabSvc
 @inject FitRecoveryLog.Services.ToastService Toast
 
 <PageTitle>Medication & Labs</PageTitle>
@@ -394,23 +398,17 @@
     private async Task SaveMedEdit()
     {
         if (_editMedId is not { } id) return;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.MedicationEntries.FindAsync(id);
-        if (e is not null)
-        {
-            e.Name = _medEdit.Name; e.Dose = _medEdit.Dose; e.Frequency = _medEdit.Frequency;
-            e.TakenAt = _medEditTakenAt; e.InjectionSite = _medEdit.InjectionSite; e.ReactionNotes = _medEdit.ReactionNotes;
-            await db.SaveChangesAsync();
-        }
+        _medEdit.TakenAt = _medEditTakenAt;
+        var result = await MedSvc.UpdateAsync(id, MedToData(_medEdit));
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         _editMedId = null;
         await LoadRecent();
     }
 
     private async Task DeleteMed(MedicationEntry m)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.MedicationEntries.FindAsync(m.Id);
-        if (e is not null) { db.MedicationEntries.Remove(e); await db.SaveChangesAsync(); }
+        var result = await MedSvc.DeleteAsync(m.Id);
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         if (_editMedId == m.Id) _editMedId = null;
         await LoadRecent();
     }
@@ -419,30 +417,23 @@
     {
         _editMedId = null;
         _editLabId = l.Id;
-        _labEdit = new LabResult { LabName = l.LabName, Value = l.Value, Unit = l.Unit };
+        _labEdit = new LabResult { LabName = l.LabName, Value = l.Value, Unit = l.Unit, Notes = l.Notes };
         _labEditDate = l.Date.ToDateTime(TimeOnly.MinValue);
     }
 
     private async Task SaveLabEdit()
     {
         if (_editLabId is not { } id) return;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.LabResults.FindAsync(id);
-        if (e is not null)
-        {
-            e.LabName = _labEdit.LabName; e.Value = _labEdit.Value; e.Unit = _labEdit.Unit;
-            e.Date = DateOnly.FromDateTime(_labEditDate);
-            await db.SaveChangesAsync();
-        }
+        var result = await LabSvc.UpdateAsync(id, LabToData(_labEdit, DateOnly.FromDateTime(_labEditDate)));
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         _editLabId = null;
         await LoadRecent();
     }
 
     private async Task DeleteLab(LabResult l)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.LabResults.FindAsync(l.Id);
-        if (e is not null) { db.LabResults.Remove(e); await db.SaveChangesAsync(); }
+        var result = await LabSvc.DeleteAsync(l.Id);
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
         if (_editLabId == l.Id) _editLabId = null;
         await LoadRecent();
     }
@@ -452,9 +443,8 @@
         if (string.IsNullOrWhiteSpace(_med.Name)) { _medWarn = "Enter a medication name."; _medSaved = false; return; }
         _medWarn = null;
         _med.TakenAt = _takenAt;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        db.MedicationEntries.Add(_med);
-        await db.SaveChangesAsync();
+        var result = await MedSvc.CreateAsync(MedToData(_med));
+        if (!result.IsSuccess) { _medWarn = result.Error; _medSaved = false; return; }
 
         _medSaved = true;
         _med = new MedicationEntry();
@@ -469,15 +459,20 @@
             _labWarn = "Enter a lab name and value."; _labSaved = false; return;
         }
         _labWarn = null;
-        _lab.Date = DateOnly.FromDateTime(_labDate);
-        await using var db = await DbFactory.CreateDbContextAsync();
-        db.LabResults.Add(_lab);
-        await db.SaveChangesAsync();
+        var result = await LabSvc.CreateAsync(LabToData(_lab, DateOnly.FromDateTime(_labDate)));
+        if (!result.IsSuccess) { _labWarn = result.Error; _labSaved = false; return; }
 
         _labSaved = true;
         _lab = new LabResult();
         await LoadRecent();
     }
+
+    // Bridge the form/display POCOs to the aggregates' save DTOs (schedules/reads keep EF).
+    private static MedicationDoseData MedToData(MedicationEntry e) =>
+        new(e.TakenAt, e.Name, e.Dose, e.Frequency, e.InjectionSite, e.ReactionNotes);
+
+    private static LabData LabToData(LabResult l, DateOnly date) =>
+        new(date, l.LabName, l.Value, l.Unit, l.Notes);
 
     private async Task LoadRecent()
     {
@@ -576,27 +571,24 @@
 
     private async Task LogSchedule(MedicationSchedule sc, string? site)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
         // If this is a site change on the dose we just logged, update it in place
-        // (don't create a second entry).
-        if (_lastLoggedMedId is { } id && await db.MedicationEntries.FindAsync(id) is { } existing)
+        // (don't create a second entry). _recentMeds carries the just-logged dose's fields.
+        if (_lastLoggedMedId is { } id && _recentMeds.FirstOrDefault(m => m.Id == id) is { } existing)
         {
-            existing.InjectionSite = site;
-            await db.SaveChangesAsync();
+            var data = new MedicationDoseData(existing.TakenAt, existing.Name, existing.Dose,
+                existing.Frequency, site, existing.ReactionNotes);
+            var res = await MedSvc.UpdateAsync(id, data);
+            if (!res.IsSuccess) { _ = Toast.Show(res.Error!); return; }
             _suggestedSite = site;
             await LoadRecent();
             _ = Toast.Show($"Site updated — {site}");
         }
         else
         {
-            var entry = new MedicationEntry
-            {
-                Name = sc.Name, Dose = sc.Dose, Frequency = sc.Repeat.ToString(),
-                TakenAt = DateTime.Now, InjectionSite = site
-            };
-            db.MedicationEntries.Add(entry);
-            await db.SaveChangesAsync();
-            _lastLoggedMedId = entry.Id;
+            var data = new MedicationDoseData(DateTime.Now, sc.Name, sc.Dose, sc.Repeat.ToString(), site, null);
+            var res = await MedSvc.CreateAsync(data);
+            if (!res.IsSuccess) { _ = Toast.Show(res.Error!); return; }
+            _lastLoggedMedId = res.Value;
             await LoadRecent();
             _ = Toast.Show(string.IsNullOrWhiteSpace(site) ? $"Logged ✓ {sc.Name}" : $"Logged ✓ {sc.Name} — {site}");
         }

@@ -1,7 +1,9 @@
 @page "/"
 @using FitRecoveryLog.Services
+@using FitRecoveryLog.Application.Notes
 @implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject NoteService NoteSvc
 @inject NavigationManager Nav
 @inject IHealthService Health
 @inject IJSRuntime JS
@@ -378,18 +380,17 @@
     {
         var text = _noteText.Trim();
         if (text.Length == 0) return;
-        await using var db = await DbFactory.CreateDbContextAsync();
-        db.NoteEntries.Add(new NoteEntry { Time = DateTime.Now, Text = text });
-        await db.SaveChangesAsync();
+        var result = await NoteSvc.AddAsync(DateTime.Now, text);
+        if (!result.IsSuccess) return;
         _noteText = "";
+        await using var db = await DbFactory.CreateDbContextAsync();
         await LoadNotes(db);
     }
 
     private async Task DeleteNote(NoteEntry n)
     {
+        await NoteSvc.DeleteAsync(n.Id);
         await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.NoteEntries.FindAsync(n.Id);
-        if (e is not null) { db.NoteEntries.Remove(e); await db.SaveChangesAsync(); }
         await LoadNotes(db);
     }
 
