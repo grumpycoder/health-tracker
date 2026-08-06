@@ -1,6 +1,7 @@
 @page "/meals"
 @using FitRecoveryLog.Services
 @using FitRecoveryLog.Application.Nutrition
+@using FitRecoveryLog.Application.Ai
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject MealService MealSvc
 @inject DrinkService DrinkSvc
@@ -557,14 +558,14 @@
     private bool _captureSupported;
     private bool _scanBusy;
     private string? _scanMsg;
-    private GeminiAnalyzer.NutritionFacts? _scan;   // values under review
+    private NutritionFacts? _scan;   // values under review
     private double _scanServings = 1;
     private bool _scanIsEstimate;                   // true = plate estimate, false = label read
     private byte[]? _plateJpeg;                     // plate photo kept in-memory for re-estimate
     private string _plateHint = "";                 // user correction fed back to the estimator
     // Drink label-scan state (separate from the meal scan). Drinks scale by ounces
     // drunk ÷ label serving-size ounces, not a manual serving count.
-    private GeminiAnalyzer.NutritionFacts? _drinkScan;
+    private NutritionFacts? _drinkScan;
     private double? _drinkScanServingOz;
     private string? _drinkScanMsg;
 
@@ -793,7 +794,7 @@
 
     /// <summary>Pre-select the suggested tags on a box and carry over the star rating.
     /// Shared by the ✨ suggester and the photo scans.</summary>
-    private void ApplySuggestionToBox(TagBox box, List<string> options, GeminiAnalyzer.TagSuggestion s)
+    private void ApplySuggestionToBox(TagBox box, List<string> options, TagSuggestion s)
     {
         foreach (var t in s.Known) box.Selected.Add(Canonical(t, options));
         // Drop a proposed tag that only differs in case from an existing option or an
@@ -845,7 +846,7 @@
     private bool _hasAiKey, _adviceBusy;
     private string _considering = "";
     private string? _adviceError;
-    private GeminiAnalyzer.MealAdvice? _mealAdvice;
+    private MealAdvice? _mealAdvice;
 
     protected override async Task OnInitializedAsync()
     {

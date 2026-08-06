@@ -1,6 +1,7 @@
 @page "/"
 @using FitRecoveryLog.Services
 @using FitRecoveryLog.Application.Notes
+@using FitRecoveryLog.Application.Ai
 @implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NoteService NoteSvc
@@ -245,7 +246,7 @@
 
     // Daily AI check-in (cached per calendar day).
     private bool _hasAiKey, _dailyBusy;
-    private GeminiAnalyzer.DailyCheck? _daily;
+    private DailyCheck? _daily;
     private string? _dailyWhen, _dailyError;
 
     // Collapsed state persists across launches.

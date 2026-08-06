@@ -204,8 +204,6 @@ public static class GeminiAnalyzer
         return sb.ToString();
     }
 
-    public sealed record DailyCheck(string Tone, string Synopsis, List<string> Tips);
-
     /// <summary>Builds the "how am I doing today" prompt from TODAY's data only
     /// (meals/drinks, last night's sleep, workout, workload, plan — never meds/labs/notes).</summary>
     public static async Task<string> BuildDailyPromptAsync(AppDbContext db)
@@ -368,8 +366,6 @@ public static class GeminiAnalyzer
         }
     }
 
-    public sealed record MealAdvice(string Verdict, string Reason, string? RestaurantAlt, string? HomemadeAlt);
-
     /// <summary>Builds the pre-meal "I'm thinking about…" prompt: the considered
     /// item judged against today's full context and the user's goals.</summary>
     public static async Task<string> BuildMealAdvicePromptAsync(AppDbContext db, string considering)
@@ -442,10 +438,6 @@ public static class GeminiAnalyzer
             return new("mixed", text.Trim(), new());
         }
     }
-
-    public sealed record SuggestedExercise(string Name, bool IsNew, string? Muscles, string Measure,
-        int Sets, int? Reps, int? DurationSeconds, int? RestSeconds);
-    public sealed record RoutineSuggestion(string Name, string Rationale, List<SuggestedExercise> Exercises);
 
     /// <summary>Muscle groups the app tags exercises with — must match the Exercise
     /// Library picker so the model uses consistent names.</summary>
@@ -615,8 +607,6 @@ public static class GeminiAnalyzer
             e.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : null;
     }
 
-    public sealed record WorkloadSuggestion(string? Intensity, List<string> Areas, bool WorthLogging, string? Note);
-
     /// <summary>Advises on one physical-workload entry: intensity, affected body areas,
     /// and whether it's even worth logging (trivial chores are recovery noise).</summary>
     public static async Task<WorkloadSuggestion> SuggestWorkloadAsync(string apiKey, string activity,
@@ -655,8 +645,6 @@ public static class GeminiAnalyzer
             return new(null, new(), true, null);
         }
     }
-
-    public sealed record TagSuggestion(List<string> Known, string? Proposed, int? Stars, string? StarReason);
 
     /// <summary>Suggests tags for one meal from its free-text description (meal text is
     /// already part of the analysis payloads, so this sends no new data category).
@@ -771,32 +759,6 @@ public static class GeminiAnalyzer
         Enum.GetNames<MealType>().Any(t => tag.Contains(t, StringComparison.OrdinalIgnoreCase))
         || new[] { "meal", "drink", "morning", "evening", "late night" }
             .Any(w => tag.Equals(w, StringComparison.OrdinalIgnoreCase));
-
-    public sealed record ExerciseAdvice(string Name, string Action, string? Target);
-    public sealed record AiOutcome(string Analysis, List<ExerciseAdvice> Exercises, List<string> TopActions,
-        List<string> MealFlags, string? BodyTrendStatus, string? BodyTrendNote);
-
-    /// <summary>Macros from a photo — either read off a Nutrition Facts label
-    /// (per serving, exact) or estimated from a plate of food (whole plate, rough).
-    /// Mutable so the UI can bind an editable review form to it.</summary>
-    public sealed class NutritionFacts
-    {
-        public string? ServingSize { get; set; }
-        public int? Calories { get; set; }
-        public double? ProteinG { get; set; }
-        public double? CarbsG { get; set; }
-        public double? SugarG { get; set; }
-        public double? FatG { get; set; }
-        public int? SodiumMg { get; set; }
-        public double? FiberG { get; set; }
-        public double? AddedSugarG { get; set; }
-        /// <summary>Foods the AI identified on the plate (plate-estimate mode only).</summary>
-        public string? FoodDescription { get; set; }
-    }
-
-    /// <summary>Macros plus tags/star rating from one photo scan — a single AI call
-    /// instead of scan-then-suggest.</summary>
-    public sealed record MealScan(NutritionFacts Facts, TagSuggestion Tags);
 
     private static NutritionFacts ParseFacts(JsonElement r)
     {
@@ -942,7 +904,7 @@ public static class AiAdviceStore
 {
     private static Microsoft.Maui.Storage.IPreferences Prefs => Microsoft.Maui.Storage.Preferences.Default;
 
-    public static void Save(GeminiAnalyzer.AiOutcome outcome, string when)
+    public static void Save(AiOutcome outcome, string when)
     {
         Prefs.Set("ai_last_result", outcome.Analysis);
         Prefs.Set("ai_last_when", when);
@@ -974,13 +936,13 @@ public static class AiAdviceStore
         (Prefs.Get<string?>("ai_last_result", null), Prefs.Get<string?>("ai_last_when", null));
 
     /// <summary>Per-exercise advice keyed by exercise name (case-insensitive).</summary>
-    public static Dictionary<string, GeminiAnalyzer.ExerciseAdvice> LoadExercises()
+    public static Dictionary<string, ExerciseAdvice> LoadExercises()
     {
         try
         {
             var json = Prefs.Get<string?>("ai_exercises", null);
             if (json is null) return new(StringComparer.OrdinalIgnoreCase);
-            var list = JsonSerializer.Deserialize<List<GeminiAnalyzer.ExerciseAdvice>>(json) ?? new();
+            var list = JsonSerializer.Deserialize<List<ExerciseAdvice>>(json) ?? new();
             return list.GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
         }
@@ -998,7 +960,7 @@ public static class AiAdviceStore
     }
 
     // ---- Daily check-in cache (one per calendar day) -----------------------------
-    public static void SaveDaily(GeminiAnalyzer.DailyCheck check, string when)
+    public static void SaveDaily(DailyCheck check, string when)
     {
         Prefs.Set("ai_daily_date", DateTime.Now.ToString("yyyy-MM-dd"));
         Prefs.Set("ai_daily_when", when);
@@ -1008,7 +970,7 @@ public static class AiAdviceStore
     }
 
     /// <summary>Today's cached check-in, or null if none was run today.</summary>
-    public static (GeminiAnalyzer.DailyCheck Check, string When)? LoadDaily()
+    public static (DailyCheck Check, string When)? LoadDaily()
     {
         if (Prefs.Get("ai_daily_date", "") != DateTime.Now.ToString("yyyy-MM-dd")) return null;
         try

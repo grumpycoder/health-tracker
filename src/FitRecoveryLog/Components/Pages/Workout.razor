@@ -1,6 +1,7 @@
 @page "/workout"
 @using FitRecoveryLog.Services
 @using FitRecoveryLog.Application.Workouts
+@using FitRecoveryLog.Application.Ai
 @implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject WorkoutService WorkoutSvc
@@ -404,7 +405,7 @@ else // Feedback
     }
 
     // Latest AI per-exercise suggestions (empty until an analysis is run).
-    private Dictionary<string, GeminiAnalyzer.ExerciseAdvice> _advice = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, ExerciseAdvice> _advice = new(StringComparer.OrdinalIgnoreCase);
 
     protected override async Task OnInitializedAsync()
     {

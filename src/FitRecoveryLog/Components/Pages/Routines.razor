@@ -1,6 +1,7 @@
 @page "/routines"
 @using FitRecoveryLog.Services
 @using FitRecoveryLog.Application.Workouts
+@using FitRecoveryLog.Application.Ai
 @implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject RoutineService RoutineSvc
@@ -415,15 +416,15 @@
     }
 
     // Latest AI per-exercise suggestions (empty until an analysis is run).
-    private Dictionary<string, GeminiAnalyzer.ExerciseAdvice> _advice = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, ExerciseAdvice> _advice = new(StringComparer.OrdinalIgnoreCase);
 
     // AI routine generation state.
     private bool _hasAiKey, _aiBusy;
     private bool _aiBodyweightOnly = true;
     private string _aiHint = "";
     private string? _aiError, _aiNote;
-    private GeminiAnalyzer.RoutineSuggestion? _aiDraft;
-    private List<GeminiAnalyzer.SuggestedExercise> _aiExercises = new();
+    private RoutineSuggestion? _aiDraft;
+    private List<SuggestedExercise> _aiExercises = new();
 
     protected override async Task OnInitializedAsync()
     {
