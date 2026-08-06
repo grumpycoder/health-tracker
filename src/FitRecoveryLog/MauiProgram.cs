@@ -62,6 +62,8 @@ public static class MauiProgram
 		// + the Keychain-backed key store. The key lives behind the port; callers never pass it.
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.ILlmKeyStore, FitRecoveryLog.Services.SecureLlmKeyStore>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.ILlmClient, FitRecoveryLog.Infrastructure.Ai.GeminiLlmClient>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.IAiSettings, FitRecoveryLog.Services.MauiAiSettings>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.IAiCoach, FitRecoveryLog.Application.Ai.AiCoach>();
 
 		// Clean Architecture: application use cases over real (EF) repositories.
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Workouts.IRoutineRepository, FitRecoveryLog.Infrastructure.Workouts.EfRoutineRepository>();

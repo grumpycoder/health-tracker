@@ -17,6 +17,9 @@ public sealed class GeminiLlmClient : ILlmClient
     private readonly ILlmKeyStore _keys;
     public GeminiLlmClient(ILlmKeyStore keys) => _keys = keys;
 
+    public async Task<bool> IsConfiguredAsync(CancellationToken ct = default) =>
+        !string.IsNullOrWhiteSpace(await _keys.GetAsync());
+
     public async Task<string?> GenerateJsonAsync(string prompt, byte[]? imageJpeg = null, CancellationToken ct = default)
     {
         var apiKey = await _keys.GetAsync();

@@ -5,6 +5,7 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject MealService MealSvc
 @inject DrinkService DrinkSvc
+@inject IAiCoach AiCoach
 @inject NavigationManager Nav
 @inject ToastService Toast
 
@@ -776,10 +777,8 @@
         box.Note = null;
         try
         {
-            var key = await GeminiAnalyzer.KeyStore.GetAsync()
-                      ?? throw new InvalidOperationException("No API key");
             var macros = macroSource is null ? null : MacroLine(macroSource) is { Length: > 0 } ml ? ml.Replace("🏷 ", "") : null;
-            var s = await GeminiAnalyzer.SuggestMealTagsAsync(key, mealType, desc, portion, options, macros);
+            var s = await AiCoach.SuggestMealTagsAsync(mealType, desc, portion, options, macros);
             ApplySuggestionToBox(box, options, s);
             if (s.Known.Count == 0 && box.Proposed is null) box.Note = "No tags suggested.";
         }
@@ -851,7 +850,7 @@
     protected override async Task OnInitializedAsync()
     {
         _mealFlags = AiAdviceStore.LoadMealFlags();
-        _hasAiKey = !string.IsNullOrEmpty(await GeminiAnalyzer.KeyStore.GetAsync());
+        _hasAiKey = await AiCoach.IsConfiguredAsync();
         try { _captureSupported = Microsoft.Maui.Media.MediaPicker.Default.IsCaptureSupported; } catch { }
         if (string.Equals(Tab, "log", StringComparison.OrdinalIgnoreCase)) _tab = "today";
         await LoadToday();
@@ -887,8 +886,7 @@
         {
             var jpeg = await CapturePhotoAsync(camera);
             if (jpeg is null) { _scanBusy = false; return; } // cancelled
-            var key = await GeminiAnalyzer.KeyStore.GetAsync() ?? throw new InvalidOperationException("No API key");
-            var result = await GeminiAnalyzer.ReadNutritionLabelAsync(key, jpeg, _mealTagOptions);
+            var result = await AiCoach.ReadNutritionLabelAsync(jpeg, _mealTagOptions);
             var facts = result?.Facts;
             if (facts is null || (facts.Calories is null && facts.SugarG is null && facts.ProteinG is null))
                 _scanMsg = "Couldn't read a nutrition label from that photo — try again or enter macros by hand.";
@@ -936,8 +934,7 @@
     /// discard/save (never written to disk).</summary>
     private async Task RunPlateEstimate(byte[] jpeg)
     {
-        var key = await GeminiAnalyzer.KeyStore.GetAsync() ?? throw new InvalidOperationException("No API key");
-        var result = await GeminiAnalyzer.EstimateMealFromPhotoAsync(key, jpeg, _mealTagOptions,
+        var result = await AiCoach.EstimateMealFromPhotoAsync(jpeg, _mealTagOptions,
             string.IsNullOrWhiteSpace(_plateHint) ? null : _plateHint);
         var facts = result?.Facts;
         if (facts is null || (facts.Calories is null && facts.ProteinG is null && facts.CarbsG is null))
@@ -1015,8 +1012,7 @@
         {
             var jpeg = await CapturePhotoAsync(camera);
             if (jpeg is null) { _scanBusy = false; return; } // cancelled
-            var key = await GeminiAnalyzer.KeyStore.GetAsync() ?? throw new InvalidOperationException("No API key");
-            var result = await GeminiAnalyzer.ReadNutritionLabelAsync(key, jpeg, _drinkTagOptions);
+            var result = await AiCoach.ReadNutritionLabelAsync(jpeg, _drinkTagOptions);
             var facts = result?.Facts;
             if (facts is null || (facts.Calories is null && facts.SugarG is null && facts.ProteinG is null))
                 _drinkScanMsg = "Couldn't read a nutrition label from that photo — try again or enter by hand.";

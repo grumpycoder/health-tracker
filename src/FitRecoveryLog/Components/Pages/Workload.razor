@@ -1,6 +1,8 @@
 @page "/workload"
 @using FitRecoveryLog.Services
+@using FitRecoveryLog.Application.Ai
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject IAiCoach AiCoach
 @inject ToastService Toast
 
 <PageTitle>Physical Workload</PageTitle>
@@ -155,7 +157,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _hasAiKey = !string.IsNullOrEmpty(await GeminiAnalyzer.KeyStore.GetAsync());
+        _hasAiKey = await AiCoach.IsConfiguredAsync();
         await LoadRecent();
     }
 
@@ -168,9 +170,7 @@
         StateHasChanged();
         try
         {
-            var key = await GeminiAnalyzer.KeyStore.GetAsync()
-                ?? throw new InvalidOperationException("No API key set.");
-            var s = await GeminiAnalyzer.SuggestWorkloadAsync(key, activity, _entry.DurationMinutes, _entry.Notes, BodyAreas);
+            var s = await AiCoach.SuggestWorkloadAsync(activity, _entry.DurationMinutes, _entry.Notes, BodyAreas);
             if (Enum.TryParse<Intensity>(s.Intensity, true, out var intensity))
                 _entry.Intensity = intensity;
             if (s.Areas.Count > 0)

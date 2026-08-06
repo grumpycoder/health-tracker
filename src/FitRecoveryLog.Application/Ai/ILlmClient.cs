@@ -9,6 +9,10 @@ namespace FitRecoveryLog.Application.Ai;
 /// </summary>
 public interface ILlmClient
 {
+    /// <summary>Whether the provider is ready to use (e.g. the phone has an API key; a server
+    /// proxy is always ready). Drives whether the UI offers AI features.</summary>
+    Task<bool> IsConfiguredAsync(CancellationToken ct = default);
+
     /// <summary>Send a prompt — optionally with a JPEG image for vision — and return the model's
     /// JSON text response. Throws <see cref="InvalidOperationException"/> when the provider isn't
     /// configured (no key) or returns an error.</summary>
