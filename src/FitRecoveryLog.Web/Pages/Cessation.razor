@@ -1,0 +1,146 @@
+@page "/cessation"
+@using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Data
+@attribute [Authorize]
+@inject AppState State
+@inject WebSyncClient Sync
+
+<PageTitle>Cessation — Fit Log</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Cessation</div>
+        <div class="dash-date-sub">Quitting a habit — streaks are derived; a slip never erases progress</div>
+    </header>
+
+    @if (_loading)
+    {
+        <section class="card"><p class="muted">Loading…</p></section>
+    }
+    else if (_error is not null)
+    {
+        <section class="card"><p class="warn-msg" style="margin:0">@_error</p><button class="save-btn" @onclick="Load">Retry</button></section>
+    }
+    else
+    {
+        <div class="routine-head">
+            <h2 style="margin:0;color:var(--text)">Goals</h2>
+            <button class="link-btn" @onclick="AddNew" disabled="@(_edit is not null)">+ Add goal</button>
+        </div>
+
+        @if (_edit is not null)
+        {
+            <section class="card">
+                <div class="field"><label>Substance / habit</label><input @bind="_edit.Substance" placeholder="e.g. Cigarettes" /></div>
+                <div class="inline-fields">
+                    <div class="field"><label>Quit date</label><input type="date" @bind="_quitDate" /></div>
+                    <div class="field"><label>Baseline / day</label><input type="number" step="0.1" @bind="_edit.BaselineUnitsPerDay" /></div>
+                    <div class="field"><label>Unit name</label><input @bind="_edit.UnitName" placeholder="cigarette" /></div>
+                </div>
+                <div class="inline-fields">
+                    <div class="field"><label>Cost per unit ($)</label><input type="number" step="0.01" @bind="_edit.CostPerUnit" /></div>
+                    <div class="field"><label>Focus trigger</label><input @bind="_edit.FocusTrigger" placeholder="the one you're breaking" /></div>
+                </div>
+                <label class="chip-row" style="align-items:center;gap:0.5rem"><input type="checkbox" @bind="_edit.Active" /> <span>Active</span></label>
+                <div class="routine-actions">
+                    <button class="save-btn" @onclick="SaveGoal" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
+                    <button class="link-btn" @onclick="() => _edit = null" disabled="@_busy">Cancel</button>
+                </div>
+            </section>
+        }
+
+        @if (_goals.Count(g => g.Active) == 0 && _edit is null) { <section class="card"><p class="muted">No active goals.</p></section> }
+
+        @foreach (var g in _goals.Where(x => x.Active).OrderBy(x => x.Substance))
+        {
+            var daysQuit = Today.DayNumber - g.QuitDate.DayNumber;
+            var slips = _events.Where(e => e.GoalId == g.Id && e.Type == CessationEventType.Slip).ToList();
+            var lastSlip = slips.OrderByDescending(e => e.Time).FirstOrDefault();
+            <section class="card">
+                <div class="routine-head">
+                    <h2 style="margin:0;color:var(--text)">🚭 @g.Substance</h2>
+                    <button class="icon-action" title="Edit" @onclick="() => Edit(g)">✏️</button>
+                </div>
+                <p class="muted" style="margin:0.3rem 0 0.6rem">
+                    @(daysQuit >= 0 ? $"{daysQuit} day(s) quit" : $"quit date {g.QuitDate:MMM d}") ·
+                    @(lastSlip is null ? "no slips ✨" : $"{Today.DayNumber - DateOnly.FromDateTime(lastSlip.Time).DayNumber}d since last slip")
+                    @if (Savings(g, slips.Count) is { } saved) { <text> · @saved.ToString("C0") saved</text> }
+                </p>
+                <div class="chip-row">
+                    <button class="chip" disabled="@_busy" @onclick="() => LogEvent(g, CessationEventType.Craving)">Rode out a craving</button>
+                    <button class="chip" disabled="@_busy" @onclick="() => LogEvent(g, CessationEventType.Slip)">Log a slip</button>
+                </div>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    private bool _loading = true, _busy;
+    private string? _error;
+    private List<CessationGoal> _goals = new();
+    private List<CessationEvent> _events = new();
+    private CessationGoal? _edit;
+    private DateTime _quitDate = DateTime.Today;
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true; _error = null;
+        try
+        {
+            var pull = await State.DataAsync();
+            _goals = WebSyncClient.Rows<CessationGoal>(pull);
+            _events = WebSyncClient.Rows<CessationEvent>(pull);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private static double? Savings(CessationGoal g, int slipCount)
+    {
+        var daysQuit = Today.DayNumber - g.QuitDate.DayNumber;
+        if (g.BaselineUnitsPerDay is not { } perDay || g.CostPerUnit is not { } cost || daysQuit <= 0) return null;
+        var unitCost = g.UnitsPerPack is { } p && p > 0 ? cost / p : cost;
+        return Math.Max(0, (daysQuit * perDay - slipCount) * unitCost);
+    }
+
+    private void AddNew() { _edit = new CessationGoal { Active = true, QuitDate = Today }; _quitDate = DateTime.Today; }
+    private void Edit(CessationGoal g) { _edit = WebSyncClient.Clone(g); _quitDate = g.QuitDate.ToDateTime(TimeOnly.MinValue); }
+
+    private async Task SaveGoal()
+    {
+        if (_edit is null || string.IsNullOrWhiteSpace(_edit.Substance)) return;
+        _busy = true;
+        try
+        {
+            _edit.Substance = _edit.Substance.Trim();
+            _edit.QuitDate = DateOnly.FromDateTime(_quitDate);
+            await Sync.PushAsync(_edit);
+            State.Invalidate();
+            _edit = null;
+            await Load();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task LogEvent(CessationGoal g, CessationEventType type)
+    {
+        _busy = true;
+        try
+        {
+            await Sync.PushAsync(new CessationEvent
+            {
+                GoalId = g.Id, Time = DateTime.Now, Type = type,
+                Amount = type == CessationEventType.Slip ? 1 : null,
+            });
+            State.Invalidate();
+            await Load();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+}

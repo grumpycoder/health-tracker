@@ -1,0 +1,124 @@
+@page "/workload"
+@using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Data
+@attribute [Authorize]
+@inject AppState State
+@inject WebSyncClient Sync
+
+<PageTitle>Physical Workload — Fit Log</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Physical Workload</div>
+        <div class="dash-date-sub">Non-workout activity that taxes the body (yard work, moving, travel)</div>
+    </header>
+
+    @if (_loading)
+    {
+        <section class="card"><p class="muted">Loading…</p></section>
+    }
+    else if (_error is not null)
+    {
+        <section class="card"><p class="warn-msg" style="margin:0">@_error</p><button class="save-btn" @onclick="Load">Retry</button></section>
+    }
+    else
+    {
+        <div class="routine-head">
+            <h2 style="margin:0;color:var(--text)">Log</h2>
+            <button class="link-btn" @onclick="AddNew" disabled="@(_edit is not null)">+ Add</button>
+        </div>
+
+        @if (_edit is not null)
+        {
+            <section class="card">
+                <div class="inline-fields">
+                    <div class="field"><label>Date</label><input type="date" @bind="_date" /></div>
+                    <div class="field"><label>Duration (min)</label><input type="number" @bind="_edit.DurationMinutes" /></div>
+                    <div class="field"><label>Intensity</label>
+                        <select @bind="_edit.Intensity">@foreach (var v in Enum.GetValues<Intensity>()) { <option value="@v">@v</option> }</select>
+                    </div>
+                </div>
+                <div class="field"><label>Activity</label><input @bind="_edit.Activity" placeholder="e.g. Mowed the lawn" /></div>
+                <div class="field"><label>Body areas (comma-separated)</label><input @bind="_edit.BodyAreasAffected" placeholder="Lower back, Shoulders" /></div>
+                <div class="field"><label>Notes</label><textarea rows="2" @bind="_edit.Notes"></textarea></div>
+                <div class="routine-actions">
+                    <button class="save-btn" @onclick="Save" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
+                    <button class="link-btn" @onclick="() => _edit = null" disabled="@_busy">Cancel</button>
+                    @if (_isEdit) { <button class="link-btn danger" style="margin-left:auto" @onclick="Delete" disabled="@_busy">Delete</button> }
+                </div>
+            </section>
+        }
+
+        <section class="card">
+            @if (_items.Count == 0) { <p class="muted">Nothing logged yet.</p> }
+            <ul class="timeline">
+                @foreach (var w in _items.OrderByDescending(x => x.Date))
+                {
+                    <li>
+                        <div>
+                            <span class="time">@w.Date.ToString("MMM d, yyyy")</span>
+                            <span class="entry">@w.Activity
+                                <span class="muted"> · @w.Intensity@(w.DurationMinutes is { } m ? $" · {m} min" : "")</span>
+                                @if (w.BodyAreaList.Count > 0) { <span class="muted"> · @string.Join(", ", w.BodyAreaList)</span> }
+                            </span>
+                        </div>
+                        <div class="routine-actions"><button class="icon-action" title="Edit" @onclick="() => Edit(w)">✏️</button></div>
+                    </li>
+                }
+            </ul>
+        </section>
+    }
+</div>
+
+@code {
+    private bool _loading = true, _busy, _isEdit;
+    private string? _error;
+    private List<PhysicalWorkloadEntry> _items = new();
+    private PhysicalWorkloadEntry? _edit;
+    private DateTime _date = DateTime.Today;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true; _error = null;
+        try { _items = WebSyncClient.Rows<PhysicalWorkloadEntry>(await State.DataAsync()); }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private void AddNew() { _edit = new PhysicalWorkloadEntry { Date = DateOnly.FromDateTime(DateTime.Today) }; _date = DateTime.Today; _isEdit = false; }
+    private void Edit(PhysicalWorkloadEntry w) { _edit = WebSyncClient.Clone(w); _date = w.Date.ToDateTime(TimeOnly.MinValue); _isEdit = true; }
+
+    private async Task Save()
+    {
+        if (_edit is null || string.IsNullOrWhiteSpace(_edit.Activity)) return;
+        _busy = true;
+        try
+        {
+            _edit.Date = DateOnly.FromDateTime(_date);
+            await Sync.PushAsync(_edit);
+            State.Invalidate();
+            _edit = null;
+            await Load();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task Delete()
+    {
+        if (_edit is null) return;
+        _busy = true;
+        try
+        {
+            _edit.IsDeleted = true; _edit.DeletedAt = DateTime.UtcNow;
+            await Sync.PushAsync(_edit);
+            State.Invalidate();
+            _edit = null;
+            await Load();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+}
