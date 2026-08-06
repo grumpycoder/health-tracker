@@ -14,14 +14,123 @@ public sealed class AiCoach : IAiCoach
 {
     private readonly ILlmClient _llm;
     private readonly IAiSettings _settings;
+    private readonly IAiDataProvider _data;
 
-    public AiCoach(ILlmClient llm, IAiSettings settings)
+    public AiCoach(ILlmClient llm, IAiSettings settings, IAiDataProvider data)
     {
         _llm = llm;
         _settings = settings;
+        _data = data;
     }
 
     public Task<bool> IsConfiguredAsync(CancellationToken ct = default) => _llm.IsConfiguredAsync(ct);
+
+    public async Task<DailyCheck> DailyCheckAsync(CancellationToken ct = default)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("You are a supportive but honest health coach doing a quick mid-day check-in on one person's self-tracked day.");
+        sb.AppendLine("Respond with ONLY a JSON object:");
+        sb.AppendLine("""
+{
+  "tone": "good" | "mixed" | "poor",
+  "synopsis": "<2-3 sentences on how the day is going so far and the likely reasons — e.g. possible bloating from high-sodium restaurant food, sugary drinks adding up, short sleep dragging energy, solid workout done. Encouraging when earned, direct when not.>",
+  "tips": ["<up to 3 short, actionable suggestions for the REST of today>"]
+}
+""");
+        sb.AppendLine("Consider meal quality/timing, sugary drinks, sleep duration and score, whether a workout happened on a workout day, and physical workload — but JUDGE IN CONTEXT:");
+        sb.AppendLine("- Use TODAY'S NOTES for circumstances (travel, events, busy days). A fast-food dinner on a day spent out running errands is life, not failure.");
+        sb.AppendLine("- Use LAST 7 DAYS to tell one-off indulgences from patterns. A single off-plan meal in an otherwise solid stretch gets a light touch ('enjoy it, back to normal tomorrow'); direct warnings are for things repeating across several days.");
+        sb.AppendLine("- Judge the FOOD, not the venue. A grilled chicken sandwich from a drive-thru is a reasonable protein choice, not a lapse; a burger-and-fries combo is different. Don't penalize 'restaurant/fast food' as a category — eating-out sodium is worth one mention only when frequent.");
+        sb.AppendLine("- Zero-sugar drinks (Coke Zero, diet soda, sugar-free) are NOT sugary drinks — taste variety, not a concern.");
+        sb.AppendLine("- Keep sugar in PROPORTION: a single small treat/dessert (roughly ≤15g sugar) in an otherwise fine day is normal — don't flag it or suggest 'less sugar'. A banana has ~14g. Only raise sugar when a day's total is genuinely high or it's a daily pattern.");
+        AppendUserGoals(sb);
+        AppendMacroGoalTargets(sb, _settings.MacroTargets);
+        sb.AppendLine("If little is logged yet, say so and suggest what to log.");
+        sb.AppendLine();
+        sb.Append(await _data.GetTodayContextAsync(_settings.IncludeCessationData, ct));
+
+        var text = await _llm.GenerateJsonAsync(sb.ToString(), ct: ct);
+        if (string.IsNullOrWhiteSpace(text))
+            return new("mixed", "The AI returned an empty response.", new());
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            var tone = root.TryGetProperty("tone", out var t) ? t.GetString()?.ToLowerInvariant() ?? "mixed" : "mixed";
+            var synopsis = root.TryGetProperty("synopsis", out var s) ? s.GetString() ?? "" : text;
+            var tips = new List<string>();
+            if (root.TryGetProperty("tips", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                tips.AddRange(arr.EnumerateArray().Select(x => x.GetString())
+                    .Where(x => !string.IsNullOrWhiteSpace(x))!.Cast<string>());
+            return new(tone, synopsis.Trim(), tips);
+        }
+        catch (JsonException)
+        {
+            return new("mixed", text.Trim(), new());
+        }
+    }
+
+    public async Task<MealAdvice?> AdviseMealAsync(string considering, CancellationToken ct = default)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("You are a pragmatic nutrition coach. The user is deciding what to eat NEXT and is considering something specific.");
+        sb.AppendLine("Respond with ONLY a JSON object:");
+        sb.AppendLine("""
+{
+  "verdict": "good" | "fine" | "reconsider",
+  "reason": "<1-2 sentences grounded in TODAY's data and the user's goals, e.g. 'light on protein so far' or 'second restaurant meal today'>",
+  "restaurantAlternative": "<a similar-effort restaurant/fast-food option that fits better, or null if the considered choice is already solid>",
+  "homemadeAlternative": "<a quick homemade option, or null if homemade isn't realistic for the situation>"
+}
+""");
+        sb.AppendLine("Keep sugar in proportion — a small treat (~15g sugar or less) is normal (a banana has ~14g); " +
+                      "don't steer away from it unless the day's sugar is already high.");
+        sb.AppendLine("Rules: judge the FOOD, not the venue. Zero-sugar drinks are not a concern. Respect the user's " +
+                      "stated goals — never push toward ideals they haven't chosen. Alternatives must be realistic for " +
+                      "the same situation (on the road means no homemade — return null). Be brief and practical, not preachy.");
+        AppendUserGoals(sb);
+        sb.AppendLine();
+        sb.AppendLine($"CONSIDERING: \"{considering.Trim()}\"");
+        sb.AppendLine();
+        sb.Append(await _data.GetTodayContextAsync(_settings.IncludeCessationData, ct));
+
+        var text = await _llm.GenerateJsonAsync(sb.ToString(), ct: ct);
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            return new(
+                root.TryGetProperty("verdict", out var v) ? v.GetString()?.ToLowerInvariant() ?? "fine" : "fine",
+                root.TryGetProperty("reason", out var r) ? r.GetString() ?? "" : "",
+                root.TryGetProperty("restaurantAlternative", out var ra) ? ra.GetString() : null,
+                root.TryGetProperty("homemadeAlternative", out var ha) ? ha.GetString() : null);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static void AppendMacroGoalTargets(StringBuilder sb, MacroTargets t)
+    {
+        sb.AppendLine("DAILY MACRO/HYDRATION TARGETS (ranges are goals, not hard limits — a day slightly " +
+                      "under/over is fine; flag only consistent misses). Calories, carbs, and water have " +
+                      "separate rest-day and workout-day ranges — use the one matching today's day type:");
+        if (t.Protein.IsSet) sb.AppendLine($"  - Protein: {t.Protein.Min}-{t.Protein.Max} g");
+        if (t.Fat.IsSet) sb.AppendLine($"  - Fat: {t.Fat.Min}-{t.Fat.Max} g");
+        if (t.Fiber.IsSet) sb.AppendLine($"  - Fiber: {t.Fiber.Min}-{t.Fiber.Max} g");
+        sb.AppendLine($"  - Added sugar: stay under {t.AddedSugarMax} g (less is better)");
+        Split("Calories", t.CaloriesRest, t.CaloriesActive, "");
+        Split("Carbohydrates", t.CarbsRest, t.CarbsActive, " g");
+        Split("Fluids (all drinks)", t.WaterRest, t.WaterActive, " oz");
+
+        void Split(string label, MacroRange rest, MacroRange act, string unit)
+        {
+            if (rest.IsSet || act.IsSet)
+                sb.AppendLine($"  - {label}: rest-day {rest.Min}-{rest.Max}{unit}, workout-day {act.Min}-{act.Max}{unit}");
+        }
+    }
 
     public async Task<WorkloadSuggestion> SuggestWorkloadAsync(string activity, int? minutes, string? notes,
         IReadOnlyList<string> areaVocabulary, CancellationToken ct = default)

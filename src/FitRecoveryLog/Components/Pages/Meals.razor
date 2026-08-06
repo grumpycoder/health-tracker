@@ -1083,13 +1083,8 @@
         StateHasChanged();
         try
         {
-            var key = await GeminiAnalyzer.KeyStore.GetAsync()
-                ?? throw new InvalidOperationException("No API key set.");
-            string prompt;
-            await using (var db = await DbFactory.CreateDbContextAsync())
-                prompt = await GeminiAnalyzer.BuildMealAdvicePromptAsync(db, considering);
-            _mealAdvice = await GeminiAnalyzer.AdviseMealAsync(key, prompt)
-                ?? throw new InvalidOperationException("Gemini returned nothing usable — try again.");
+            _mealAdvice = await AiCoach.AdviseMealAsync(considering)
+                ?? throw new InvalidOperationException("The AI returned nothing usable — try again.");
         }
         catch (Exception ex)
         {

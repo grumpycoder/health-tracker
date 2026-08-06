@@ -5,6 +5,7 @@
 @implements IDisposable
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NoteService NoteSvc
+@inject IAiCoach AiCoach
 @inject NavigationManager Nav
 @inject IHealthService Health
 @inject IJSRuntime JS
@@ -265,12 +266,7 @@
         StateHasChanged();
         try
         {
-            var key = await GeminiAnalyzer.KeyStore.GetAsync()
-                ?? throw new InvalidOperationException("No API key set.");
-            string prompt;
-            await using (var db = await DbFactory.CreateDbContextAsync())
-                prompt = await GeminiAnalyzer.BuildDailyPromptAsync(db);
-            _daily = await GeminiAnalyzer.DailyCheckAsync(key, prompt);
+            _daily = await AiCoach.DailyCheckAsync();
             _dailyWhen = DateTime.Now.ToString("h:mm tt");
             AiAdviceStore.SaveDaily(_daily, _dailyWhen);
         }
@@ -287,7 +283,7 @@
     protected override async Task OnInitializedAsync()
     {
         _aiActions = AiAdviceStore.LoadActions();
-        _hasAiKey = !string.IsNullOrEmpty(await GeminiAnalyzer.KeyStore.GetAsync());
+        _hasAiKey = await AiCoach.IsConfiguredAsync();
         if (AiAdviceStore.LoadDaily() is { } cached)
         {
             _daily = cached.Check;

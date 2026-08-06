@@ -12,7 +12,7 @@ public class AiCoachTests
     public async Task SuggestMealTags_ParsesTagsAndStars_MappingToVocabularyCasing()
     {
         var llm = new StubLlm("""{ "tags": ["high protein"], "newTag": "Air fried", "stars": 4, "starReason": "solid" }""");
-        var coach = new AiCoach(llm, new StubSettings());
+        var coach = new AiCoach(llm, new StubSettings(), new StubData());
 
         var result = await coach.SuggestMealTagsAsync("Lunch", "Grilled chicken bowl", null,
             new[] { "High protein", "High sugar" });
@@ -29,7 +29,7 @@ public class AiCoachTests
     public async Task SuggestWorkload_KeepsOnlyKnownAreas()
     {
         var llm = new StubLlm("""{ "intensity": "Heavy", "areas": ["lower back", "unknown area"], "worthLogging": true, "note": "log it" }""");
-        var coach = new AiCoach(llm, new StubSettings());
+        var coach = new AiCoach(llm, new StubSettings(), new StubData());
 
         var s = await coach.SuggestWorkloadAsync("moving boxes", 30, null, new[] { "Lower back", "Legs" });
 
@@ -44,8 +44,37 @@ public class AiCoachTests
     [Test]
     public async Task IsConfigured_DelegatesToTransport()
     {
-        Assert.That(await new AiCoach(new StubLlm("", configured: false), new StubSettings()).IsConfiguredAsync(), Is.False);
-        Assert.That(await new AiCoach(new StubLlm("", configured: true), new StubSettings()).IsConfiguredAsync(), Is.True);
+        Assert.That(await new AiCoach(new StubLlm("", configured: false), new StubSettings(), new StubData()).IsConfiguredAsync(), Is.False);
+        Assert.That(await new AiCoach(new StubLlm("", configured: true), new StubSettings(), new StubData()).IsConfiguredAsync(), Is.True);
+    }
+
+    [Test]
+    public async Task DailyCheck_ParsesToneAndTips()
+    {
+        var llm = new StubLlm("""{ "tone": "good", "synopsis": "Solid day so far.", "tips": ["hydrate", "protein at lunch"] }""");
+        var check = await new AiCoach(llm, new StubSettings(), new StubData()).DailyCheckAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(check.Tone, Is.EqualTo("good"));
+            Assert.That(check.Synopsis, Is.EqualTo("Solid day so far."));
+            Assert.That(check.Tips, Has.Count.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public async Task AdviseMeal_ParsesVerdict()
+    {
+        var llm = new StubLlm("""{ "verdict": "reconsider", "reason": "second restaurant meal", "restaurantAlternative": "grilled bowl", "homemadeAlternative": null }""");
+        var advice = await new AiCoach(llm, new StubSettings(), new StubData()).AdviseMealAsync("pizza");
+
+        Assert.That(advice, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(advice!.Verdict, Is.EqualTo("reconsider"));
+            Assert.That(advice.RestaurantAlt, Is.EqualTo("grilled bowl"));
+            Assert.That(advice.HomemadeAlt, Is.Null);
+        });
     }
 
     private sealed class StubLlm : ILlmClient
@@ -61,5 +90,13 @@ public class AiCoachTests
     private sealed class StubSettings : IAiSettings
     {
         public string? CoachingGoals => null;
+        public bool IncludeCessationData => false;
+        public MacroTargets MacroTargets => MacroTargets.None;
+    }
+
+    private sealed class StubData : IAiDataProvider
+    {
+        public Task<string> GetTodayContextAsync(bool includeCessation, CancellationToken ct = default) =>
+            Task.FromResult("(no data)");
     }
 }

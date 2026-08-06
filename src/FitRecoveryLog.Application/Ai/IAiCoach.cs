@@ -13,6 +13,12 @@ public interface IAiCoach
     /// <summary>Whether AI features should be offered (the provider is configured).</summary>
     Task<bool> IsConfiguredAsync(CancellationToken ct = default);
 
+    /// <summary>Mid-day check-in over today's logged data.</summary>
+    Task<DailyCheck> DailyCheckAsync(CancellationToken ct = default);
+
+    /// <summary>Pre-meal advisor: judge something the user is considering eating against today.</summary>
+    Task<MealAdvice?> AdviseMealAsync(string considering, CancellationToken ct = default);
+
     Task<WorkloadSuggestion> SuggestWorkloadAsync(string activity, int? minutes, string? notes,
         IReadOnlyList<string> areaVocabulary, CancellationToken ct = default);
 
