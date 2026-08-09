@@ -9,6 +9,8 @@ public class BodyMeasurement : EntityBase
     public double? HipsInches { get; set; }
     public double? ArmsInches { get; set; }
     public double? ThighsInches { get; set; }
+    public double? ShouldersInches { get; set; }
+    public double? CalvesInches { get; set; }
 
     // Body-composition metrics from a smart scale (e.g. Hume). These don't sync to
     // Apple Health — Hume keeps them in-app — so they're entered manually.

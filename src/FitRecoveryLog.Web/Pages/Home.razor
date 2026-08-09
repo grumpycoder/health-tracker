@@ -1,5 +1,7 @@
 @page "/"
+@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Application.Ai
 @using FitRecoveryLog.Application.Notes
 @using FitRecoveryLog.Application.Nutrition
 @using FitRecoveryLog.Data
@@ -8,14 +10,26 @@
 @inject AppState State
 @inject NoteService NoteSvc
 @inject DrinkService DrinkSvc
+@inject IAiCoach Coach
+@inject WebSyncClient Sync
 
-<PageTitle>Fit Log</PageTitle>
+<PageTitle>Dashboard — Fit Log</PageTitle>
 
-<div class="dashboard">
-    <header class="dash-header">
-        <div class="dash-date">@DateTime.Now.ToString("dddd")</div>
-        <div class="dash-date-sub">@DateTime.Now.ToString("MMMM d, yyyy") · synced from the cloud</div>
-    </header>
+<div class="content">
+    <div class="page-head">
+        <div>
+            <div class="eyebrow">@_todayLabel</div>
+            <h1 class="dash-date">@Greeting</h1>
+        </div>
+        <div class="chip-row" style="gap:10px">
+            <a class="btn" href="meals">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>Log meal
+            </a>
+            <a class="btn primary" href="workouts">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5 17.5 17.5M4 8l2-2M18 20l2-2M8.5 15.5 3 21M15.5 8.5 21 3" /></svg>Start workout
+            </a>
+        </div>
+    </div>
 
     @if (_loading)
     {
@@ -30,82 +44,339 @@
     }
     else
     {
-        <section class="card">
-            <h2>Today</h2>
-            <div class="chip-row" style="gap:0.6rem 1.4rem;font-size:0.95rem">
-                <span><strong>@_todayMeals.Count</strong> <span class="muted">meals</span></span>
-                <span><strong>@_todayDrinks.Count</strong> <span class="muted">drinks</span></span>
-                <span><strong>@(_todayWorkouts.Count > 0 ? "✓" : "—")</strong> <span class="muted">workout</span></span>
-            </div>
-            @if (NutritionMath.HasData(_todayMeals, _todayDrinks))
-            {
-                <div class="chip-row" style="gap:0.5rem 1.2rem;margin-top:0.6rem;font-size:0.9rem">
-                    <span><strong>@NutritionMath.Calories(_todayMeals, _todayDrinks)</strong> <span class="muted">cal</span></span>
-                    <span><strong>@NutritionMath.Protein(_todayMeals, _todayDrinks).ToString("0")</strong> <span class="muted">g protein</span></span>
-                    <span><strong>@NutritionMath.Sugar(_todayMeals, _todayDrinks).ToString("0")</strong> <span class="muted">g sugar</span></span>
-                    <span><strong>@NutritionMath.FluidOz(_todayDrinks)</strong> <span class="muted">oz fluids</span></span>
+        <div class="row-top">
+            <section class="card hero">
+                <div class="ring-wrap">
+                    <svg width="168" height="168" viewBox="0 0 168 168" aria-hidden="true">
+                        <circle cx="84" cy="84" r="72" fill="none" stroke="var(--border)" stroke-width="14" />
+                        @if (_hasRecovery)
+                        {
+                            <circle cx="84" cy="84" r="72" fill="none" stroke="@_ringColor" stroke-width="14" stroke-linecap="round"
+                                    stroke-dasharray="452.4" stroke-dashoffset="@_ringOffset" transform="rotate(-90 84 84)" />
+                        }
+                    </svg>
+                    <div class="ring-label">
+                        @if (_hasRecovery)
+                        {
+                            <div class="ring-big num">@_recoveryRating<span style="font-size:1.1rem;color:var(--muted)">/10</span></div>
+                            <div class="ring-cap">Recovery</div>
+                            <div class="ring-tag" style="color:@_ringColor">@_ringTag</div>
+                        }
+                        else
+                        {
+                            <div class="ring-cap" style="max-width:8rem">Log today's recovery</div>
+                        }
+                    </div>
                 </div>
+                <div class="hero-body">
+                    <div class="kicker">Today's readiness</div>
+                    <h2>@_ringHeadline</h2>
+                    <p>@_ringBlurb</p>
+                    <div class="vitals">
+                        <div class="vital">
+                            <div class="v-label">Fatigue</div>
+                            <div class="v-num num">@_fatigueText<small> /10</small></div>
+                        </div>
+                        <div class="vital">
+                            <div class="v-label">Last sleep</div>
+                            <div class="v-num num">@_sleepText</div>
+                        </div>
+                        <div class="vital">
+                            <div class="v-label">Soreness</div>
+                            <div class="v-num" style="font-size:1.05rem">@_sorenessText</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-head"><h2>Weight trend</h2><a href="measurements">Log &amp; history</a></div>
+                @if (_weights.Count >= 2)
+                {
+                    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+                        <span class="num" style="font-size:2rem;font-weight:800">@_latestWeightText<small style="font-size:.9rem;color:var(--muted);font-weight:600"> lb</small></span>
+                        <span class="pill @_weightPillClass">@_weightDeltaText</span>
+                        <span class="muted" style="font-size:.8rem">since @_weightStartText</span>
+                    </div>
+                    <svg class="chart" style="height:120px" viewBox="0 0 300 120" preserveAspectRatio="none" role="img" aria-label="Body-weight trend">
+                        <linearGradient id="wfill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--accent)" /><stop offset="1" stop-color="var(--accent)" stop-opacity="0" /></linearGradient>
+                        <path d="@_weightArea" fill="url(#wfill)" opacity="0.18" />
+                        <polyline points="@_weightLine" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                        <circle cx="@_weightEndX" cy="@_weightEndY" r="4" fill="var(--accent)" stroke="var(--card)" stroke-width="2" />
+                    </svg>
+                    <div class="chart-x"><span>@_weightStartText</span><span>@_weightEndText</span></div>
+                }
+                else
+                {
+                    <p class="empty">Log at least two weigh-ins to see your trend. <a href="measurements">Add one →</a></p>
+                }
+            </section>
+        </div>
+
+        <section class="card">
+            <div class="card-head">
+                <h2>AI check-in</h2>
+                <button class="btn" @onclick="RunCheck" disabled="@_checkBusy">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v2M12 19v2M5 12H3M21 12h-2M6 6 4.5 4.5M18 18l1.5 1.5M6 18l-1.5 1.5M18 6l1.5-1.5M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" /></svg>
+                    @(_checkBusy ? "Thinking…" : (_check is null ? "Run check-in" : "Refresh"))
+                </button>
+            </div>
+            @if (_checkError is not null)
+            {
+                <p class="warn-msg" style="margin:0">@_checkError</p>
+            }
+            else if (_check is null)
+            {
+                <p class="empty" style="margin:0">A quick read on how today's going — meals, sleep, workout, recovery — with a couple of pointers for the rest of the day.</p>
+            }
+            else
+            {
+                <div style="margin-bottom:8px;display:flex;align-items:center;gap:8px">
+                    <span class="pill @ToneClass(_check.Tone)">@ToneLabel(_check.Tone)</span>
+                    @if (!string.IsNullOrEmpty(_checkWhen)) { <span class="muted" style="font-size:.75rem">checked at @_checkWhen</span> }
+                </div>
+                <p style="margin:0 0 10px;line-height:1.5">@_check.Synopsis</p>
+                @if (_check.Tips.Count > 0)
+                {
+                    <ul style="margin:0;padding-left:1.1rem;line-height:1.6">
+                        @foreach (var t in _check.Tips) { <li>@t</li> }
+                    </ul>
+                }
+                <p class="muted" style="font-size:.72rem;margin:10px 0 0">AI estimate from your logged data · not medical advice</p>
             }
         </section>
 
-        <section class="card">
-            <h2>Quick add water</h2>
-            <div class="quick-grid" style="grid-template-columns:repeat(4,1fr)">
-                @foreach (var oz in new[] { 8, 12, 16, 24 })
-                {
-                    <button class="quick-btn" disabled="@_saving" @onclick="() => AddWater(oz)">+@oz oz</button>
-                }
+        <div class="stats">
+            <div class="stat">
+                <div class="s-top"><span class="ic amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2s5 4 5 9a5 5 0 0 1-10 0c0-2 1-3 1-3s3 1 4-6z" /></svg></span>Energy today</div>
+                <div class="s-num num">@_calText <small>kcal</small></div>
+                <div class="s-sub">@_mealsSub</div>
+                <div class="bar"><span style="width:@_calPct%;background:var(--energy)"></span></div>
             </div>
-        </section>
+            <div class="stat">
+                <div class="s-top"><span class="ic teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v6a6 6 0 0 0 12 0V3M4 21h16" /></svg></span>Protein</div>
+                <div class="s-num num">@_proteinText <small>/ @ProteinGoal g</small></div>
+                <div class="s-sub">@_proteinSub</div>
+                <div class="bar"><span style="width:@_proteinPct%"></span></div>
+            </div>
+            <div class="stat">
+                <div class="s-top"><span class="ic sky"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z" /></svg></span>Hydration</div>
+                <div class="s-num num">@_fluidOz <small>/ @WaterGoalOz oz</small></div>
+                <div class="s-sub">@_drinksSub</div>
+                <div class="bar"><span style="width:@_waterPct%;background:var(--info)"></span></div>
+            </div>
+            <div class="stat">
+                <div class="s-top"><span class="ic rose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5 17.5 17.5M4 8l2-2M18 20l2-2M8.5 15.5 3 21M15.5 8.5 21 3" /></svg></span>Workouts this week</div>
+                <div class="s-num num">@_weekWorkouts</div>
+                <div class="s-sub">@_workoutSub</div>
+                <div class="bar"><span style="width:@_workoutPct%;background:var(--good)"></span></div>
+            </div>
+        </div>
+
+        <div class="row-low">
+            <section class="card">
+                <div class="card-head"><h2>Training &amp; recovery · last 7 days</h2></div>
+                <svg class="chart" viewBox="0 0 480 168" preserveAspectRatio="none" role="img" aria-label="Training minutes and recovery rating over the last 7 days">
+                    <g stroke="var(--border)" stroke-width="1">
+                        <line x1="0" y1="16" x2="480" y2="16" /><line x1="0" y1="61" x2="480" y2="61" /><line x1="0" y1="106" x2="480" y2="106" /><line x1="0" y1="150" x2="480" y2="150" />
+                    </g>
+                    <g fill="var(--accent)">
+                        @foreach (var b in _bars)
+                        {
+                            <rect x="@b.X" y="@b.Y" width="40" height="@b.H" rx="6" opacity="@b.Opacity" />
+                        }
+                    </g>
+                    @if (_dots.Count > 0)
+                    {
+                        <polyline fill="none" stroke="var(--energy)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="@_ratingPolyline" />
+                        @foreach (var p in _dots)
+                        {
+                            <circle cx="@p.X" cy="@p.Y" r="3.5" fill="var(--energy)" />
+                        }
+                    }
+                </svg>
+                <div class="chart-x">
+                    @foreach (var d in _week)
+                    {
+                        <span>@d.Label</span>
+                    }
+                </div>
+                <div class="legend">
+                    <span><i style="background:var(--accent)"></i>Training minutes</span>
+                    <span><i style="background:var(--energy)"></i>Recovery rating</span>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-head"><h2>Today's log</h2></div>
+                @if (_log.Count == 0)
+                {
+                    <p class="empty">Nothing logged yet today. Quick-add below to get started.</p>
+                }
+                else
+                {
+                    <ul class="day-log">
+                        @foreach (var e in _log)
+                        {
+                            <li class="@e.LiClass">
+                                <span class="dl-dot">@Icon(e.Icon)</span>
+                                <div>
+                                    <div class="dl-title">@e.Title</div>
+                                    @if (!string.IsNullOrEmpty(e.Meta))
+                                    {
+                                        <div class="dl-meta">@e.Meta</div>
+                                    }
+                                    @if (e.Macros.Length > 0)
+                                    {
+                                        <span class="dl-macros">
+                                            @foreach (var m in e.Macros)
+                                            {
+                                                <span class="chip">@m</span>
+                                            }
+                                        </span>
+                                    }
+                                </div>
+                                <span class="dl-time">@e.TimeText</span>
+                            </li>
+                        }
+                    </ul>
+                }
+            </section>
+        </div>
 
         <section class="card">
-            <h2>Add a note</h2>
+            <div class="card-head"><h2>Quick log</h2>@if (_saveMsg is not null) { <span class="saved-msg">@_saveMsg</span> }</div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.6rem;margin-bottom:1rem">
+                @foreach (var oz in WaterOz)
+                {
+                    <button class="quick-btn" disabled="@_saving" @onclick="() => AddWater(oz)">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z" /></svg>+@oz oz water
+                    </button>
+                }
+            </div>
             <div class="field" style="margin:0">
-                <textarea class="note" rows="2" @bind="_newNote" @bind:event="oninput" placeholder="How are you feeling right now?"></textarea>
+                <label>How are you feeling right now?</label>
+                <textarea class="note" rows="2" @bind="_newNote" @bind:event="oninput" placeholder="Add a note…"></textarea>
             </div>
-            <button class="save-btn" @onclick="AddNote" disabled="@(_saving || string.IsNullOrWhiteSpace(_newNote))">
-                @(_saving ? "Saving…" : "Add Note")
-            </button>
-            @if (_saveMsg is not null) { <span class="saved-msg">@_saveMsg</span> }
-        </section>
-
-        <section class="card">
-            <h2>Recent notes</h2>
-            @if (_notes.Count == 0) { <p class="muted">No notes yet.</p> }
-            <ul class="timeline">
-                @foreach (var n in _notes.OrderByDescending(x => x.Time).Take(10))
-                {
-                    <li><div><span class="time">@n.Time.ToLocalTime().ToString("g")</span><span class="entry">@n.Text</span></div></li>
-                }
-            </ul>
-        </section>
-
-        <section class="card">
-            <h2>Recent measurements</h2>
-            @if (_measurements.Count == 0) { <p class="muted">No measurements yet.</p> }
-            <ul class="timeline">
-                @foreach (var m in _measurements.OrderByDescending(x => x.Date).Take(8))
-                {
-                    <li><div>
-                        <span class="time">@m.Date.ToString("MMM d, yyyy")</span>
-                        <span class="entry">@(m.WeightLbs?.ToString("0.#") ?? "—") lbs · waist @(m.WaistInches?.ToString("0.#") ?? "—")"</span>
-                    </div></li>
-                }
-            </ul>
+            <button class="save-btn" @onclick="AddNote" disabled="@(_saving || string.IsNullOrWhiteSpace(_newNote))">@(_saving ? "Saving…" : "Add note")</button>
         </section>
     }
 </div>
 
 @code {
+    private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+    private const int CalorieTarget = 2400;   // web display defaults; the app owns editable goals
+    private const int ProteinGoal = 160;
+    private const int WaterGoalOz = 120;
+    private static readonly int[] WaterOz = { 8, 12, 16, 24 };
+
     private bool _loading = true, _saving;
     private string? _error, _saveMsg, _newNote;
+    private readonly string _todayLabel = DateTime.Now.ToString("dddd · MMMM d");
+
+    // nutrition / activity
     private List<MealEntry> _todayMeals = new();
     private List<DrinkEntry> _todayDrinks = new();
     private List<WorkoutSession> _todayWorkouts = new();
-    private List<BodyMeasurement> _measurements = new();
-    private IReadOnlyList<DomainNote> _notes = Array.Empty<DomainNote>();
+    private int _weekWorkouts, _fluidOz;
+    private string _calText = "0", _proteinText = "0";
+    private string _calPct = "0", _proteinPct = "0", _waterPct = "0", _workoutPct = "0";
+    private string _mealsSub = "", _proteinSub = "", _drinksSub = "", _workoutSub = "";
 
-    protected override async Task OnInitializedAsync() => await Load();
+    // readiness
+    private bool _hasRecovery;
+    private int _recoveryRating;
+    private string _ringColor = "var(--good)", _ringTag = "", _ringOffset = "452.4";
+    private string _ringHeadline = "", _ringBlurb = "";
+    private string _fatigueText = "—", _sleepText = "—", _sorenessText = "—";
+
+    // weight trend
+    private List<(DateOnly d, double w)> _weights = new();
+    private string _latestWeightText = "", _weightDeltaText = "", _weightPillClass = "good";
+    private string _weightStartText = "", _weightEndText = "";
+    private string _weightArea = "", _weightLine = "", _weightEndX = "0", _weightEndY = "0";
+
+    // weekly chart
+    private record DayCol(string Label, int Minutes, int? Rating, bool IsToday);
+    private record Bar(string X, string Y, string H, string Opacity);
+    private record Dot(string X, string Y);
+    private List<DayCol> _week = new();
+    private List<Bar> _bars = new();
+    private List<Dot> _dots = new();
+    private string _ratingPolyline = "";
+
+    // today's log
+    private record LogItem(DateTime Time, string Icon, string Title, string? Meta, string[] Macros, bool Highlight)
+    {
+        public string TimeText => Time.ToString("h:mm tt");
+        public string LiClass => Highlight ? "hi" : "";
+    }
+    private List<LogItem> _log = new();
+
+    private string Greeting => DateTime.Now.Hour < 12 ? "Good morning" : DateTime.Now.Hour < 17 ? "Good afternoon" : "Good evening";
+
+    // AI check-in (on-demand — each run is an LLM call). Persisted as a SYNCED DailyCheckResult so the
+    // phone and web share one result per day — switching devices shows the same check-in with no extra call.
+    private DailyCheck? _check;
+    private bool _checkBusy;
+    private string? _checkError, _checkWhen;
+
+    private async Task RunCheck()
+    {
+        _checkBusy = true; _checkError = null;
+        try
+        {
+            _check = await Coach.DailyCheckAsync();
+            _checkWhen = DateTime.Now.ToString("h:mm tt");
+            await SaveCheckAsync(_check, _checkWhen);
+        }
+        catch (Exception ex) { _checkError = "Check-in failed: " + ex.Message; }
+        finally { _checkBusy = false; }
+    }
+
+    private async Task LoadTodayCheckAsync()
+    {
+        try
+        {
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            var row = WebSyncClient.Rows<DailyCheckResult>(await State.DataAsync()).FirstOrDefault(r => r.Date == today);
+            if (row is not null)
+            {
+                _check = new DailyCheck(row.Tone, row.Synopsis, row.TipList.ToList());
+                _checkWhen = row.When;
+            }
+        }
+        catch { /* non-fatal */ }
+    }
+
+    private async Task SaveCheckAsync(DailyCheck c, string when)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var existing = WebSyncClient.Rows<DailyCheckResult>(await State.DataAsync()).FirstOrDefault(r => r.Date == today);
+        var row = existing is not null ? WebSyncClient.Clone(existing) : new DailyCheckResult { Date = today };
+        row.Tone = c.Tone; row.Synopsis = c.Synopsis; row.Tips = string.Join("\n", c.Tips); row.When = when;
+        await Sync.PushAsync(row);
+        State.Invalidate();   // so a later read this session includes the new row
+    }
+
+    private static string ToneClass(string tone) => tone switch
+    {
+        "good" => "good",
+        "poor" => "critical",
+        _ => "caution",
+    };
+    private static string ToneLabel(string tone) => tone switch
+    {
+        "good" => "On track",
+        "poor" => "Needs attention",
+        _ => "Mixed",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+        await LoadTodayCheckAsync();
+    }
 
     private async Task Load()
     {
@@ -116,19 +387,208 @@
             var todayStart = DateTime.Today;
             var todayEnd = todayStart.AddDays(1);
             var today = DateOnly.FromDateTime(DateTime.Today);
-            _todayMeals = WebSyncClient.Rows<MealEntry>(pull).Where(m => m.Time >= todayStart && m.Time < todayEnd).ToList();
-            _todayDrinks = WebSyncClient.Rows<DrinkEntry>(pull).Where(d => d.Time >= todayStart && d.Time < todayEnd).ToList();
-            _todayWorkouts = WebSyncClient.Rows<WorkoutSession>(pull).Where(w => w.Date == today).ToList();
-            _measurements = WebSyncClient.Rows<BodyMeasurement>(pull);
-            _notes = await NoteSvc.ListAsync();
+
+            var meals = WebSyncClient.Rows<MealEntry>(pull);
+            var drinks = WebSyncClient.Rows<DrinkEntry>(pull);
+            var workouts = WebSyncClient.Rows<WorkoutSession>(pull);
+            var measurements = WebSyncClient.Rows<BodyMeasurement>(pull);
+            var recovery = WebSyncClient.Rows<RecoveryEntry>(pull);
+            var sleep = WebSyncClient.Rows<SleepEntry>(pull);
+
+            _todayMeals = meals.Where(m => m.Time >= todayStart && m.Time < todayEnd).ToList();
+            _todayDrinks = drinks.Where(d => d.Time >= todayStart && d.Time < todayEnd).ToList();
+            _todayWorkouts = workouts.Where(w => w.Date == today).ToList();
+
+            var cal = NutritionMath.Calories(_todayMeals, _todayDrinks);
+            var protein = NutritionMath.Protein(_todayMeals, _todayDrinks);
+            _fluidOz = NutritionMath.FluidOz(_todayDrinks);
+
+            _calText = cal.ToString("#,0", Inv);
+            _proteinText = protein.ToString("0", Inv);
+            _calPct = Pct(cal, CalorieTarget);
+            _proteinPct = Pct(protein, ProteinGoal);
+            _waterPct = Pct(_fluidOz, WaterGoalOz);
+            _mealsSub = $"{_todayMeals.Count} meal{Plural(_todayMeals.Count)} logged";
+            _proteinSub = $"{Math.Max(0, ProteinGoal - protein):0} g to your goal";
+            _drinksSub = $"{_todayDrinks.Count} drink{Plural(_todayDrinks.Count)} today";
+
+            var weekStart = today.AddDays(-((int)today.DayOfWeek == 0 ? 6 : (int)today.DayOfWeek - 1)); // Monday
+            _weekWorkouts = workouts.Count(w => w.Date >= weekStart && w.Date <= today);
+            _workoutPct = Pct(_weekWorkouts, 5);
+            _workoutSub = _todayWorkouts.Count > 0 ? "Today's session is in ✓" : "Nothing logged today";
+
+            BuildReadiness(recovery, sleep, today);
+            BuildWeight(measurements);
+            BuildWeek(workouts, recovery, today);
+            BuildLog();
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; }
     }
 
+    private void BuildReadiness(List<RecoveryEntry> recovery, List<SleepEntry> sleep, DateOnly today)
+    {
+        var rec = recovery.Where(r => r.Date >= today.AddDays(-1)).OrderByDescending(r => r.Date).FirstOrDefault();
+        var latestSleep = sleep.OrderByDescending(s => s.Date).FirstOrDefault();
+
+        if (rec?.RecoveryRating is int r)
+        {
+            _hasRecovery = true;
+            _recoveryRating = r;
+            var trained = _todayWorkouts.Count > 0;   // workout already logged today → recap, not "go push it"
+            _ringColor = r >= 7 ? "var(--good)" : r >= 4 ? "var(--caution)" : "var(--critical)";
+            _ringTag = trained ? "Session done" : r >= 7 ? "Ready to train" : r >= 4 ? "Train with care" : "Prioritize rest";
+            _ringOffset = (452.4 * (1 - Math.Clamp(r / 10.0, 0, 1))).ToString("0.#", Inv);
+            var sore = rec.SorenessLocationList.Count > 0 ? $"Soreness noted in {string.Join(", ", rec.SorenessLocationList)}. " : "";
+            if (trained)
+            {
+                _ringHeadline = r >= 7 ? "Recovered — nice session." : r >= 4 ? "Session logged — ease off now." : "Session done — recover up.";
+                _ringBlurb = r >= 7
+                    ? $"{sore}Recovery was high today and your session's in — keep the rest of the day easy and refuel well."
+                    : r >= 4
+                        ? $"{sore}You trained while only partly recovered — take the rest of the day easy and prioritize recovery."
+                        : $"{sore}You trained under-recovered — go easy the rest of today and get solid sleep tonight.";
+            }
+            else
+            {
+                _ringHeadline = r >= 7 ? "You're recovered — push it." : r >= 4 ? "Moderate — keep it controlled." : "Under-recovered — back off.";
+                _ringBlurb = r >= 7
+                    ? $"{sore}Recovery is high and fatigue is low — a hard session is well within range today."
+                    : r >= 4
+                        ? $"{sore}You're partly recovered. Train, but hold back intensity and watch your form."
+                        : $"{sore}Recovery is low. An easy day or full rest will pay off more than pushing through.";
+            }
+            _fatigueText = rec.FatigueRating?.ToString() ?? "—";
+            _sorenessText = rec.SorenessLocationList.Count == 0 ? "None" : $"{rec.SorenessLocationList.Count} area{Plural(rec.SorenessLocationList.Count)}";
+        }
+        else
+        {
+            _hasRecovery = false;
+            _ringHeadline = "How recovered are you today?";
+            _ringBlurb = "Log a recovery check-in on the Sleep & Recovery page and your readiness shows up here.";
+        }
+
+        _sleepText = latestSleep?.DurationHours is double h ? $"{(int)h}:{(int)Math.Round((h - (int)h) * 60):00}" : "—";
+    }
+
+    private void BuildWeight(List<BodyMeasurement> measurements)
+    {
+        _weights = measurements.Where(m => m.WeightLbs is > 0)
+            .OrderBy(m => m.Date).TakeLast(10)
+            .Select(m => (m.Date, m.WeightLbs!.Value)).ToList();
+        if (_weights.Count < 2) return;
+
+        var first = _weights[0];
+        var last = _weights[^1];
+        var delta = last.w - first.w;
+        _latestWeightText = last.w.ToString("0.#", Inv);
+        _weightDeltaText = $"{(delta <= 0 ? "▼" : "▲")} {Math.Abs(delta).ToString("0.#", Inv)} lb";
+        _weightPillClass = delta <= 0 ? "good" : "caution";
+        _weightStartText = first.d.ToString("MMM d");
+        _weightEndText = last.d.ToString("MMM d");
+
+        var min = _weights.Min(p => p.w);
+        var max = _weights.Max(p => p.w);
+        var range = Math.Max(0.1, max - min);
+        var pts = new List<(double x, double y)>();
+        for (var i = 0; i < _weights.Count; i++)
+        {
+            var x = _weights.Count == 1 ? 150 : 6 + i / (double)(_weights.Count - 1) * 288;
+            var y = 108 - (_weights[i].w - min) / range * 96;
+            pts.Add((x, y));
+        }
+        _weightLine = string.Join(" ", pts.Select(p => Coord(p.x, p.y)));
+        _weightEndX = pts[^1].x.ToString("0.#", Inv);
+        _weightEndY = pts[^1].y.ToString("0.#", Inv);
+        var area = $"M {Coord(pts[0].x, pts[0].y)} ";
+        area += string.Join(" ", pts.Skip(1).Select(p => $"L {Coord(p.x, p.y)}"));
+        area += $" L {pts[^1].x.ToString("0.#", Inv)},120 L {pts[0].x.ToString("0.#", Inv)},120 Z";
+        _weightArea = area;
+    }
+
+    private void BuildWeek(List<WorkoutSession> workouts, List<RecoveryEntry> recovery, DateOnly today)
+    {
+        _week = new();
+        for (var i = 6; i >= 0; i--)
+        {
+            var day = today.AddDays(-i);
+            var mins = workouts.Where(w => w.Date == day).Sum(w => (w.TotalSeconds ?? 0) / 60);
+            var rating = recovery.Where(r => r.Date == day).Select(r => r.RecoveryRating).FirstOrDefault(x => x is not null);
+            _week.Add(new DayCol(day == today ? "Today" : day.ToString("ddd"), mins, rating, day == today));
+        }
+        var maxMin = Math.Max(60, _week.Max(d => d.Minutes));
+
+        _bars = new();
+        for (var i = 0; i < _week.Count; i++)
+        {
+            var d = _week[i];
+            var x = SlotX(i) - 20;
+            var h = d.Minutes <= 0 ? 0.0 : Math.Max(3, d.Minutes / (double)maxMin * 134.0);
+            _bars.Add(new Bar(x.ToString("0.#", Inv), (150 - h).ToString("0.#", Inv), h.ToString("0.#", Inv), d.IsToday ? "0.55" : "1"));
+        }
+
+        _dots = new();
+        var linePts = new List<(double x, double y)>();
+        for (var i = 0; i < _week.Count; i++)
+        {
+            if (_week[i].Rating is int r)
+            {
+                var x = SlotX(i);
+                var y = 16 + (1 - r / 10.0) * 134.0;
+                _dots.Add(new Dot(x.ToString("0.#", Inv), y.ToString("0.#", Inv)));
+                linePts.Add((x, y));
+            }
+        }
+        _ratingPolyline = string.Join(" ", linePts.Select(p => Coord(p.x, p.y)));
+    }
+
+    private void BuildLog()
+    {
+        var items = new List<LogItem>();
+        foreach (var m in _todayMeals)
+        {
+            var macros = new List<string>();
+            if (m.Calories is int c) macros.Add($"{c:0} kcal");
+            if (m.ProteinG is double p) macros.Add($"{p:0} P");
+            if (m.CarbsG is double cb) macros.Add($"{cb:0} C");
+            if (m.FatG is double f) macros.Add($"{f:0} F");
+            items.Add(new LogItem(m.Time, "meal", string.IsNullOrWhiteSpace(m.Description) ? "Meal" : m.Description,
+                m.MealType.ToString(), macros.ToArray(), true));
+        }
+        foreach (var d in _todayDrinks)
+        {
+            items.Add(new LogItem(d.Time, "water", string.IsNullOrWhiteSpace(d.Description) ? "Drink" : d.Description,
+                d.Ounces is double v ? $"{v:0} oz" : null, Array.Empty<string>(), false));
+        }
+        foreach (var w in _todayWorkouts)
+        {
+            var mins = (w.TotalSeconds ?? 0) / 60;
+            items.Add(new LogItem(w.StartedAt ?? DateTime.Today, "workout", "Workout",
+                mins > 0 ? $"{mins} min" : null, Array.Empty<string>(), true));
+        }
+        _log = items.OrderByDescending(i => i.Time).Take(10).ToList();
+    }
+
+    private static double SlotX(int i) => (480.0 / 7) * i + (480.0 / 7) / 2;
+    private static string Coord(double x, double y) => $"{x.ToString("0.#", Inv)},{y.ToString("0.#", Inv)}";
+    private static string Pct(double value, double target) => (target <= 0 ? 0 : Math.Clamp(value / target * 100, 0, 100)).ToString("0", Inv);
+    private static string Plural(int n) => n == 1 ? "" : "s";
+
+    private static readonly Dictionary<string, string> Icons = new()
+    {
+        ["meal"] = "<path d='M6 3v6a6 6 0 0 0 12 0V3'/>",
+        ["water"] = "<path d='M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z'/>",
+        ["workout"] = "<path d='M6.5 6.5 17.5 17.5M4 8l2-2M18 20l2-2M8.5 15.5 3 21M15.5 8.5 21 3'/>",
+    };
+    private static MarkupString Icon(string key)
+    {
+        var inner = Icons.TryGetValue(key, out var p) ? p : "<circle cx='12' cy='12' r='4'/>";
+        return new MarkupString($"<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>{inner}</svg>");
+    }
+
     private async Task AddWater(int oz)
     {
-        _saving = true;
+        _saving = true; _saveMsg = null;
         try
         {
             await DrinkSvc.CreateAsync(new DrinkData(DateTime.Now, "Water", oz, null,

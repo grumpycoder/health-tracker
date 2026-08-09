@@ -4,6 +4,7 @@
 @using FitRecoveryLog.Application.Sync
 @using FitRecoveryLog.Infrastructure.Sync
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @inject CloudSyncService Sync
 @inject IAccessTokenProvider Auth
 @inject ILlmKeyStore Keys
@@ -83,73 +84,17 @@
     </section>
 
     <section class="card">
-        <h2>Coaching Goals</h2>
-        <p class="muted" style="margin:0 0 0.6rem">
-            Tell the AI what <em>you're</em> aiming for, one per line. It coaches toward your
-            targets instead of assuming everything should go to zero — e.g.
-            "Sweet tea: holding at ~16oz/day over 2 meals, not quitting" or
-            "Coke Zero is my water alternative, leave it alone."
-        </p>
-        <div class="field">
-            <textarea rows="4" @bind="_goals" placeholder="One goal or preference per line"></textarea>
-        </div>
-        <p class="muted" style="margin:0.6rem 0 0.3rem;font-weight:600">Daily macro goals <span style="font-weight:400">(min–max; 0 to disable a row)</span></p>
-        <div class="inline-fields">
-            <div class="field"><label>Protein min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_pMin" /></div>
-            <div class="field"><label>Protein max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_pMax" /></div>
-        </div>
-        <div class="inline-fields">
-            <div class="field"><label>Fat min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_fMin" /></div>
-            <div class="field"><label>Fat max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_fMax" /></div>
-        </div>
-        <div class="inline-fields">
-            <div class="field"><label>Fiber min</label><input type="number" inputmode="numeric" min="0" step="1" @bind="_fibMin" /></div>
-            <div class="field"><label>Fiber max</label><input type="number" inputmode="numeric" min="0" step="1" @bind="_fibMax" /></div>
-        </div>
-        <div class="field">
-            <label>Added sugar ceiling (g) <span class="muted">— stay under</span></label>
-            <input type="number" inputmode="numeric" min="0" step="1" @bind="_sugarMax" />
-        </div>
-
-        <p class="muted" style="margin:0.7rem 0 0.3rem;font-weight:600">Rest-day targets <span style="font-weight:400">— vary with activity</span></p>
-        <div class="inline-fields">
-            <div class="field"><label>Calories min</label><input type="number" inputmode="numeric" min="0" step="50" @bind="_calRestMin" /></div>
-            <div class="field"><label>Calories max</label><input type="number" inputmode="numeric" min="0" step="50" @bind="_calRestMax" /></div>
-        </div>
-        <div class="inline-fields">
-            <div class="field"><label>Carbs min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_cRestMin" /></div>
-            <div class="field"><label>Carbs max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_cRestMax" /></div>
-        </div>
-        <div class="inline-fields">
-            <div class="field"><label>Water min (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_wRestMin" /></div>
-            <div class="field"><label>Water max (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_wRestMax" /></div>
-        </div>
-
-        <p class="muted" style="margin:0.7rem 0 0.3rem;font-weight:600">Workout-day targets</p>
-        <div class="inline-fields">
-            <div class="field"><label>Calories min</label><input type="number" inputmode="numeric" min="0" step="50" @bind="_calActMin" /></div>
-            <div class="field"><label>Calories max</label><input type="number" inputmode="numeric" min="0" step="50" @bind="_calActMax" /></div>
-        </div>
-        <div class="inline-fields">
-            <div class="field"><label>Carbs min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_cActMin" /></div>
-            <div class="field"><label>Carbs max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_cActMax" /></div>
-        </div>
-        <div class="inline-fields">
-            <div class="field"><label>Water min (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_wActMin" /></div>
-            <div class="field"><label>Water max (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_wActMax" /></div>
-        </div>
-        <button class="save-btn" @onclick="SaveGoals">Save Goals</button>
-        @if (_goalsSaved)
-        {
-            <span class="saved-msg">Saved ✓</span>
-        }
+        <h2>Goals &amp; targets</h2>
+        <p class="muted" style="margin:0 0 0.6rem">Coaching goals, macro/hydration targets, and body-measurement
+        goals now live on their own page — easier to find and they sync with the web.</p>
+        <button class="save-btn" @onclick="@(() => Nav.NavigateTo("goals"))">Open Goals</button>
     </section>
 
     <section class="card">
         <h2>What Gets Sent to the AI</h2>
         <p style="margin:0 0 0.4rem"><strong>Sent</strong> (full analysis, last 8 weeks): workouts (exercises, sets,
         ratings, comments), meals & drinks, sleep entries, body-measurement numbers (weight, waist, etc.),
-        and your coaching goals above.</p>
+        and your coaching goals (from the Goals page).</p>
         <p style="margin:0 0 0.4rem"><strong>Sent</strong> (daily check-in): today's meals & drinks, last night's
         sleep, today's workout, physical workload, the planned day type, the last 7 days of meal names,
         your coaching goals, and <strong>today's notes</strong> (for context — keep private details out of notes).</p>
@@ -165,14 +110,6 @@
 @code {
     private string _key = "";
     private bool _saved, _hasKey;
-    private string _goals = "";
-    private bool _goalsSaved;
-    // Single-range goals + added-sugar ceiling.
-    private int _pMin, _pMax, _fMin, _fMax, _fibMin, _fibMax, _sugarMax;
-    // Day-type-split goals: rest and active (workout) ranges.
-    private int _calRestMin, _calRestMax, _calActMin, _calActMax;
-    private int _cRestMin, _cRestMax, _cActMin, _cActMax;
-    private int _wRestMin, _wRestMax, _wActMin, _wActMax;
 
     private static readonly (string Label, int Pct)[] TextSizes =
         { ("Normal", 100), ("Large", 120), ("Larger", 140), ("Largest", 160) };
@@ -212,17 +149,6 @@
         var existing = await Keys.GetAsync();
         _hasKey = !string.IsNullOrEmpty(existing);
         if (_hasKey) _key = existing!;
-        _goals = Microsoft.Maui.Storage.Preferences.Default.Get(MauiAiSettings.CoachingGoalsKey, "");
-        var p = NutritionGoals.Get(NutritionGoals.Protein); _pMin = p.Min; _pMax = p.Max;
-        var f = NutritionGoals.Get(NutritionGoals.Fat); _fMin = f.Min; _fMax = f.Max;
-        var fib = NutritionGoals.Get(NutritionGoals.Fiber); _fibMin = fib.Min; _fibMax = fib.Max;
-        _sugarMax = NutritionGoals.AddedSugarMax;
-        var calR = NutritionGoals.GetDay(NutritionGoals.Calories, false); _calRestMin = calR.Min; _calRestMax = calR.Max;
-        var calA = NutritionGoals.GetDay(NutritionGoals.Calories, true); _calActMin = calA.Min; _calActMax = calA.Max;
-        var cR = NutritionGoals.GetDay(NutritionGoals.Carbs, false); _cRestMin = cR.Min; _cRestMax = cR.Max;
-        var cA = NutritionGoals.GetDay(NutritionGoals.Carbs, true); _cActMin = cA.Min; _cActMax = cA.Max;
-        var wR = NutritionGoals.GetDay(NutritionGoals.Water, false); _wRestMin = wR.Min; _wRestMax = wR.Max;
-        var wA = NutritionGoals.GetDay(NutritionGoals.Water, true); _wActMin = wA.Min; _wActMax = wA.Max;
         _textScale = Microsoft.Maui.Storage.Preferences.Default.Get("text_scale_pct", 100);
     }
 
@@ -231,22 +157,6 @@
         _textScale = pct;
         Microsoft.Maui.Storage.Preferences.Default.Set("text_scale_pct", pct);
         try { await JS.InvokeVoidAsync("textScale.apply", pct); } catch { }
-    }
-
-    private void SaveGoals()
-    {
-        Microsoft.Maui.Storage.Preferences.Default.Set(MauiAiSettings.CoachingGoalsKey, _goals.Trim());
-        NutritionGoals.Set(NutritionGoals.Protein, _pMin, _pMax);
-        NutritionGoals.Set(NutritionGoals.Fat, _fMin, _fMax);
-        NutritionGoals.Set(NutritionGoals.Fiber, _fibMin, _fibMax);
-        NutritionGoals.SetAddedSugarMax(_sugarMax);
-        NutritionGoals.SetDay(NutritionGoals.Calories, false, _calRestMin, _calRestMax);
-        NutritionGoals.SetDay(NutritionGoals.Calories, true, _calActMin, _calActMax);
-        NutritionGoals.SetDay(NutritionGoals.Carbs, false, _cRestMin, _cRestMax);
-        NutritionGoals.SetDay(NutritionGoals.Carbs, true, _cActMin, _cActMax);
-        NutritionGoals.SetDay(NutritionGoals.Water, false, _wRestMin, _wRestMax);
-        NutritionGoals.SetDay(NutritionGoals.Water, true, _wActMin, _wActMax);
-        _goalsSaved = true;
     }
 
     private async Task SaveKey()

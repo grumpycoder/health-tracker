@@ -253,6 +253,13 @@ select.field, .field select {
 .timeline li:last-child { border-bottom: none; }
 .timeline .time { display: block; color: var(--muted); font-size: 0.8rem; margin-bottom: 0.15rem; }
 .timeline .entry { display: block; flex: 1; }
+/* Measurements history: keep the row + photo line stacked full-width inside the flex <li>. */
+.meas-item { flex: 1; min-width: 0; }
+
+/* Read-only per-item breakdown expanded under a meal in the log list. */
+.meal-items { list-style: none; margin: 0.3rem 0 0; padding: 0.3rem 0 0 0.6rem; border-top: 1px dashed var(--border); }
+.meal-items li { padding: 0.2rem 0; }
+.meal-items li + li { border-top: 1px solid var(--border); }
 
 /* AI analysis result */
 .ai-result {
@@ -296,6 +303,68 @@ select.field, .field select {
     background: rgba(0,0,0,0.55);
     padding: 0.1rem 0.35rem;
     border-radius: 6px;
+}
+.photo-cell.photo-sel img { outline: 3px solid var(--accent); outline-offset: -1px; }
+.compare-row { display: flex; gap: 0.5rem; margin-bottom: 0.4rem; }
+.compare-cell { flex: 1; position: relative; text-align: center; }
+.compare-cell img { width: 100%; border-radius: 10px; border: 1px solid var(--border); }
+.compare-cell.compare-empty { display: flex; align-items: center; justify-content: center; border: 1px dashed var(--border); border-radius: 10px; min-height: 8rem; padding: 0.5rem; }
+
+/* plate per-item portion adjusters */
+.item-list { display: flex; flex-direction: column; gap: 0.5rem; margin: 0 0 0.5rem; }
+.item-adj { display: flex; flex-direction: column; gap: 0.15rem; }
+.item-adj-top { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.item-adj input[type=range] { accent-color: var(--accent); }
+
+/* body-goal progress list */
+.goal-list { display: flex; flex-direction: column; gap: 0.85rem; }
+.goal-item { display: flex; flex-direction: column; gap: 0.3rem; }
+.goal-top { display: flex; align-items: center; gap: 0.45rem; }
+.goal-name { font-weight: 600; }
+.goal-arrow { color: var(--muted); font-size: 0.9rem; }
+.goal-vals { margin-left: auto; }
+.goal-dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; flex: none; background: var(--muted); }
+.goal-dot.toward { background: #3ba55d; }
+.goal-dot.away { background: #e5484d; }
+.goal-dot.flat { background: #e2b53e; }
+.goal-dot.met { background: var(--accent); }
+.goal-dot.nodata { background: #9aa0a6; }
+.goal-bar { height: 8px; border-radius: 999px; background: rgba(127,127,127,0.2); overflow: hidden; }
+.goal-bar > i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+.goal-sub { font-size: 0.82rem; }
+.goal-recent { margin-left: 0.5rem; font-size: 0.78rem; font-weight: 600; }
+.goal-recent.toward { color: #3ba55d; }
+.goal-recent.away { color: #e5484d; }
+.goal-recent.flat, .goal-recent.nodata { color: var(--muted); }
+.goal-recent.met { color: var(--accent); }
+
+/* per-pose photo slots inside the measurement entry / edit form (2×2 so the action buttons fit) */
+.pose-slots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
+.pose-slot { position: relative; display: flex; flex-direction: column; align-items: center; gap: 0.2rem; min-width: 0; }
+.pose-slot img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+.slot-empty {
+    width: 100%; aspect-ratio: 3 / 4; display: flex; align-items: center; justify-content: center;
+    border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); font-size: 1.4rem;
+}
+.slot-label { font-size: 0.68rem; color: var(--muted); }
+.slot-actions { display: flex; gap: 0.25rem; }
+.mini-btn {
+    border: 1px solid var(--border); background: var(--card); border-radius: 6px;
+    padding: 0.12rem 0.4rem; font-size: 0.85rem; line-height: 1; cursor: pointer;
+}
+.slot-x {
+    position: absolute; top: 0.15rem; right: 0.15rem; width: 1.2rem; height: 1.2rem; line-height: 1;
+    border: none; border-radius: 50%; background: rgba(0,0,0,0.6); color: #fff; font-size: 0.7rem; cursor: pointer;
+}
+
+/* photos attached to a measurement history entry */
+.attached-photos { display: flex; gap: 0.4rem; margin-top: 0.5rem; flex-wrap: wrap; }
+.att-photo { position: relative; width: 3.4rem; cursor: pointer; }
+.att-photo img { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); }
+.att-pose {
+    position: absolute; bottom: 0.15rem; left: 0.15rem; right: 0.15rem;
+    font-size: 0.55rem; text-align: center; color: #fff;
+    background: rgba(0,0,0,0.55); padding: 0.05rem 0; border-radius: 5px;
 }
 
 /* calendar */

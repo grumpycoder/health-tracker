@@ -1,0 +1,527 @@
+@page "/trends"
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Data
+@attribute [Authorize]
+@inject AppState State
+
+<PageTitle>Trends — Fit Log</PageTitle>
+
+<div class="content">
+    <div class="page-head">
+        <div>
+            <div class="eyebrow">Analytics</div>
+            <h1 class="dash-date">Trends</h1>
+        </div>
+        @if (!_loading && _error is null)
+        {
+            <div class="segmented">
+                <button class="seg @(_topLevel == "days" ? "active" : "")" @onclick='() => SetTop("days")'>Days</button>
+                <button class="seg @(_topLevel == "weeks" ? "active" : "")" @onclick='() => SetTop("weeks")'>Weeks</button>
+                <button class="seg @(_topLevel == "months" ? "active" : "")" @onclick='() => SetTop("months")'>Months</button>
+            </div>
+        }
+    </div>
+
+    @if (_loading)
+    {
+        <section class="card"><p class="muted">Loading…</p></section>
+    }
+    else if (_error is not null)
+    {
+        <section class="card"><p class="warn-msg" style="margin:0">@_error</p><button class="save-btn" @onclick="Load">Retry</button></section>
+    }
+    else
+    {
+        <!-- breadcrumb -->
+        <div class="crumbs">
+            @for (var i = 0; i < _crumbs.Count; i++)
+            {
+                var c = _crumbs[i];
+                if (i > 0) { <span class="crumb-sep">›</span> }
+                if (i < _crumbs.Count - 1)
+                {
+                    <button class="crumb-link" @onclick="c.Up">@c.Label</button>
+                }
+                else
+                {
+                    <span class="crumb-cur">@c.Label</span>
+                }
+            }
+        </div>
+
+        @if (_level == "day")
+        {
+            <!-- ===== single-day detail ===== -->
+            <section class="card">
+                <div class="card-head"><h2>@_dayHeading</h2></div>
+                <div class="chip-row" style="gap:1.2rem;margin-bottom:0.8rem">
+                    <span><strong class="num">@_dayCal</strong> <span class="muted">kcal</span></span>
+                    <span><strong class="num">@_dayProtein</strong> <span class="muted">g protein</span></span>
+                    <span><strong class="num">@_dayCarbs</strong> <span class="muted">g carbs</span></span>
+                    <span><strong class="num">@_daySugar</strong> <span class="muted">g sugar</span></span>
+                </div>
+                @if (!string.IsNullOrEmpty(_dayContext)) { <p class="muted" style="margin:0 0 0.8rem;font-size:.85rem">@_dayContext</p> }
+
+                @if (_dayItems.Count == 0) { <p class="empty">Nothing logged this day.</p> }
+                else
+                {
+                    <ul class="day-log">
+                        @foreach (var e in _dayItems)
+                        {
+                            <li>
+                                <span class="dl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="@e.Icon" /></svg></span>
+                                <div>
+                                    <div class="dl-title">@e.Title</div>
+                                    <div class="dl-meta">@e.Meta</div>
+                                    @if (e.Chips.Length > 0)
+                                    {
+                                        <span class="dl-macros">@foreach (var ch in e.Chips) { <span class="chip">@ch</span> }</span>
+                                    }
+                                </div>
+                                <span class="dl-time">@e.Time</span>
+                            </li>
+                        }
+                    </ul>
+                }
+            </section>
+        }
+        else
+        {
+            <p class="muted" style="margin:0 0 0.2rem;font-size:.82rem">@_rangeCaption Click a bar to drill in.</p>
+            <div class="row-low">
+                <section class="card">
+                    <div class="card-head"><h2>Weight &amp; body composition</h2></div>
+                    @if (_weight.HasData)
+                    {
+                        <div class="chart-title">Weight <span class="pill @_weight.Pill">@_weight.Delta</span> <span class="muted">now @_weight.Cur@(_weight.HasTarget ? $" · {_weight.TargetLabel}" : "")</span></div>
+                        <svg class="mini" viewBox="0 0 300 90" preserveAspectRatio="none" role="img" aria-label="Weight trend">
+                            <path d="@_weight.Area" fill="var(--accent)" opacity="0.12" />
+                            @if (_weight.HasTarget) { <line x1="0" y1="@_weight.TargetY" x2="300" y2="@_weight.TargetY" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 3" /> }
+                            <polyline points="@_weight.Points" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        <div class="chart-x"><span>@_weight.Start</span><span>@_weight.End</span></div>
+                    }
+                    else { <p class="empty">Not enough weigh-ins here.</p> }
+
+                    @if (_waist.HasData)
+                    {
+                        <div class="chart-title" style="margin-top:0.8rem">Waist <span class="pill @_waist.Pill">@_waist.Delta</span> <span class="muted">now @_waist.Cur@(_waist.HasTarget ? $" · {_waist.TargetLabel}" : "")</span></div>
+                        <svg class="mini" viewBox="0 0 300 90" preserveAspectRatio="none">
+                            @if (_waist.HasTarget) { <line x1="0" y1="@_waist.TargetY" x2="300" y2="@_waist.TargetY" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 3" /> }
+                            <polyline points="@_waist.Points" fill="none" stroke="var(--energy)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    }
+                    @if (_bodyFat.HasData)
+                    {
+                        <div class="chart-title" style="margin-top:0.8rem">Body fat <span class="pill @_bodyFat.Pill">@_bodyFat.Delta</span> <span class="muted">now @_bodyFat.Cur@(_bodyFat.HasTarget ? $" · {_bodyFat.TargetLabel}" : "")</span></div>
+                        <svg class="mini" viewBox="0 0 300 90" preserveAspectRatio="none">
+                            @if (_bodyFat.HasTarget) { <line x1="0" y1="@_bodyFat.TargetY" x2="300" y2="@_bodyFat.TargetY" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 3" /> }
+                            <polyline points="@_bodyFat.Points" fill="none" stroke="var(--info)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    }
+                </section>
+
+                <section class="card">
+                    <div class="card-head"><h2>Sleep &amp; recovery</h2></div>
+                    @if (_sleep.HasData)
+                    {
+                        <div class="chart-title">Sleep hours <span class="muted">avg @_sleepAvg h · now @_sleep.Cur</span></div>
+                        <svg class="mini" viewBox="0 0 300 90" preserveAspectRatio="none" role="img" aria-label="Sleep hours trend">
+                            <path d="@_sleep.Area" fill="var(--info)" opacity="0.12" />
+                            <polyline points="@_sleep.Points" fill="none" stroke="var(--info)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                    }
+                    else { <p class="empty">Not enough sleep entries here.</p> }
+
+                    @if (_recovery.HasData)
+                    {
+                        <div class="chart-title" style="margin-top:0.8rem">Recovery rating <span class="muted">now @_recovery.Cur / 10</span></div>
+                        <svg class="mini" viewBox="0 0 300 90" preserveAspectRatio="none"><polyline points="@_recovery.Points" fill="none" stroke="var(--good)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                    }
+                </section>
+            </div>
+
+            <div class="row-low">
+                <section class="card">
+                    <div class="card-head"><h2>Training volume · minutes / @_bucketNoun</h2></div>
+                    @if (_trainingTotal > 0)
+                    {
+                        <svg class="mini" style="height:120px" viewBox="0 0 300 120" preserveAspectRatio="none" role="img" aria-label="Training minutes per @_bucketNoun">
+                            @foreach (var b in _trainingBars) { <rect x="@b.X" y="@b.Y" width="@b.W" height="@b.H" rx="3" fill="var(--accent)" /> }
+                            @if (_canDrill)
+                            {
+                                @for (var i = 0; i < _buckets.Count; i++) { var idx = i; <rect class="hitcol" x="@Hx(i)" y="0" width="@_hitW" height="120" @onclick="() => Drill(idx)"></rect> }
+                            }
+                        </svg>
+                        <div class="chart-x">@foreach (var l in _labels) { <span>@l</span> }</div>
+                        <p class="muted" style="font-size:.78rem;margin:.4rem 0 0">@_trainingSummary</p>
+                    }
+                    else { <p class="empty">No workouts logged here.</p> }
+                </section>
+
+                <section class="card">
+                    <div class="card-head"><h2>Nutrition vs targets</h2></div>
+                    @if (_calBars.Count > 0)
+                    {
+                        <div class="chart-title">Calories <span class="muted">@_nutritionUnit · target @_calTarget</span></div>
+                        <svg class="mini" viewBox="0 0 300 90" preserveAspectRatio="none" role="img" aria-label="Calories vs target">
+                            @foreach (var b in _calBars) { <rect x="@b.X" y="@b.Y" width="@b.W" height="@b.H" rx="2" fill="var(--energy)" /> }
+                            <line x1="0" y1="@_calTargetY" x2="300" y2="@_calTargetY" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 3" />
+                            @if (_canDrill)
+                            {
+                                @for (var i = 0; i < _buckets.Count; i++) { var idx = i; <rect class="hitcol" x="@Hx(i)" y="0" width="@_hitW" height="90" @onclick="() => Drill(idx)"></rect> }
+                            }
+                        </svg>
+                        <div class="chart-x">@foreach (var l in _labels) { <span>@l</span> }</div>
+                        <div class="chart-title" style="margin-top:0.8rem">Protein <span class="muted">@_nutritionUnit · target @_protTarget g</span></div>
+                        <svg class="mini" viewBox="0 0 300 90" preserveAspectRatio="none">
+                            <polyline points="@_proteinPoints" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                            <line x1="0" y1="@_proteinTargetY" x2="300" y2="@_proteinTargetY" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 3" />
+                        </svg>
+                        <p class="muted" style="font-size:.78rem;margin:.4rem 0 0">Dashed line = daily target.@(_canDrill ? " Click a calorie bar to drill in." : "")</p>
+                    }
+                    else { <p class="empty">No meals with macros here.</p> }
+                </section>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+    private int _calTarget = 2400;   // from GoalSettings when set, else default
+    private int _protTarget = 160;
+    private double? _goalWeight, _goalWaist, _goalBodyFat;   // body-measurement goals (null = unset)
+
+    private bool _loading = true;
+    private string? _error;
+
+    // navigation: a top level (from the toggle) + optional drill scopes
+    private string _topLevel = "weeks";
+    private DateOnly? _scopeMonth, _scopeWeek, _focusDay;
+
+    private record Series(bool HasData, string Points, string Area, string Cur, string Delta, string Pill, string Start, string End,
+        bool HasTarget = false, string TargetY = "0", string TargetLabel = "")
+    { public static readonly Series Empty = new(false, "", "", "", "", "good", "", ""); }
+    private record Bar(string X, string Y, string W, string H);
+    private record Crumb(string Label, Action Up);
+    private record DayItem(string Time, string Title, string Meta, string[] Chips, string Icon);
+
+    private List<BodyMeasurement> _measurements = new();
+    private List<SleepEntry> _sleepRows = new();
+    private List<RecoveryEntry> _recoveryRows = new();
+    private List<WorkoutSession> _workouts = new();
+    private List<MealEntry> _meals = new();
+    private List<DrinkEntry> _drinks = new();
+
+    private Series _weight = Series.Empty, _waist = Series.Empty, _bodyFat = Series.Empty, _sleep = Series.Empty, _recovery = Series.Empty;
+    private string _sleepAvg = "—";
+    private List<Bar> _trainingBars = new();
+    private int _trainingTotal;
+    private string _trainingSummary = "";
+    private List<Bar> _calBars = new();
+    private string _calTargetY = "0", _proteinPoints = "", _proteinTargetY = "0";
+    private List<string> _labels = new();
+    private List<DateOnly> _buckets = new();
+    private string _bucketNoun = "week", _rangeCaption = "", _nutritionUnit = "avg/day";
+    private bool _canDrill = true;
+    private double _hitW = 40;
+    private List<Crumb> _crumbs = new();
+    private string _level = "weeks";
+
+    // day-detail
+    private string _dayHeading = "", _dayContext = "";
+    private int _dayCal; private string _dayProtein = "0", _dayCarbs = "0", _daySugar = "0";
+    private List<DayItem> _dayItems = new();
+
+    private static readonly SvgIcons Ic = new();
+    private sealed class SvgIcons
+    {
+        public string Meal = "M6 3v6a6 6 0 0 0 12 0V3";
+        public string Water = "M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z";
+        public string Workout = "M6.5 6.5 17.5 17.5M4 8l2-2M18 20l2-2M8.5 15.5 3 21M15.5 8.5 21 3";
+    }
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true; _error = null;
+        try
+        {
+            var pull = await State.DataAsync();
+            _measurements = WebSyncClient.Rows<BodyMeasurement>(pull).OrderBy(m => m.Date).ToList();
+            _sleepRows = WebSyncClient.Rows<SleepEntry>(pull).OrderBy(s => s.Date).ToList();
+            _recoveryRows = WebSyncClient.Rows<RecoveryEntry>(pull).OrderBy(r => r.Date).ToList();
+            _workouts = WebSyncClient.Rows<WorkoutSession>(pull).ToList();
+            _meals = WebSyncClient.Rows<MealEntry>(pull).ToList();
+            _drinks = WebSyncClient.Rows<DrinkEntry>(pull).ToList();
+
+            // target lines from the user's goals when set, else defaults
+            var g = WebSyncClient.Rows<GoalSettings>(pull).OrderByDescending(x => x.UpdatedAt).FirstOrDefault();
+            if (g is not null)
+            {
+                var calMax = Math.Max(g.CaloriesActiveMax, g.CaloriesRestMax);
+                if (calMax > 0) _calTarget = calMax;
+                if (g.ProteinMax > 0) _protTarget = g.ProteinMax;
+                _goalWeight = g.GoalWeightLbs;
+                _goalWaist = g.GoalWaistInches;
+                _goalBodyFat = g.GoalBodyFatPercent;
+            }
+            Recompute();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private void SetTop(string t) { _topLevel = t; _scopeMonth = _scopeWeek = _focusDay = null; Recompute(); }
+
+    private string EffectiveLevel()
+    {
+        if (_focusDay is not null) return "day";
+        if (_scopeWeek is not null) return "days";
+        if (_scopeMonth is not null) return "weeks";
+        return _topLevel;
+    }
+
+    private static DateOnly WeekStart(DateOnly d) => d.AddDays(-((int)d.DayOfWeek == 0 ? 6 : (int)d.DayOfWeek - 1));
+
+    private DateOnly BucketOf(DateOnly d) => EffectiveLevel() switch
+    {
+        "months" => new DateOnly(d.Year, d.Month, 1),
+        "weeks" => WeekStart(d),
+        _ => d, // days
+    };
+
+    private List<DateOnly> BuildBuckets()
+    {
+        var lvl = EffectiveLevel();
+        var list = new List<DateOnly>();
+        if (lvl == "months")
+        {
+            var cur = new DateOnly(DateTime.Today.Year, DateTime.Today.Month, 1);
+            for (var i = 11; i >= 0; i--) list.Add(cur.AddMonths(-i));
+        }
+        else if (lvl == "weeks")
+        {
+            if (_scopeMonth is DateOnly m)
+            {
+                var last = m.AddMonths(1).AddDays(-1);
+                for (var d = WeekStart(m); d <= last; d = d.AddDays(7)) list.Add(d);
+            }
+            else
+            {
+                var cur = WeekStart(DateOnly.FromDateTime(DateTime.Today));
+                for (var i = 12; i >= 0; i--) list.Add(cur.AddDays(-7 * i));
+            }
+        }
+        else // days
+        {
+            if (_scopeWeek is DateOnly w) for (var i = 0; i < 7; i++) list.Add(w.AddDays(i));
+            else { var t = DateOnly.FromDateTime(DateTime.Today); for (var i = 20; i >= 0; i--) list.Add(t.AddDays(-i)); }
+        }
+        return list;
+    }
+
+    private void Drill(int i)
+    {
+        if (i < 0 || i >= _buckets.Count) return;
+        var d = _buckets[i];
+        switch (EffectiveLevel())
+        {
+            case "months": _scopeMonth = d; break;
+            case "weeks": _scopeWeek = d; break;
+            case "days": _focusDay = d; break;
+        }
+        Recompute();
+    }
+
+    private void Recompute()
+    {
+        _level = EffectiveLevel();
+        BuildCrumbs();
+        if (_level == "day") { BuildDay(); return; }
+
+        _buckets = BuildBuckets();
+        _hitW = 300.0 / Math.Max(1, _buckets.Count);
+        _bucketNoun = _level == "months" ? "month" : _level == "weeks" ? "week" : "day";
+        _nutritionUnit = _level == "days" ? "daily" : "avg/day";
+        _canDrill = _level != "days" || true; // days drill to a single day too
+        _rangeCaption = _level switch
+        {
+            "months" => "Monthly averages · last 12 months.",
+            "weeks" => _scopeMonth is DateOnly m ? $"Weeks of {m:MMMM yyyy}." : "Weekly averages · last 13 weeks.",
+            _ => _scopeWeek is DateOnly w ? $"Days of the week of {w:MMM d}." : "Daily · last 21 days.",
+        };
+
+        _weight = LineSeries(BucketAvg(_measurements.Where(x => x.WeightLbs is > 0).Select(x => (x.Date, x.WeightLbs!.Value))), " lb", true, _goalWeight);
+        _waist = LineSeries(BucketAvg(_measurements.Where(x => x.WaistInches is > 0).Select(x => (x.Date, x.WaistInches!.Value))), "\"", true, _goalWaist);
+        _bodyFat = LineSeries(BucketAvg(_measurements.Where(x => x.BodyFatPercent is > 0).Select(x => (x.Date, x.BodyFatPercent!.Value))), "%", true, _goalBodyFat);
+        var sleepPts = BucketAvg(_sleepRows.Where(x => x.DurationHours is not null).Select(x => (x.Date, x.DurationHours!.Value)));
+        _sleep = LineSeries(sleepPts, " h", false);
+        _sleepAvg = sleepPts.Count > 0 ? sleepPts.Average(p => p.v).ToString("0.#", Inv) : "—";
+        _recovery = LineSeries(BucketAvg(_recoveryRows.Where(x => x.RecoveryRating is not null).Select(x => (x.Date, (double)x.RecoveryRating!.Value))), "", false);
+
+        BuildTraining();
+        BuildNutrition();
+        _labels = LabelEveryOther();
+    }
+
+    // aggregate raw points into the explicit bucket list (skip empty), for line charts
+    private List<(DateOnly d, double v)> BucketAvg(IEnumerable<(DateOnly d, double v)> pts)
+    {
+        var byBucket = pts.GroupBy(p => BucketOf(p.d)).ToDictionary(g => g.Key, g => g.Average(x => x.v));
+        return _buckets.Where(byBucket.ContainsKey).Select(b => (b, byBucket[b])).ToList();
+    }
+
+    private void BuildTraining()
+    {
+        var byBucket = _workouts.GroupBy(w => BucketOf(w.Date)).ToDictionary(g => g.Key, g => g.Sum(w => (w.TotalSeconds ?? 0) / 60));
+        var vals = _buckets.Select(b => (double)byBucket.GetValueOrDefault(b, 0)).ToList();
+        _trainingTotal = (int)vals.Sum();
+        _trainingBars = Bars(vals, 120, Math.Max(60, vals.DefaultIfEmpty(0).Max()));
+        var active = vals.Count(v => v > 0);
+        _trainingSummary = $"{_trainingTotal} min · {active} active {_bucketNoun}(s) · avg {(active > 0 ? _trainingTotal / active : 0)} min/active {_bucketNoun}";
+    }
+
+    private void BuildNutrition()
+    {
+        var start = _buckets[0]; var end = _buckets[^1] switch { _ => LastDayOf(_buckets[^1]) };
+        var dayCal = new Dictionary<DateOnly, double>(); var dayProt = new Dictionary<DateOnly, double>();
+        for (var d = start; d <= end && d <= DateOnly.FromDateTime(DateTime.Today); d = d.AddDays(1))
+        {
+            var ds = d.ToDateTime(TimeOnly.MinValue); var de = ds.AddDays(1);
+            var m = _meals.Where(x => x.Time >= ds && x.Time < de).ToList();
+            var dr = _drinks.Where(x => x.Time >= ds && x.Time < de).ToList();
+            var c = NutritionMath.Calories(m, dr); var p = NutritionMath.Protein(m, dr);
+            if (c > 0) dayCal[d] = c; if (p > 0) dayProt[d] = p;
+        }
+        if (dayCal.Count == 0 && dayProt.Count == 0) { _calBars = new(); return; }
+
+        double Avg(Dictionary<DateOnly, double> src, DateOnly b)
+        { var v = src.Where(kv => BucketOf(kv.Key) == b).Select(kv => kv.Value).ToList(); return v.Count > 0 ? v.Average() : 0; }
+        var cals = _buckets.Select(b => Avg(dayCal, b)).ToList();
+        var prot = _buckets.Select(b => Avg(dayProt, b)).ToList();
+
+        const double H = 90, top = 8, bot = 10;
+        var calMax = Math.Max(_calTarget * 1.2, cals.DefaultIfEmpty(0).Max()); if (calMax <= 0) calMax = 1;
+        _calBars = Bars(cals, 90, calMax);
+        _calTargetY = (H - bot - _calTarget / calMax * (H - top - bot)).ToString("0.#", Inv);
+        var protMax = Math.Max(_protTarget * 1.3, prot.DefaultIfEmpty(0).Max()); if (protMax <= 0) protMax = 1;
+        _proteinPoints = string.Join(" ", Enumerable.Range(0, prot.Count).Select(i =>
+            Coord(prot.Count == 1 ? 150.0 : i / (double)(prot.Count - 1) * 300, H - bot - prot[i] / protMax * (H - top - bot))));
+        _proteinTargetY = (H - bot - _protTarget / protMax * (H - top - bot)).ToString("0.#", Inv);
+    }
+
+    private DateOnly LastDayOf(DateOnly bucketStart) => EffectiveLevel() switch
+    {
+        "months" => bucketStart.AddMonths(1).AddDays(-1),
+        "weeks" => bucketStart.AddDays(6),
+        _ => bucketStart,
+    };
+
+    private void BuildDay()
+    {
+        var day = _focusDay!.Value;
+        _dayHeading = day.ToString("dddd, MMM d, yyyy");
+        var ds = day.ToDateTime(TimeOnly.MinValue); var de = ds.AddDays(1);
+        var meals = _meals.Where(x => x.Time >= ds && x.Time < de).ToList();
+        var drinks = _drinks.Where(x => x.Time >= ds && x.Time < de).ToList();
+        _dayCal = NutritionMath.Calories(meals, drinks);
+        _dayProtein = NutritionMath.Protein(meals, drinks).ToString("0", Inv);
+        _dayCarbs = NutritionMath.Carbs(meals, drinks).ToString("0", Inv);
+        _daySugar = NutritionMath.Sugar(meals, drinks).ToString("0", Inv);
+
+        var items = new List<(DateTime t, DayItem it)>();
+        foreach (var m in meals)
+        {
+            var chips = new List<string>();
+            if (m.Calories is int c) chips.Add($"{c} kcal");
+            if (m.CarbsG is double cb) chips.Add($"{cb:0} C");
+            if (m.SugarG is double sg) chips.Add($"{sg:0} sugar");
+            foreach (var t in m.TagList) chips.Add(t);
+            items.Add((m.Time, new DayItem(m.Time.ToString("h:mm tt"), string.IsNullOrWhiteSpace(m.Description) ? "Meal" : m.Description, m.MealType.ToString(), chips.ToArray(), Ic.Meal)));
+        }
+        foreach (var d in drinks)
+        {
+            var chips = new List<string>();
+            if (d.Calories is int c) chips.Add($"{c} kcal");
+            if (d.SugarG is double sg) chips.Add($"{sg:0} sugar");
+            items.Add((d.Time, new DayItem(d.Time.ToString("h:mm tt"), string.IsNullOrWhiteSpace(d.Description) ? "Drink" : d.Description, d.Ounces is double oz ? $"{oz:0} oz" : "drink", chips.ToArray(), Ic.Water)));
+        }
+        foreach (var w in _workouts.Where(x => x.Date == day))
+        {
+            var mins = (w.TotalSeconds ?? 0) / 60;
+            items.Add((w.StartedAt ?? ds, new DayItem((w.StartedAt ?? ds).ToString("h:mm tt"), "Workout", mins > 0 ? $"{mins} min" : "logged", Array.Empty<string>(), Ic.Workout)));
+        }
+        _dayItems = items.OrderBy(x => x.t).Select(x => x.it).ToList();
+
+        var sleep = _sleepRows.FirstOrDefault(s => s.Date == day);
+        var rec = _recoveryRows.FirstOrDefault(r => r.Date == day);
+        var parts = new List<string>();
+        if (sleep?.DurationHours is double h) parts.Add($"slept {h:0.#}h" + (sleep.SleepScore is int sc ? $" (score {sc})" : ""));
+        if (rec?.RecoveryRating is int rr) parts.Add($"recovery {rr}/10" + (rec.FatigueRating is int f ? $", fatigue {f}/10" : ""));
+        _dayContext = parts.Count > 0 ? string.Join(" · ", parts) : "";
+    }
+
+    private void BuildCrumbs()
+    {
+        var list = new List<Crumb>
+        {
+            new(_topLevel switch { "days" => "Days", "months" => "Months", _ => "Weeks" }, () => { _scopeMonth = _scopeWeek = _focusDay = null; Recompute(); }),
+        };
+        if (_scopeMonth is DateOnly m) list.Add(new(m.ToString("MMM yyyy"), () => { _scopeWeek = _focusDay = null; Recompute(); }));
+        if (_scopeWeek is DateOnly w) list.Add(new($"Wk of {w:MMM d}", () => { _focusDay = null; Recompute(); }));
+        if (_focusDay is DateOnly d) list.Add(new(d.ToString("MMM d"), () => { }));
+        _crumbs = list;
+    }
+
+    private string Hx(int i) => (i * (300.0 / Math.Max(1, _buckets.Count))).ToString("0.#", Inv);
+
+    private static List<Bar> Bars(List<double> vals, double H, double max)
+    {
+        const double W = 300, top = 8, bot = 16;
+        if (max <= 0) max = 1;
+        var slot = W / Math.Max(1, vals.Count); var bw = slot * 0.62;
+        var bars = new List<Bar>();
+        for (var i = 0; i < vals.Count; i++)
+        {
+            var h = vals[i] <= 0 ? 0 : vals[i] / max * (H - top - bot);
+            bars.Add(new Bar(((i * slot) + (slot - bw) / 2).ToString("0.#", Inv), (H - bot - h).ToString("0.#", Inv), bw.ToString("0.#", Inv), h.ToString("0.#", Inv)));
+        }
+        return bars;
+    }
+
+    private List<string> LabelEveryOther()
+    {
+        var fmt = _level == "months" ? "MMM" : "M/d";
+        // label every month/short-week; thin out only long day ranges
+        var step = _level == "months" ? 1 : _level == "weeks" ? (_buckets.Count > 10 ? 2 : 1) : (_buckets.Count > 14 ? 3 : 1);
+        return _buckets.Select((b, i) => i % step == 0 ? b.ToString(fmt) : "").ToList();
+    }
+
+    private static Series LineSeries(List<(DateOnly d, double v)> pts, string unit, bool lowerIsBetter, double? target = null)
+    {
+        if (pts.Count < 2) return Series.Empty;
+        var vals = pts.Select(p => p.v).ToList();
+        double min = vals.Min(), max = vals.Max();
+        if (target is { } t) { min = Math.Min(min, t); max = Math.Max(max, t); }  // keep the goal line on-chart
+        var range = Math.Max(0.001, max - min);
+        const double W = 300, H = 90, top = 10, bot = 14;
+        double YOf(double v) => H - bot - (v - min) / range * (H - top - bot);
+        string XY(int i) => Coord(i / (double)(pts.Count - 1) * W, YOf(vals[i]));
+        var points = string.Join(" ", Enumerable.Range(0, pts.Count).Select(XY));
+        var area = $"M {XY(0)} " + string.Join(" ", Enumerable.Range(1, pts.Count - 1).Select(i => $"L {XY(i)}")) + $" L {W.ToString("0.#", Inv)},{H} L 0,{H} Z";
+        var delta = pts[^1].v - pts[0].v;
+        var improving = lowerIsBetter ? delta <= 0 : delta >= 0;
+        var hasTarget = target is not null;
+        var targetY = target is { } tv ? YOf(tv).ToString("0.#", Inv) : "0";
+        var targetLabel = target is { } tl ? $"goal {tl.ToString("0.#", Inv)}{unit}" : "";
+        return new Series(true, points, area, pts[^1].v.ToString("0.#", Inv) + unit,
+            $"{(delta <= 0 ? "▼" : "▲")} {Math.Abs(delta).ToString("0.#", Inv)}{unit}", improving ? "good" : "caution",
+            pts[0].d.ToString("MMM d"), pts[^1].d.ToString("MMM d"), hasTarget, targetY, targetLabel);
+    }
+
+    private static string Coord(double x, double y) => $"{x.ToString("0.#", Inv)},{y.ToString("0.#", Inv)}";
+}

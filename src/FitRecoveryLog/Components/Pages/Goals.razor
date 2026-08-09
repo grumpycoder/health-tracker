@@ -1,0 +1,191 @@
+@page "/goals"
+@using FitRecoveryLog.Services
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>Goals</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Goals</div>
+        <div class="dash-date-sub">Coaching, nutrition & body targets</div>
+    </header>
+
+    <section class="card">
+        <h2>Coaching goals</h2>
+        <p class="muted" style="margin:0 0 0.6rem">
+            Tell the AI what <em>you're</em> aiming for, one per line — it coaches toward your
+            targets instead of assuming everything should go to zero.
+        </p>
+        <div class="field">
+            <textarea rows="4" @bind="_g.CoachingGoals" placeholder="One goal or preference per line"></textarea>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Daily macro goals <span class="muted" style="font-weight:400;font-size:0.85rem">(min–max; 0 to disable a row)</span></h2>
+        <div class="inline-fields">
+            <div class="field"><label>Protein min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_g.ProteinMin" /></div>
+            <div class="field"><label>Protein max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_g.ProteinMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Fat min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_g.FatMin" /></div>
+            <div class="field"><label>Fat max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_g.FatMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Fiber min</label><input type="number" inputmode="numeric" min="0" step="1" @bind="_g.FiberMin" /></div>
+            <div class="field"><label>Fiber max</label><input type="number" inputmode="numeric" min="0" step="1" @bind="_g.FiberMax" /></div>
+        </div>
+        <div class="field">
+            <label>Added sugar ceiling (g) <span class="muted">— stay under</span></label>
+            <input type="number" inputmode="numeric" min="0" step="1" @bind="_g.AddedSugarMax" />
+        </div>
+
+        <p class="muted" style="margin:0.7rem 0 0.3rem;font-weight:600">Rest-day targets <span style="font-weight:400">— vary with activity</span></p>
+        <div class="inline-fields">
+            <div class="field"><label>Calories min</label><input type="number" inputmode="numeric" min="0" step="50" @bind="_g.CaloriesRestMin" /></div>
+            <div class="field"><label>Calories max</label><input type="number" inputmode="numeric" min="0" step="50" @bind="_g.CaloriesRestMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Carbs min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_g.CarbsRestMin" /></div>
+            <div class="field"><label>Carbs max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_g.CarbsRestMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Water min (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_g.WaterRestMin" /></div>
+            <div class="field"><label>Water max (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_g.WaterRestMax" /></div>
+        </div>
+
+        <p class="muted" style="margin:0.7rem 0 0.3rem;font-weight:600">Workout-day targets</p>
+        <div class="inline-fields">
+            <div class="field"><label>Calories min</label><input type="number" inputmode="numeric" min="0" step="50" @bind="_g.CaloriesActiveMin" /></div>
+            <div class="field"><label>Calories max</label><input type="number" inputmode="numeric" min="0" step="50" @bind="_g.CaloriesActiveMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Carbs min</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_g.CarbsActiveMin" /></div>
+            <div class="field"><label>Carbs max</label><input type="number" inputmode="numeric" min="0" step="5" @bind="_g.CarbsActiveMax" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Water min (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_g.WaterActiveMin" /></div>
+            <div class="field"><label>Water max (oz)</label><input type="number" inputmode="numeric" min="0" step="4" @bind="_g.WaterActiveMax" /></div>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Body-measurement goals</h2>
+        <p class="muted" style="margin:0 0 0.6rem">Leave a field blank for no goal — reduce vs. gain is inferred from where you are now.</p>
+        <div class="inline-fields">
+            <div class="field"><label>Weight (lb)</label><input type="number" inputmode="decimal" step="0.1" @bind="_g.GoalWeightLbs" /></div>
+            <div class="field"><label>Waist (in)</label><input type="number" inputmode="decimal" step="0.1" @bind="_g.GoalWaistInches" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Body fat (%)</label><input type="number" inputmode="decimal" step="0.1" @bind="_g.GoalBodyFatPercent" /></div>
+            <div class="field"><label>Chest (in)</label><input type="number" inputmode="decimal" step="0.1" @bind="_g.GoalChestInches" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Shoulders (in)</label><input type="number" inputmode="decimal" step="0.1" @bind="_g.GoalShouldersInches" /></div>
+            <div class="field"><label>Arms (in)</label><input type="number" inputmode="decimal" step="0.1" @bind="_g.GoalArmsInches" /></div>
+        </div>
+        <div class="inline-fields">
+            <div class="field"><label>Thighs (in)</label><input type="number" inputmode="decimal" step="0.1" @bind="_g.GoalThighsInches" /></div>
+            <div class="field"><label>Calves (in)</label><input type="number" inputmode="decimal" step="0.1" @bind="_g.GoalCalvesInches" /></div>
+        </div>
+    </section>
+
+    <section class="card">
+        <button class="save-btn" @onclick="Save" disabled="@_busy">@(_busy ? "Saving…" : "Save goals")</button>
+        @if (_saved) { <span class="saved-msg">Saved ✓</span> }
+        <p class="muted" style="margin:0.5rem 0 0;font-size:0.78rem">Targets sync with the web. Tap Sync Now in Settings to push right away.</p>
+    </section>
+</div>
+
+@code {
+    // Whole form binds to one working GoalSettings copy — macros are its int fields, body goals its
+    // nullable doubles. GoalSettings is the synced source of truth; NutritionGoals/Preferences are a
+    // read cache the rest of the app (displays + AI) still uses, so we mirror both ways here.
+    private GoalSettings _g = new();
+    private bool _busy, _saved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var existing = await db.GoalSettings.AsNoTracking()
+            .Where(x => !x.IsDeleted).OrderByDescending(x => x.UpdatedAt).FirstOrDefaultAsync();
+        if (existing is not null)
+        {
+            _g = existing;              // detached copy for editing
+            MirrorToPreferences(_g);    // reconcile local cache with the synced record (picks up web edits)
+        }
+        else
+        {
+            _g = SeedFromPreferences(); // no synced row yet — capture the phone's existing local goals
+        }
+    }
+
+    private async Task Save()
+    {
+        _busy = true; _saved = false;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.GoalSettings.Where(x => !x.IsDeleted).OrderByDescending(x => x.UpdatedAt).FirstOrDefaultAsync();
+            if (row is null) { row = new GoalSettings(); db.GoalSettings.Add(row); }
+            // Copy the editable fields; DO NOT touch IncludeCessationData (kept device-local / web-owned
+            // pending security review), so it's preserved on whatever the row already holds.
+            row.CoachingGoals = string.IsNullOrWhiteSpace(_g.CoachingGoals) ? null : _g.CoachingGoals.Trim();
+            row.ProteinMin = _g.ProteinMin; row.ProteinMax = _g.ProteinMax;
+            row.FatMin = _g.FatMin; row.FatMax = _g.FatMax;
+            row.FiberMin = _g.FiberMin; row.FiberMax = _g.FiberMax;
+            row.AddedSugarMax = _g.AddedSugarMax;
+            row.CaloriesRestMin = _g.CaloriesRestMin; row.CaloriesRestMax = _g.CaloriesRestMax;
+            row.CaloriesActiveMin = _g.CaloriesActiveMin; row.CaloriesActiveMax = _g.CaloriesActiveMax;
+            row.CarbsRestMin = _g.CarbsRestMin; row.CarbsRestMax = _g.CarbsRestMax;
+            row.CarbsActiveMin = _g.CarbsActiveMin; row.CarbsActiveMax = _g.CarbsActiveMax;
+            row.WaterRestMin = _g.WaterRestMin; row.WaterRestMax = _g.WaterRestMax;
+            row.WaterActiveMin = _g.WaterActiveMin; row.WaterActiveMax = _g.WaterActiveMax;
+            row.GoalWeightLbs = _g.GoalWeightLbs; row.GoalWaistInches = _g.GoalWaistInches;
+            row.GoalBodyFatPercent = _g.GoalBodyFatPercent; row.GoalChestInches = _g.GoalChestInches;
+            row.GoalArmsInches = _g.GoalArmsInches; row.GoalThighsInches = _g.GoalThighsInches;
+            row.GoalShouldersInches = _g.GoalShouldersInches; row.GoalCalvesInches = _g.GoalCalvesInches;
+            await db.SaveChangesAsync();   // stamps UpdatedAt → syncs to cloud/web
+            MirrorToPreferences(_g);       // keep the local cache in lockstep for displays + AI
+            _saved = true;
+        }
+        finally { _busy = false; }
+    }
+
+    // GoalSettings → the Preferences-backed NutritionGoals + coaching text (the app's sync read cache).
+    private static void MirrorToPreferences(GoalSettings g)
+    {
+        Microsoft.Maui.Storage.Preferences.Default.Set(MauiAiSettings.CoachingGoalsKey, (g.CoachingGoals ?? "").Trim());
+        NutritionGoals.Set(NutritionGoals.Protein, g.ProteinMin, g.ProteinMax);
+        NutritionGoals.Set(NutritionGoals.Fat, g.FatMin, g.FatMax);
+        NutritionGoals.Set(NutritionGoals.Fiber, g.FiberMin, g.FiberMax);
+        NutritionGoals.SetAddedSugarMax(g.AddedSugarMax);
+        NutritionGoals.SetDay(NutritionGoals.Calories, false, g.CaloriesRestMin, g.CaloriesRestMax);
+        NutritionGoals.SetDay(NutritionGoals.Calories, true, g.CaloriesActiveMin, g.CaloriesActiveMax);
+        NutritionGoals.SetDay(NutritionGoals.Carbs, false, g.CarbsRestMin, g.CarbsRestMax);
+        NutritionGoals.SetDay(NutritionGoals.Carbs, true, g.CarbsActiveMin, g.CarbsActiveMax);
+        NutritionGoals.SetDay(NutritionGoals.Water, false, g.WaterRestMin, g.WaterRestMax);
+        NutritionGoals.SetDay(NutritionGoals.Water, true, g.WaterActiveMin, g.WaterActiveMax);
+    }
+
+    // Existing local goals → a fresh (unsaved) GoalSettings, so first save captures them into sync.
+    private static GoalSettings SeedFromPreferences()
+    {
+        var g = new GoalSettings
+        {
+            CoachingGoals = Microsoft.Maui.Storage.Preferences.Default.Get(MauiAiSettings.CoachingGoalsKey, ""),
+            AddedSugarMax = NutritionGoals.AddedSugarMax,
+        };
+        var p = NutritionGoals.Get(NutritionGoals.Protein); g.ProteinMin = p.Min; g.ProteinMax = p.Max;
+        var f = NutritionGoals.Get(NutritionGoals.Fat); g.FatMin = f.Min; g.FatMax = f.Max;
+        var fib = NutritionGoals.Get(NutritionGoals.Fiber); g.FiberMin = fib.Min; g.FiberMax = fib.Max;
+        var cr = NutritionGoals.GetDay(NutritionGoals.Calories, false); g.CaloriesRestMin = cr.Min; g.CaloriesRestMax = cr.Max;
+        var ca = NutritionGoals.GetDay(NutritionGoals.Calories, true); g.CaloriesActiveMin = ca.Min; g.CaloriesActiveMax = ca.Max;
+        var cbr = NutritionGoals.GetDay(NutritionGoals.Carbs, false); g.CarbsRestMin = cbr.Min; g.CarbsRestMax = cbr.Max;
+        var cba = NutritionGoals.GetDay(NutritionGoals.Carbs, true); g.CarbsActiveMin = cba.Min; g.CarbsActiveMax = cba.Max;
+        var wr = NutritionGoals.GetDay(NutritionGoals.Water, false); g.WaterRestMin = wr.Min; g.WaterRestMax = wr.Max;
+        var wa = NutritionGoals.GetDay(NutritionGoals.Water, true); g.WaterActiveMin = wa.Min; g.WaterActiveMax = wa.Max;
+        return g;
+    }
+}

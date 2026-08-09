@@ -49,6 +49,8 @@ public sealed class EfMeasurementRepository : IMeasurementRepository
         row.HipsInches = m.HipsInches;
         row.ArmsInches = m.ArmsInches;
         row.ThighsInches = m.ThighsInches;
+        row.ShouldersInches = m.ShouldersInches;
+        row.CalvesInches = m.CalvesInches;
         row.BodyFatPercent = m.BodyFatPercent;
         row.MuscleMassLbs = m.MuscleMassLbs;
         row.VisceralFat = m.VisceralFat;
@@ -72,6 +74,6 @@ public sealed class EfMeasurementRepository : IMeasurementRepository
 
     private static Measurement ToDomain(Persistence.BodyMeasurement m) =>
         Measurement.Rehydrate(m.Id, m.Date, m.WeightLbs, m.WaistInches, m.ChestInches, m.HipsInches,
-            m.ArmsInches, m.ThighsInches, m.BodyFatPercent, m.MuscleMassLbs, m.VisceralFat, m.BodyWaterPercent,
-            m.BasalMetabolicRate, m.MetabolicAge, m.ClothingFitNotes);
+            m.ArmsInches, m.ThighsInches, m.ShouldersInches, m.CalvesInches, m.BodyFatPercent, m.MuscleMassLbs,
+            m.VisceralFat, m.BodyWaterPercent, m.BasalMetabolicRate, m.MetabolicAge, m.ClothingFitNotes);
 }

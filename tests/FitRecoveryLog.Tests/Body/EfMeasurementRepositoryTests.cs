@@ -32,7 +32,7 @@ public class EfMeasurementRepositoryTests
     public async Task Save_ThenGet_RoundTrips()
     {
         var m = Measurement.Create(new DateOnly(2026, 8, 5));
-        m.Update(185.4, 34.0, null, null, null, null, 18.5, null, null, null, null, null, "belt one notch tighter");
+        m.Update(185.4, 34.0, null, null, null, null, 47.5, 15.0, 18.5, null, null, null, null, null, "belt one notch tighter");
         await _repo.SaveAsync(m);
 
         var loaded = await _repo.GetAsync(m.Id);
@@ -42,6 +42,8 @@ public class EfMeasurementRepositoryTests
         {
             Assert.That(loaded!.WeightLbs, Is.EqualTo(185.4));
             Assert.That(loaded.WaistInches, Is.EqualTo(34.0));
+            Assert.That(loaded.ShouldersInches, Is.EqualTo(47.5));
+            Assert.That(loaded.CalvesInches, Is.EqualTo(15.0));
             Assert.That(loaded.BodyFatPercent, Is.EqualTo(18.5));
             Assert.That(loaded.ClothingFitNotes, Is.EqualTo("belt one notch tighter"));
         });
@@ -60,7 +62,7 @@ public class EfMeasurementRepositoryTests
 
         // Update the measurement through the aggregate (adds a weight).
         var m = await _repo.GetAsync(id);
-        m!.Update(190, null, null, null, null, null, null, null, null, null, null, null, null);
+        m!.Update(190, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         await _repo.SaveAsync(m);
 
         using var verify = _factory.CreateDbContext();

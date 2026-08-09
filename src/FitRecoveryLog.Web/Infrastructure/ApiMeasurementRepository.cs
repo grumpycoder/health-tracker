@@ -27,7 +27,8 @@ public sealed class ApiMeasurementRepository : IMeasurementRepository
         {
             Id = m.Id, Date = m.Date, WeightLbs = m.WeightLbs, WaistInches = m.WaistInches,
             ChestInches = m.ChestInches, HipsInches = m.HipsInches, ArmsInches = m.ArmsInches,
-            ThighsInches = m.ThighsInches, BodyFatPercent = m.BodyFatPercent, MuscleMassLbs = m.MuscleMassLbs,
+            ThighsInches = m.ThighsInches, ShouldersInches = m.ShouldersInches, CalvesInches = m.CalvesInches,
+            BodyFatPercent = m.BodyFatPercent, MuscleMassLbs = m.MuscleMassLbs,
             VisceralFat = m.VisceralFat, BodyWaterPercent = m.BodyWaterPercent, BasalMetabolicRate = m.BasalMetabolicRate,
             MetabolicAge = m.MetabolicAge, ClothingFitNotes = m.ClothingFitNotes,
             PhotoPath = existing?.PhotoPath, CreatedAt = existing?.CreatedAt ?? DateTime.UtcNow,
@@ -46,6 +47,6 @@ public sealed class ApiMeasurementRepository : IMeasurementRepository
 
     private static Measurement ToDomain(Persistence.BodyMeasurement m) =>
         Measurement.Rehydrate(m.Id, m.Date, m.WeightLbs, m.WaistInches, m.ChestInches, m.HipsInches,
-            m.ArmsInches, m.ThighsInches, m.BodyFatPercent, m.MuscleMassLbs, m.VisceralFat, m.BodyWaterPercent,
-            m.BasalMetabolicRate, m.MetabolicAge, m.ClothingFitNotes);
+            m.ArmsInches, m.ThighsInches, m.ShouldersInches, m.CalvesInches, m.BodyFatPercent, m.MuscleMassLbs,
+            m.VisceralFat, m.BodyWaterPercent, m.BasalMetabolicRate, m.MetabolicAge, m.ClothingFitNotes);
 }

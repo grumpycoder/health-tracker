@@ -12,8 +12,9 @@ public interface IMeasurementRepository
 }
 
 public sealed record MeasurementData(DateOnly Date, double? WeightLbs, double? WaistInches, double? ChestInches,
-    double? HipsInches, double? ArmsInches, double? ThighsInches, double? BodyFatPercent, double? MuscleMassLbs,
-    double? VisceralFat, double? BodyWaterPercent, int? BasalMetabolicRate, int? MetabolicAge, string? ClothingFitNotes);
+    double? HipsInches, double? ArmsInches, double? ThighsInches, double? ShouldersInches, double? CalvesInches,
+    double? BodyFatPercent, double? MuscleMassLbs, double? VisceralFat, double? BodyWaterPercent,
+    int? BasalMetabolicRate, int? MetabolicAge, string? ClothingFitNotes);
 
 public sealed class MeasurementService
 {
@@ -51,7 +52,7 @@ public sealed class MeasurementService
     {
         m.SetDate(d.Date);
         m.Update(d.WeightLbs, d.WaistInches, d.ChestInches, d.HipsInches, d.ArmsInches, d.ThighsInches,
-            d.BodyFatPercent, d.MuscleMassLbs, d.VisceralFat, d.BodyWaterPercent, d.BasalMetabolicRate,
-            d.MetabolicAge, d.ClothingFitNotes);
+            d.ShouldersInches, d.CalvesInches, d.BodyFatPercent, d.MuscleMassLbs, d.VisceralFat, d.BodyWaterPercent,
+            d.BasalMetabolicRate, d.MetabolicAge, d.ClothingFitNotes);
     }
 }

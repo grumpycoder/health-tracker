@@ -1,8 +1,10 @@
 @page "/measurements"
 @using FitRecoveryLog.Application.Body
+@using FitRecoveryLog.Services
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject MeasurementService MeasurementSvc
 @inject IHealthService Health
+@inject NavigationManager Nav
 @inject FitRecoveryLog.Services.ToastService Toast
 
 <PageTitle>Body Measurements</PageTitle>
@@ -10,8 +12,49 @@
 <div class="dashboard">
     <header class="dash-header">
         <div class="dash-date">Body Measurements</div>
-        <div class="dash-date-sub">Weight, waist & more</div>
+        <div class="dash-date-sub">Weight, waist & progress photos</div>
     </header>
+
+    @if (_goalsMet.Count > 0)
+    {
+        <section class="card" style="border:1px solid var(--accent)">
+            <h2>🎯 Goal@(_goalsMet.Count > 1 ? "s" : "") reached!</h2>
+            <p style="margin:0 0 0.6rem">Nice work — you've hit your <strong>@string.Join(", ", _goalsMet)</strong> goal@(_goalsMet.Count > 1 ? "s" : ""). Time to set a new target?</p>
+            <button class="save-btn" @onclick="@(() => Nav.NavigateTo("goals"))">Reassess goals</button>
+            <button class="link-btn" style="margin-left:0.6rem" @onclick="() => _goalsMet.Clear()">Dismiss</button>
+        </section>
+    }
+
+    @if (_overview.Any(r => r.Goal is not null))
+    {
+        <section class="card">
+            <h2>Goal progress</h2>
+            <div class="goal-list">
+                @foreach (var r in _overview.Where(x => x.Goal is not null))
+                {
+                    var showBase = r.Baseline is double bl && r.Current is double cu && Math.Abs(bl - cu) > 0.05;
+                    <div class="goal-item">
+                        <div class="goal-top">
+                            <span class="goal-dot @DotClass(r.Trend)"></span>
+                            <span class="goal-name">@r.Label</span>
+                            @if (!string.IsNullOrEmpty(r.Arrow)) { <span class="goal-arrow">@r.Arrow</span> }
+                            <span class="goal-vals">
+                                @if (showBase) { <span class="muted">@r.Baseline!.Value.ToString("0.#") → </span> }@(r.Current is null ? "—" : r.Current.Value.ToString("0.#"))<span class="muted"> → @r.Goal!.Value.ToString("0.#") @r.Unit</span>
+                            </span>
+                        </div>
+                        <div class="goal-bar"><i style="width:@(r.Percent ?? 0)%"></i></div>
+                        <div class="goal-sub">
+                            @if (r.Met) { <span class="badge good">Goal met ✓</span> }
+                            else if (!string.IsNullOrEmpty(r.Achieved)) { <strong>@(r.Percent ?? 0)% complete</strong><span class="muted"> · @r.Achieved</span> }
+                            else { <strong>@(r.Percent ?? 0)% complete</strong> }
+                            @if (!string.IsNullOrEmpty(r.Recent)) { <span class="goal-recent @DotClass(r.RecentTrend)">@r.Recent</span> }
+                        </div>
+                    </div>
+                }
+            </div>
+            <p class="muted" style="font-size:0.76rem;margin:0.5rem 0 0">Shown as start → now → goal. Bar = progress from your first value; dot = overall trend; chip = vs last entry. Set targets on the <a href="goals">Goals</a> page.</p>
+        </section>
+    }
 
     <section class="card">
         <h2>New entry</h2>
@@ -40,6 +83,14 @@
                 <label>Thighs (in)</label>
                 <input type="number" inputmode="decimal" step="0.01" @bind="_entry.ThighsInches" />
             </div>
+            <div class="field">
+                <label>Shoulders (in)</label>
+                <input type="number" inputmode="decimal" step="0.01" @bind="_entry.ShouldersInches" />
+            </div>
+            <div class="field">
+                <label>Calves (in)</label>
+                <input type="number" inputmode="decimal" step="0.01" @bind="_entry.CalvesInches" />
+            </div>
 
             <p class="muted" style="margin:0.6rem 0 0.2rem;font-size:0.8rem">Body composition (from Hume)</p>
             <div class="inline-fields">
@@ -60,6 +111,36 @@
                 <textarea rows="2" @bind="_entry.ClothingFitNotes"
                           placeholder="e.g. belt one notch tighter"></textarea>
             </div>
+
+            <div class="field">
+                <label>Progress photos</label>
+                <div class="pose-slots">
+                    @foreach (var pose in Enum.GetValues<PhotoPose>())
+                    {
+                        <div class="pose-slot">
+                            @if (_newPhotos.ContainsKey(pose))
+                            {
+                                <img src="@PhotoDataUrl(_newPhotos[pose])" alt="@pose photo" />
+                                <button type="button" class="slot-x" title="Remove" @onclick="() => RemoveNewPhoto(pose)">✕</button>
+                            }
+                            else
+                            {
+                                <div class="slot-empty">＋</div>
+                            }
+                            <span class="slot-label">@pose</span>
+                            <div class="slot-actions">
+                                @if (_captureSupported)
+                                {
+                                    <button type="button" class="mini-btn" title="Take photo" @onclick="() => StageNewPhoto(pose, true)">📷</button>
+                                }
+                                <button type="button" class="mini-btn" title="Choose photo" @onclick="() => StageNewPhoto(pose, false)">🖼</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <p class="muted" style="font-size:0.72rem;margin:0.35rem 0 0">Photos save together with this measurement.</p>
+            </div>
+
             <button class="save-btn" type="submit">Save Measurement</button>
             @if (_warn is not null)
             {
@@ -82,46 +163,6 @@
     }
 
     <section class="card">
-        <h2>Progress Photos</h2>
-        <div class="routine-actions" style="margin-bottom:0.6rem">
-            @if (_captureSupported)
-            {
-                <button class="save-btn" @onclick="() => AddPhoto(true)">📷 Take Photo</button>
-            }
-            <button class="save-btn" @onclick="() => AddPhoto(false)">🖼 Choose Photo</button>
-        </div>
-        @if (_photoMsg is not null)
-        {
-            <p class="muted" style="margin:0 0 0.5rem">@_photoMsg</p>
-        }
-        @if (_viewPhoto is not null)
-        {
-            <img src="@PhotoDataUrl(_viewPhoto.PhotoPath)" style="width:100%;border-radius:12px;margin-bottom:0.4rem" />
-            <div class="routine-actions" style="margin-bottom:0.6rem">
-                <span class="muted" style="align-self:center">@_viewPhoto.Date.ToString("MMM d, yyyy")</span>
-                <button class="link-btn danger" @onclick="() => DeletePhoto(_viewPhoto)">Delete Photo</button>
-                <button class="link-btn" @onclick="() => _viewPhoto = null">Close</button>
-            </div>
-        }
-        @if (_photos.Count == 0)
-        {
-            <p class="muted">No photos yet. One photo is kept per day.</p>
-        }
-        else
-        {
-            <div class="photo-grid">
-                @foreach (var p in _photos)
-                {
-                    <div class="photo-cell" @onclick="() => _viewPhoto = p">
-                        <img src="@PhotoDataUrl(p.PhotoPath)" />
-                        <span class="photo-date">@p.Date.ToString("MMM d")</span>
-                    </div>
-                }
-            </div>
-        }
-    </section>
-
-    <section class="card">
         <h2>History</h2>
         @if (_history.Count == 0)
         {
@@ -133,6 +174,7 @@
                 @foreach (var m in _history)
                 {
                     <li>
+                        <div class="meas-item">
                         @if (_editId == m.Id)
                         {
                             <div class="edit-exercise" style="width:100%">
@@ -145,6 +187,10 @@
                                     <div class="field"><label>Chest</label><input type="number" inputmode="decimal" step="0.01" @bind="_edit.ChestInches" /></div>
                                     <div class="field"><label>Arms</label><input type="number" inputmode="decimal" step="0.01" @bind="_edit.ArmsInches" /></div>
                                     <div class="field"><label>Thighs</label><input type="number" inputmode="decimal" step="0.01" @bind="_edit.ThighsInches" /></div>
+                                </div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Shoulders</label><input type="number" inputmode="decimal" step="0.01" @bind="_edit.ShouldersInches" /></div>
+                                    <div class="field"><label>Calves</label><input type="number" inputmode="decimal" step="0.01" @bind="_edit.CalvesInches" /></div>
                                 </div>
                                 <p class="muted" style="margin:0.4rem 0 0.2rem;font-size:0.8rem">Body composition</p>
                                 <div class="inline-fields">
@@ -160,9 +206,38 @@
                                     <div class="field"><label>Metabolic age</label><input type="number" inputmode="numeric" step="1" @bind="_edit.MetabolicAge" /></div>
                                 </div>
                                 <div class="field"><label>Clothing fit notes</label><textarea rows="2" @bind="_edit.ClothingFitNotes"></textarea></div>
+
+                                <div class="field"><label>Progress photos</label>
+                                    <div class="pose-slots">
+                                        @foreach (var pose in Enum.GetValues<PhotoPose>())
+                                        {
+                                            var slot = _editSlots[pose];
+                                            <div class="pose-slot">
+                                                @if (slot.FileName is not null)
+                                                {
+                                                    <img src="@PhotoDataUrl(slot.FileName)" alt="@pose photo" />
+                                                    <button type="button" class="slot-x" title="Remove" @onclick="() => RemoveEditPhoto(pose)">✕</button>
+                                                }
+                                                else
+                                                {
+                                                    <div class="slot-empty">＋</div>
+                                                }
+                                                <span class="slot-label">@pose</span>
+                                                <div class="slot-actions">
+                                                    @if (_captureSupported)
+                                                    {
+                                                        <button type="button" class="mini-btn" title="Take photo" @onclick="() => StageEditPhoto(pose, true)">📷</button>
+                                                    }
+                                                    <button type="button" class="mini-btn" title="Choose photo" @onclick="() => StageEditPhoto(pose, false)">🖼</button>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+
                                 <div class="routine-actions">
                                     <button class="save-btn" @onclick="SaveEdit">Save</button>
-                                    <button class="link-btn" @onclick="() => _editId = null">Cancel</button>
+                                    <button class="link-btn" @onclick="CancelEdit">Cancel</button>
                                 </div>
                             </div>
                         }
@@ -193,6 +268,13 @@
                                 </div>
                             </div>
                         }
+
+                        @{ var attached = _photos.Where(p => p.Date == m.Date).OrderBy(p => p.Pose).ToList(); }
+                        @if (attached.Count > 0 && _editId != m.Id)
+                        {
+                            <div class="muted" style="font-size:0.75rem;margin-top:0.15rem">📷 @attached.Count photo@(attached.Count == 1 ? "" : "s") · @string.Join(", ", attached.Select(p => p.Pose))</div>
+                        }
+                        </div>
                     </li>
                 }
             </ul>
@@ -203,6 +285,17 @@
 @code {
     private BodyMeasurement _entry = new() { Date = DateOnly.FromDateTime(DateTime.Now) };
     private List<BodyMeasurement> _history = new();
+    private List<string> _goalsMet = new();   // body goals reached by the latest save (reassess nudge)
+    private List<GoalProgress.Row> _overview = new();   // all metrics: progress % + trend vs targets
+
+    private static string DotClass(GoalProgress.Trend t) => t switch
+    {
+        GoalProgress.Trend.Met => "met",
+        GoalProgress.Trend.Toward => "toward",
+        GoalProgress.Trend.Away => "away",
+        GoalProgress.Trend.Flat => "flat",
+        _ => "nodata",
+    };
     private string? _warn;
 
     // <input type="date"> binds to DateTime; bridge it to the entity's DateOnly.
@@ -213,13 +306,24 @@
     private DateTime _editDate = DateTime.Now.Date;
     private string? _pullMsg;
 
-    // Progress photos: one per day, stored downscaled under AppData/photos.
-    // PhotoPath holds the FILE NAME only — the iOS container path changes
-    // between reinstalls, so absolute paths would break.
-    private List<BodyMeasurement> _photos = new();
-    private BodyMeasurement? _viewPhoto;
-    private string? _photoMsg;
+    // Progress photos are part of a measurement record: captured in the entry/edit form and
+    // committed together on Save. Files live downscaled under AppData/photos; the ProgressPhoto
+    // row holds the FILE NAME only (the iOS container path changes between reinstalls).
+    private List<ProgressPhoto> _photos = new();
     private bool _captureSupported;
+
+    // Staged captures for the NEW-entry form (pose -> file name; file already written to disk).
+    private readonly Dictionary<PhotoPose, string> _newPhotos = new();
+
+    // Photo state for the inline edit view — one slot per pose, always present.
+    private sealed class PhotoSlot
+    {
+        public Guid? Id;              // existing DB row, null if newly captured in this edit
+        public string? OrigFileName;  // file name as stored in the DB (to delete on replace/remove)
+        public string? FileName;      // current file name; null means "no photo / removed"
+    }
+    private Dictionary<PhotoPose, PhotoSlot> _editSlots =
+        Enum.GetValues<PhotoPose>().ToDictionary(p => p, _ => new PhotoSlot());
 
     private static string PhotosDir => Path.Combine(Microsoft.Maui.Storage.FileSystem.AppDataDirectory, "photos");
 
@@ -231,66 +335,63 @@
         return $"data:image/jpeg;base64,{Convert.ToBase64String(File.ReadAllBytes(path))}";
     }
 
-    private async Task AddPhoto(bool camera)
+    private static void TryDeleteFile(string? name)
     {
-        _photoMsg = null;
+        if (string.IsNullOrEmpty(name)) return;
+        try { var p = Path.Combine(PhotosDir, name); if (File.Exists(p)) File.Delete(p); } catch { /* best effort */ }
+    }
+
+    // Capture (or pick) a photo, downscale it, write it to disk, and return the new file name.
+    private async Task<string?> CapturePhotoFileAsync(bool camera)
+    {
         try
         {
             var picked = camera
                 ? await Microsoft.Maui.Media.MediaPicker.Default.CapturePhotoAsync()
                 : await Microsoft.Maui.Media.MediaPicker.Default.PickPhotoAsync();
-            if (picked is null) return; // cancelled
+            if (picked is null) return null; // cancelled
 
             Directory.CreateDirectory(PhotosDir);
             var name = $"{Guid.NewGuid():N}.jpg";
-            using (var src = await picked.OpenReadAsync())
-            {
-                var img = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(src);
-                using var resized = img.Downsize(1280, disposeOriginal: true);
-                var bytes = resized.AsBytes(Microsoft.Maui.Graphics.ImageFormat.Jpeg, quality: 0.8f);
-                await File.WriteAllBytesAsync(Path.Combine(PhotosDir, name), bytes);
-            }
-
-            var today = DateOnly.FromDateTime(DateTime.Now);
-            await using var db = await DbFactory.CreateDbContextAsync();
-            var m = await db.BodyMeasurements.FirstOrDefaultAsync(x => x.Date == today);
-            if (m is null)
-            {
-                db.BodyMeasurements.Add(new BodyMeasurement { Date = today, PhotoPath = name });
-            }
-            else
-            {
-                // One photo per day — replace and remove the old file.
-                if (m.PhotoPath is { } old)
-                {
-                    var oldPath = Path.Combine(PhotosDir, old);
-                    if (File.Exists(oldPath)) File.Delete(oldPath);
-                }
-                m.PhotoPath = name;
-            }
-            await db.SaveChangesAsync();
-            _photoMsg = "Photo saved ✓";
-            await LoadHistory();
+            using var src = await picked.OpenReadAsync();
+            var img = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(src);
+            using var resized = img.Downsize(1280, disposeOriginal: true);
+            var bytes = resized.AsBytes(Microsoft.Maui.Graphics.ImageFormat.Jpeg, quality: 0.8f);
+            await File.WriteAllBytesAsync(Path.Combine(PhotosDir, name), bytes);
+            return name;
         }
-        catch (Exception ex)
-        {
-            _photoMsg = $"Photo failed: {ex.Message}";
-        }
+        catch (Exception ex) { _ = Toast.Show($"Photo failed: {ex.Message}"); return null; }
     }
 
-    private async Task DeletePhoto(BodyMeasurement p)
+    private async Task StageNewPhoto(PhotoPose pose, bool camera)
     {
-        await using var db = await DbFactory.CreateDbContextAsync();
-        var e = await db.BodyMeasurements.FindAsync(p.Id);
-        if (e?.PhotoPath is { } name)
-        {
-            var path = Path.Combine(PhotosDir, name);
-            if (File.Exists(path)) File.Delete(path);
-            e.PhotoPath = null;
-            await db.SaveChangesAsync();
-        }
-        _viewPhoto = null;
-        await LoadHistory();
+        var name = await CapturePhotoFileAsync(camera);
+        if (name is null) return;
+        if (_newPhotos.TryGetValue(pose, out var old)) TryDeleteFile(old); // replacing a staged capture
+        _newPhotos[pose] = name;
+    }
+
+    private void RemoveNewPhoto(PhotoPose pose)
+    {
+        if (_newPhotos.Remove(pose, out var name)) TryDeleteFile(name);
+    }
+
+    private async Task StageEditPhoto(PhotoPose pose, bool camera)
+    {
+        var name = await CapturePhotoFileAsync(camera);
+        if (name is null) return;
+        var slot = _editSlots[pose];
+        // Discard a not-yet-saved capture file before overwriting it (a saved row's file is kept
+        // until SaveEdit reconciles, so we can still revert by cancelling).
+        if (slot.Id is null) TryDeleteFile(slot.FileName);
+        slot.FileName = name;
+    }
+
+    private void RemoveEditPhoto(PhotoPose pose)
+    {
+        var slot = _editSlots[pose];
+        if (slot.Id is null) TryDeleteFile(slot.FileName); // discard unsaved capture
+        slot.FileName = null;                               // saved rows get tombstoned on SaveEdit
     }
 
     protected override async Task OnInitializedAsync()
@@ -350,17 +451,34 @@
         await LoadHistory();
     }
 
-    private void StartEdit(BodyMeasurement m)
+    private async Task StartEdit(BodyMeasurement m)
     {
-        _editId = m.Id;
         _edit = new BodyMeasurement
         {
             WeightLbs = m.WeightLbs, WaistInches = m.WaistInches, ChestInches = m.ChestInches,
-            ArmsInches = m.ArmsInches, ThighsInches = m.ThighsInches, ClothingFitNotes = m.ClothingFitNotes,
+            ArmsInches = m.ArmsInches, ThighsInches = m.ThighsInches, ShouldersInches = m.ShouldersInches,
+            CalvesInches = m.CalvesInches, ClothingFitNotes = m.ClothingFitNotes,
             BodyFatPercent = m.BodyFatPercent, MuscleMassLbs = m.MuscleMassLbs, VisceralFat = m.VisceralFat,
             BodyWaterPercent = m.BodyWaterPercent, BasalMetabolicRate = m.BasalMetabolicRate, MetabolicAge = m.MetabolicAge
         };
         _editDate = m.Date.ToDateTime(TimeOnly.MinValue);
+
+        // Load this record's photos into per-pose slots before entering edit mode.
+        var slots = Enum.GetValues<PhotoPose>().ToDictionary(p => p, _ => new PhotoSlot());
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var existing = await db.ProgressPhotos.Where(x => x.Date == m.Date && !x.IsDeleted).ToListAsync();
+        foreach (var p in existing)
+            slots[p.Pose] = new PhotoSlot { Id = p.Id, OrigFileName = p.FileName, FileName = p.FileName };
+        _editSlots = slots;
+        _editId = m.Id;
+    }
+
+    private void CancelEdit()
+    {
+        // Discard any unsaved captures made during this edit.
+        foreach (var slot in _editSlots.Values)
+            if (slot.Id is null) TryDeleteFile(slot.FileName);
+        _editId = null;
     }
 
     private async Task SaveEdit()
@@ -369,9 +487,39 @@
         var date = DateOnly.FromDateTime(_editDate);
         var result = await MeasurementSvc.UpdateAsync(id, ToData(_edit, date));
         if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
+
+        // Reconcile photos against the slots. Weight/waist mirroring to Apple Health is handled by
+        // the MeasurementRecorded domain event, so no inline health write is needed here.
+        await using var db = await DbFactory.CreateDbContextAsync();
+        foreach (var (pose, slot) in _editSlots)
+        {
+            if (slot.Id is { } rid)
+            {
+                var row = await db.ProgressPhotos.FindAsync(rid);
+                if (row is null) continue;
+                if (slot.FileName is null)                       // removed
+                {
+                    TryDeleteFile(row.FileName);
+                    row.IsDeleted = true; row.DeletedAt = DateTime.UtcNow;
+                }
+                else if (slot.FileName != slot.OrigFileName)     // replaced
+                {
+                    TryDeleteFile(slot.OrigFileName);
+                    row.FileName = slot.FileName;
+                    row.Date = date;
+                }
+                else if (row.Date != date)                       // date edited — keep photo attached
+                {
+                    row.Date = date;
+                }
+            }
+            else if (slot.FileName is not null)                  // newly captured in this edit
+            {
+                db.ProgressPhotos.Add(new ProgressPhoto { Date = date, Pose = pose, FileName = slot.FileName });
+            }
+        }
+        await db.SaveChangesAsync();
         _editId = null;
-        // Mirroring to Apple Health (including a weight added via a later edit) is handled by
-        // the MeasurementRecorded domain event, so no inline write is needed here.
         await LoadHistory();
     }
 
@@ -379,6 +527,15 @@
     {
         var result = await MeasurementSvc.DeleteAsync(m.Id);
         if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
+        // Photos belong to the measurement — remove that date's photos (files + rows) too.
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var photos = await db.ProgressPhotos.Where(p => p.Date == m.Date && !p.IsDeleted).ToListAsync();
+        foreach (var p in photos)
+        {
+            TryDeleteFile(p.FileName);
+            p.IsDeleted = true; p.DeletedAt = DateTime.UtcNow;
+        }
+        if (photos.Count > 0) await db.SaveChangesAsync();
         if (_editId == m.Id) _editId = null;
         await LoadHistory();
     }
@@ -390,22 +547,62 @@
             .OrderByDescending(x => x.Date)
             .Take(20)
             .ToListAsync();
-        _photos = await db.BodyMeasurements
-            .Where(x => x.PhotoPath != null)
+
+        // Goal progress across all metrics — full history (oldest→newest) for baseline + trend.
+        var goals = await db.GoalSettings.Where(g => !g.IsDeleted).OrderByDescending(g => g.UpdatedAt).FirstOrDefaultAsync();
+        var allAsc = await db.BodyMeasurements.OrderBy(m => m.Date).ToListAsync();
+        _overview = GoalProgress.Overview(goals, allAsc.Select(GoalProgress.From).ToList());
+        // Import legacy per-day photos (BodyMeasurement.PhotoPath) as Front, once — idempotent by
+        // filename, so re-running is safe. The file is shared; we only add the ProgressPhoto row.
+        var legacy = await db.BodyMeasurements.Where(m => m.PhotoPath != null).ToListAsync();
+        if (legacy.Count > 0)
+        {
+            var known = (await db.ProgressPhotos.Where(p => !p.IsDeleted).Select(p => p.FileName).ToListAsync())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var added = false;
+            foreach (var m in legacy)
+                if (m.PhotoPath is { } nm && !known.Contains(nm))
+                {
+                    db.ProgressPhotos.Add(new ProgressPhoto { Date = m.Date, Pose = PhotoPose.Front, FileName = nm });
+                    known.Add(nm); added = true;
+                }
+            if (added) await db.SaveChangesAsync();
+        }
+
+        _photos = await db.ProgressPhotos
+            .Where(x => !x.IsDeleted)
             .OrderByDescending(x => x.Date)
-            .Take(12)
             .ToListAsync();
+
+        // Sweep orphaned image files — e.g. a measurement (and its photos) deleted on another
+        // device tombstones the rows here via sync but can't reach this device's files. Staged
+        // captures for the open forms are still referenced in memory, so keep those.
+        try
+        {
+            if (Directory.Exists(PhotosDir))
+            {
+                var referenced = _photos.Select(p => p.FileName)
+                    .Concat(_newPhotos.Values)
+                    .Concat(_editSlots.Values.Where(s => s.FileName is not null).Select(s => s.FileName!))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                foreach (var f in Directory.GetFiles(PhotosDir, "*.jpg"))
+                    if (!referenced.Contains(Path.GetFileName(f))) File.Delete(f);
+            }
+        }
+        catch { /* best-effort cleanup */ }
     }
 
     private async Task Save()
     {
-        if (_entry.WeightLbs is null && _entry.WaistInches is null && _entry.ChestInches is null
-            && _entry.ArmsInches is null && _entry.ThighsInches is null
-            && _entry.BodyFatPercent is null && _entry.MuscleMassLbs is null && _entry.VisceralFat is null
-            && _entry.BodyWaterPercent is null && _entry.BasalMetabolicRate is null && _entry.MetabolicAge is null
-            && string.IsNullOrWhiteSpace(_entry.ClothingFitNotes))
+        var hasNumbers = _entry.WeightLbs is not null || _entry.WaistInches is not null || _entry.ChestInches is not null
+            || _entry.ArmsInches is not null || _entry.ThighsInches is not null
+            || _entry.ShouldersInches is not null || _entry.CalvesInches is not null
+            || _entry.BodyFatPercent is not null || _entry.MuscleMassLbs is not null || _entry.VisceralFat is not null
+            || _entry.BodyWaterPercent is not null || _entry.BasalMetabolicRate is not null || _entry.MetabolicAge is not null
+            || !string.IsNullOrWhiteSpace(_entry.ClothingFitNotes);
+        if (!hasNumbers && _newPhotos.Count == 0)
         {
-            _warn = "Enter at least one measurement.";
+            _warn = "Enter at least one measurement or add a photo.";
             return;
         }
         _warn = null;
@@ -414,14 +611,38 @@
         if (!result.IsSuccess) { _warn = result.Error; return; }
         // Weight/waist are mirrored to Apple Health by the MeasurementRecorded domain event.
 
+        // Commit the staged photos as part of this record.
+        if (_newPhotos.Count > 0)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            foreach (var (pose, name) in _newPhotos)
+                db.ProgressPhotos.Add(new ProgressPhoto { Date = date, Pose = pose, FileName = name });
+            await db.SaveChangesAsync();
+        }
+
         _entry = new BodyMeasurement { Date = date };
+        _newPhotos.Clear();
         await LoadHistory();
+        await CheckGoalsMet();
         _ = Toast.Show("Measurement saved ✓");
+    }
+
+    // After a save, flag any body goal the newest measurement just reached — a prompt to reassess.
+    private async Task CheckGoalsMet()
+    {
+        _goalsMet.Clear();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var goals = await db.GoalSettings.Where(g => !g.IsDeleted).OrderByDescending(g => g.UpdatedAt).FirstOrDefaultAsync();
+        if (goals is null) return;
+        var current = _history.FirstOrDefault();          // most recent = the entry just saved
+        var prior = _history.Skip(1).FirstOrDefault();    // the one before it (for reduce-vs-gain direction)
+        foreach (var m in GoalProgress.Build(goals, current, prior).Where(GoalProgress.IsMet))
+            _goalsMet.Add($"{m.Label} ({m.Goal:0.#} {m.Unit})");
     }
 
     // Bridge the form's Data POCO to the aggregate's save DTO (photos/reads keep the POCO).
     private static MeasurementData ToData(BodyMeasurement e, DateOnly date) =>
         new(date, e.WeightLbs, e.WaistInches, e.ChestInches, e.HipsInches, e.ArmsInches, e.ThighsInches,
-            e.BodyFatPercent, e.MuscleMassLbs, e.VisceralFat, e.BodyWaterPercent, e.BasalMetabolicRate,
-            e.MetabolicAge, e.ClothingFitNotes);
+            e.ShouldersInches, e.CalvesInches, e.BodyFatPercent, e.MuscleMassLbs, e.VisceralFat, e.BodyWaterPercent,
+            e.BasalMetabolicRate, e.MetabolicAge, e.ClothingFitNotes);
 }

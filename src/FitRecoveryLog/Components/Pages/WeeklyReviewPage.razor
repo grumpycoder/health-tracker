@@ -1,4 +1,5 @@
 @page "/weekly-review"
+@using FitRecoveryLog.Services
 @inject IDbContextFactory<AppDbContext> DbFactory
 
 <PageTitle>Weekly Review</PageTitle>
@@ -43,6 +44,37 @@
                 <p class="muted">Need 2+ measurements in the week to show a change.</p>
             }
         </section>
+
+        @if (_overview.Any(r => r.Goal is not null))
+        {
+            <section class="card">
+                <h2>Goals</h2>
+                <div class="goal-list">
+                    @foreach (var r in _overview.Where(x => x.Goal is not null))
+                    {
+                        var showBase = r.Baseline is double bl && r.Current is double cu && Math.Abs(bl - cu) > 0.05;
+                        <div class="goal-item">
+                            <div class="goal-top">
+                                <span class="goal-dot @DotClass(r.Trend)"></span>
+                                <span class="goal-name">@r.Label</span>
+                                @if (!string.IsNullOrEmpty(r.Arrow)) { <span class="goal-arrow">@r.Arrow</span> }
+                                <span class="goal-vals">
+                                    @if (showBase) { <span class="muted">@r.Baseline!.Value.ToString("0.#") → </span> }@(r.Current is null ? "—" : r.Current.Value.ToString("0.#"))<span class="muted"> → @r.Goal!.Value.ToString("0.#") @r.Unit</span>
+                                </span>
+                            </div>
+                            <div class="goal-bar"><i style="width:@(r.Percent ?? 0)%"></i></div>
+                            <div class="goal-sub">
+                                @if (r.Met) { <span class="badge good">Goal met ✓</span> }
+                                else if (!string.IsNullOrEmpty(r.Achieved)) { <strong>@(r.Percent ?? 0)% complete</strong><span class="muted"> · @r.Achieved</span> }
+                                else { <strong>@(r.Percent ?? 0)% complete</strong> }
+                                @if (!string.IsNullOrEmpty(r.Recent)) { <span class="goal-recent @DotClass(r.RecentTrend)">@r.Recent</span> }
+                            </div>
+                        </div>
+                    }
+                </div>
+                <p class="muted" style="margin:0.5rem 0 0;font-size:0.8rem">Shown as start → now → goal. Reassess on the <a href="goals">Goals</a> page.</p>
+            </section>
+        }
 
         <section class="card">
             <h2>Sleep</h2>
@@ -101,6 +133,16 @@
     private double? _weightChange, _waistChange, _avgSleepScore, _avgSleepHours;
     private double _sweetTeaOz;
     private List<string> _focus = new();
+    private List<GoalProgress.Row> _overview = new();
+
+    private static string DotClass(GoalProgress.Trend t) => t switch
+    {
+        GoalProgress.Trend.Met => "met",
+        GoalProgress.Trend.Toward => "toward",
+        GoalProgress.Trend.Away => "away",
+        GoalProgress.Trend.Flat => "flat",
+        _ => "nodata",
+    };
     private string? _userNotes;
 
     protected override async Task OnInitializedAsync() => await Load();
@@ -152,6 +194,12 @@
         _sweetTeaOz = teas.Sum(t => t.Ounces!.Value);
 
         BuildFocus();
+
+        // Goal progress uses the full measurement history (goals track current state + baseline,
+        // not the week window) so it shows start → now → goal with % complete and trend.
+        var goals = await db.GoalSettings.Where(g => !g.IsDeleted).OrderByDescending(g => g.UpdatedAt).FirstOrDefaultAsync();
+        var allAsc = await db.BodyMeasurements.OrderBy(m => m.Date).ToListAsync();
+        _overview = GoalProgress.Overview(goals, allAsc.Select(GoalProgress.From).ToList());
 
         var existing = await db.WeeklyReviews.FirstOrDefaultAsync(w => w.WeekStart == _start);
         _userNotes = existing?.SuggestedFocus;
