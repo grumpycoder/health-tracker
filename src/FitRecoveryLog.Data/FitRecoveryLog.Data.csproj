@@ -13,6 +13,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.9" />
+    <!-- Pin the native SQLite bundle to 2.1.12: overrides the vulnerable 2.1.10 that EF
+         pulls transitively (GHSA-2m69-gcr7-jv3q). Propagates to consumers of this project. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
     <!-- Design package enables `dotnet ef` to read the model and scaffold migrations. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.9">
       <PrivateAssets>all</PrivateAssets>

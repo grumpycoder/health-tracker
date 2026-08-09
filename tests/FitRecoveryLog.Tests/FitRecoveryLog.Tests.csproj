@@ -11,6 +11,8 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.9" />
+    <!-- Override vulnerable transitive native SQLite lib 2.1.10 (GHSA-2m69-gcr7-jv3q). -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="NUnit" Version="4.2.2" />
     <PackageReference Include="NUnit.Analyzers" Version="4.3.0" />

@@ -80,6 +80,13 @@
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.9" />
         <PackageReference Include="Plugin.LocalNotification" Version="13.0.0" />
         <PackageReference Include="Microsoft.Identity.Client" Version="4.66.2" />
+        <!-- Security overrides for vulnerable transitive packages:
+             - SQLitePCLRaw.bundle_e_sqlite3 2.1.12 supersedes the native lib.e_sqlite3[.ios]
+               2.1.10 (GHSA-2m69-gcr7-jv3q) on the device build.
+             - System.Private.Uri 4.3.2 supersedes the legacy 4.3.0 shim flagged on the
+               simulator/maccatalyst graphs (GHSA-5f2m-466j-3848 et al.). -->
+        <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
+        <PackageReference Include="System.Private.Uri" Version="4.3.2" />
     </ItemGroup>
 
     <ItemGroup>
