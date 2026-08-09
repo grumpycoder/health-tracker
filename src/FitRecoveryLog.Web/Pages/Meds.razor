@@ -4,107 +4,155 @@
 @using FitRecoveryLog.Application.Meds
 @using FitRecoveryLog.Domain.Labs
 @using FitRecoveryLog.Domain.Meds
+@using MedicationSchedule = FitRecoveryLog.Data.MedicationSchedule
+@using MedicationForm = FitRecoveryLog.Data.MedicationForm
 @attribute [Authorize]
 @inject MedicationService MedSvc
 @inject LabService LabSvc
+@inject AppState State
 
 <PageTitle>Medication & Labs — Fit Log</PageTitle>
 
-<h1 class="mb-3">Medication &amp; Labs</h1>
-
-@if (_loading)
-{
-    <p><em>Loading…</em></p>
-}
-else if (_error is not null)
-{
-    <div class="alert alert-danger">@_error</div>
-    <button class="btn btn-primary" @onclick="Load">Retry</button>
-}
-else
-{
-    @if (_msg is not null) { <div class="alert alert-warning py-2">@_msg</div> }
-
-    <!-- ===== Medication log ===== -->
-    <div class="d-flex justify-content-between align-items-center mb-2">
-        <h4 class="mb-0">Medication log</h4>
-        <button class="btn btn-sm btn-primary" @onclick="AddMed" disabled="@(_med is not null)">+ Add dose</button>
-    </div>
-    <p class="text-muted small">Medication <em>schedules</em> (reminders) are managed on the phone — they carry on-device notification state.</p>
-    @if (_med is not null)
-    {
-        <div class="card p-3 mb-3">
-            <div class="row g-2">
-                <div class="col-sm-6"><label class="form-label">Name</label><input class="form-control" @bind="_med.Name" /></div>
-                <div class="col-sm-3"><label class="form-label">Dose</label><input class="form-control" @bind="_med.Dose" /></div>
-                <div class="col-sm-3"><label class="form-label">Frequency</label><input class="form-control" @bind="_med.Frequency" /></div>
-                <div class="col-sm-5"><label class="form-label">Taken at</label><input type="datetime-local" class="form-control" @bind="_med.TakenAt" /></div>
-                <div class="col-sm-3"><label class="form-label">Injection site</label><input class="form-control" @bind="_med.InjectionSite" /></div>
-                <div class="col-12"><label class="form-label">Reaction notes</label><input class="form-control" @bind="_med.ReactionNotes" /></div>
-            </div>
-            <div class="mt-2 d-flex gap-2">
-                <button class="btn btn-primary" @onclick="SaveMed" disabled="@_busy">Save</button>
-                <button class="btn btn-secondary" @onclick="() => _med = null" disabled="@_busy">Cancel</button>
-                @if (_med.Id is Guid) { <button class="btn btn-outline-danger ms-auto" @onclick="DeleteMed" disabled="@_busy">Delete</button> }
-            </div>
+<div class="content">
+    <div class="page-head">
+        <div>
+            <div class="eyebrow">Health</div>
+            <h1 class="dash-date">Medication &amp; Labs</h1>
         </div>
-    }
-    <table class="table table-hover table-sm align-middle mb-4">
-        <thead><tr><th>When</th><th>Name</th><th>Dose</th><th>Site</th><th></th></tr></thead>
-        <tbody>
-            @foreach (var m in _meds.OrderByDescending(x => x.TakenAt))
-            {
-                <tr>
-                    <td><small>@m.TakenAt.ToLocalTime().ToString("g")</small></td>
-                    <td>@m.Name</td><td>@(m.Dose ?? "—")</td><td>@(m.InjectionSite ?? "—")</td>
-                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => EditMed(m)">Edit</button></td>
-                </tr>
-            }
-            @if (_meds.Count == 0) { <tr><td colspan="5" class="text-muted">No doses logged.</td></tr> }
-        </tbody>
-    </table>
-
-    <!-- ===== Labs ===== -->
-    <div class="d-flex justify-content-between align-items-center mb-2">
-        <h4 class="mb-0">Lab results</h4>
-        <button class="btn btn-sm btn-primary" @onclick="AddLab" disabled="@(_lab is not null)">+ Add</button>
+        @if (!_loading && _error is null)
+        {
+            <div class="segmented">
+                <button class="seg @(_tab == "meds" ? "active" : "")" @onclick='() => _tab = "meds"'>💊 Medication</button>
+                <button class="seg @(_tab == "labs" ? "active" : "")" @onclick='() => _tab = "labs"'>🧪 Labs</button>
+            </div>
+        }
     </div>
-    @if (_lab is not null)
+
+    @if (_loading)
     {
-        <div class="card p-3 mb-3">
-            <div class="row g-2">
-                <div class="col-sm-4"><label class="form-label">Date</label><input type="date" class="form-control" @bind="_lab.Date" /></div>
-                <div class="col-sm-4"><label class="form-label">Lab</label><input class="form-control" @bind="_lab.LabName" placeholder="Testosterone, A1C…" /></div>
-                <div class="col-6 col-sm-2"><label class="form-label">Value</label><input type="number" step="0.01" class="form-control" @bind="_lab.Value" /></div>
-                <div class="col-6 col-sm-2"><label class="form-label">Unit</label><input class="form-control" @bind="_lab.Unit" /></div>
-                <div class="col-12"><label class="form-label">Notes</label><input class="form-control" @bind="_lab.Notes" /></div>
-            </div>
-            <div class="mt-2 d-flex gap-2">
-                <button class="btn btn-primary" @onclick="SaveLab" disabled="@_busy">Save</button>
-                <button class="btn btn-secondary" @onclick="() => _lab = null" disabled="@_busy">Cancel</button>
-                @if (_lab.Id is Guid) { <button class="btn btn-outline-danger ms-auto" @onclick="DeleteLab" disabled="@_busy">Delete</button> }
-            </div>
-        </div>
+        <section class="card"><p class="muted">Loading…</p></section>
     }
-    <table class="table table-hover table-sm align-middle">
-        <thead><tr><th>Date</th><th>Lab</th><th class="text-end">Value</th><th></th></tr></thead>
-        <tbody>
-            @foreach (var l in _labs.OrderByDescending(x => x.Date))
+    else if (_error is not null)
+    {
+        <section class="card"><p class="warn-msg" style="margin:0">@_error</p><button class="save-btn" @onclick="Load">Retry</button></section>
+    }
+    else
+    {
+        @if (_msg is not null) { <section class="card"><p class="warn-msg" style="margin:0">@_msg</p></section> }
+
+        @if (_tab == "meds")
+        {
+            <div class="routine-head">
+                <h2 style="margin:0;color:var(--text)">Medication log</h2>
+                <button class="link-btn" @onclick="AddMed" disabled="@(_med is not null)">+ Add dose</button>
+            </div>
+            @if (_schedules.Count > 0)
             {
-                <tr>
-                    <td>@l.Date.ToString("MMM d, yyyy")</td><td>@l.LabName</td>
-                    <td class="text-end">@(l.Value?.ToString("0.##") ?? "—") @l.Unit</td>
-                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => EditLab(l)">Edit</button></td>
-                </tr>
+                <p class="muted" style="font-size:.85rem;margin:0.2rem 0 0.5rem">Log one of your medications — it fills in the name and dose, same as tapping a phone reminder.</p>
+                <div class="chip-row" style="margin:0 0 0.9rem">
+                    @foreach (var s in _schedules)
+                    {
+                        <button class="chip" @onclick="() => PickMed(s)" disabled="@(_med is not null)">
+                            @(s.Form == MedicationForm.Injection ? "💉" : "💊") @s.Name@(string.IsNullOrWhiteSpace(s.Dose) ? "" : $" · {s.Dose}")
+                        </button>
+                    }
+                </div>
             }
-            @if (_labs.Count == 0) { <tr><td colspan="4" class="text-muted">No lab results.</td></tr> }
-        </tbody>
-    </table>
-}
+            else
+            {
+                <p class="muted" style="font-size:.85rem;margin:0.2rem 0 0.6rem">Medication <em>schedules</em> (reminders) are set up on the phone; once you have some, they'll appear here as one-tap log buttons.</p>
+            }
+            @if (_med is not null)
+            {
+                <section class="card">
+                    <div class="inline-fields">
+                        <div class="field"><label>Name</label><input @bind="_med.Name" /></div>
+                        <div class="field"><label>Dose</label><input @bind="_med.Dose" /></div>
+                        <div class="field"><label>Frequency</label><input @bind="_med.Frequency" /></div>
+                    </div>
+                    <div class="inline-fields">
+                        <div class="field"><label>Taken at</label><input type="datetime-local" @bind="_med.TakenAt" /></div>
+                        <div class="field"><label>Injection site</label><input @bind="_med.InjectionSite" /></div>
+                    </div>
+                    <div class="field"><label>Reaction notes</label><input @bind="_med.ReactionNotes" /></div>
+                    <div class="routine-actions">
+                        <button class="save-btn" @onclick="SaveMed" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
+                        <button class="link-btn" @onclick="() => _med = null" disabled="@_busy">Cancel</button>
+                        @if (_med.Id is Guid) { <button class="link-btn danger" style="margin-left:auto" @onclick="DeleteMed" disabled="@_busy">Delete</button> }
+                    </div>
+                </section>
+            }
+            <section class="card">
+                @if (_meds.Count == 0) { <p class="empty">No doses logged yet.</p> }
+                else
+                {
+                    <table class="history">
+                        <thead><tr><th>When</th><th>Name</th><th>Dose</th><th>Site</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var m in _meds.OrderByDescending(x => x.TakenAt))
+                            {
+                                <tr>
+                                    <td>@m.TakenAt.ToLocalTime().ToString("g")</td>
+                                    <td>@m.Name</td><td>@(m.Dose ?? "—")</td><td>@(m.InjectionSite ?? "—")</td>
+                                    <td class="num"><button class="icon-action" title="Edit" @onclick="() => EditMed(m)">✏️</button></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+        }
+        else
+        {
+            <div class="routine-head">
+                <h2 style="margin:0;color:var(--text)">Lab results</h2>
+                <button class="link-btn" @onclick="AddLab" disabled="@(_lab is not null)">+ Add result</button>
+            </div>
+            @if (_lab is not null)
+            {
+                <section class="card">
+                    <div class="inline-fields">
+                        <div class="field"><label>Date</label><input type="date" @bind="_lab.Date" /></div>
+                        <div class="field"><label>Lab</label><input @bind="_lab.LabName" placeholder="Testosterone, A1C…" /></div>
+                        <div class="field"><label>Value</label><input type="number" step="0.01" @bind="_lab.Value" /></div>
+                        <div class="field"><label>Unit</label><input @bind="_lab.Unit" /></div>
+                    </div>
+                    <div class="field"><label>Notes</label><input @bind="_lab.Notes" /></div>
+                    <div class="routine-actions">
+                        <button class="save-btn" @onclick="SaveLab" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
+                        <button class="link-btn" @onclick="() => _lab = null" disabled="@_busy">Cancel</button>
+                        @if (_lab.Id is Guid) { <button class="link-btn danger" style="margin-left:auto" @onclick="DeleteLab" disabled="@_busy">Delete</button> }
+                    </div>
+                </section>
+            }
+            <section class="card">
+                @if (_labs.Count == 0) { <p class="empty">No lab results yet.</p> }
+                else
+                {
+                    <table class="history">
+                        <thead><tr><th>Date</th><th>Lab</th><th class="num">Value</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var l in _labs.OrderByDescending(x => x.Date))
+                            {
+                                <tr>
+                                    <td>@l.Date.ToString("MMM d, yyyy")</td><td>@l.LabName</td>
+                                    <td class="num">@(l.Value?.ToString("0.##") ?? "—") @l.Unit</td>
+                                    <td class="num"><button class="icon-action" title="Edit" @onclick="() => EditLab(l)">✏️</button></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+        }
+    }
+</div>
 
 @code {
     private bool _loading = true, _busy;
     private string? _error, _msg;
+    private string _tab = "meds";
+    private List<MedicationSchedule> _schedules = new();
     private IReadOnlyList<MedicationDose> _meds = Array.Empty<MedicationDose>();
     private IReadOnlyList<LabResult> _labs = Array.Empty<LabResult>();
     private MedDraft? _med;
@@ -129,13 +177,27 @@ else
     private async Task Load()
     {
         _loading = true; _error = null;
-        try { _meds = await MedSvc.ListAsync(); _labs = await LabSvc.ListAsync(); }
+        try
+        {
+            _meds = await MedSvc.ListAsync();
+            _labs = await LabSvc.ListAsync();
+            _schedules = WebSyncClient.Rows<MedicationSchedule>(await State.DataAsync())
+                .Where(s => s.Active).OrderBy(s => s.Name).ToList();
+        }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; }
     }
 
     private void AddMed() { _med = new MedDraft(); _msg = null; }
     private void EditMed(MedicationDose m) { _med = MedDraft.From(m); _msg = null; }
+
+    // Prefill a new dose from one of the user's medication schedules — mirrors completing a phone
+    // reminder (copies name + dose). Time defaults to now; injection site is left for the user to set.
+    private void PickMed(MedicationSchedule s)
+    {
+        _med = new MedDraft { TakenAt = DateTime.Now, Name = s.Name, Dose = s.Dose };
+        _msg = null;
+    }
     private async Task SaveMed()
     {
         if (_med is null) return;

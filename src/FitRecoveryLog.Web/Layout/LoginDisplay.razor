@@ -1,19 +1,38 @@
-﻿@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
 @inject NavigationManager Navigation
 
 <AuthorizeView>
     <Authorized>
-        Hello, @context.User.Identity?.Name!
-        <button class="nav-link btn btn-link" @onclick="BeginLogOut">Log out</button>
+        <div class="user-chip">
+            <span class="avatar">@Initials(context.User.Identity?.Name)</span>
+            <span class="who">
+                @DisplayName(context.User.Identity?.Name)
+                <small>Signed in</small>
+            </span>
+            <button class="logout" title="Log out" @onclick="BeginLogOut">Log out</button>
+        </div>
     </Authorized>
     <NotAuthorized>
         <a href="authentication/login">Log in</a>
     </NotAuthorized>
 </AuthorizeView>
 
-@code{
-    public void BeginLogOut()
+@code {
+    public void BeginLogOut() => Navigation.NavigateToLogout("authentication/logout");
+
+    private static string DisplayName(string? name)
     {
-        Navigation.NavigateToLogout("authentication/logout");
+        if (string.IsNullOrWhiteSpace(name)) return "Signed in";
+        var at = name.IndexOf('@');
+        return at > 0 ? name[..at] : name;
+    }
+
+    private static string Initials(string? name)
+    {
+        var display = DisplayName(name);
+        var parts = display.Split(new[] { ' ', '.', '_', '-' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return "?";
+        if (parts.Length == 1) return parts[0][..Math.Min(2, parts[0].Length)].ToUpperInvariant();
+        return string.Concat(parts[0][0], parts[1][0]).ToUpperInvariant();
     }
 }

@@ -269,6 +269,7 @@
             _daily = await AiCoach.DailyCheckAsync();
             _dailyWhen = DateTime.Now.ToString("h:mm tt");
             AiAdviceStore.SaveDaily(_daily, _dailyWhen);
+            await SaveDailyToDbAsync(_daily, _dailyWhen);   // synced so the web sees the same result
         }
         catch (Exception ex)
         {
@@ -280,15 +281,55 @@
         }
     }
 
-    protected override async Task OnInitializedAsync()
+    // Persist the check-in as a synced DailyCheckResult (one row per day) so the web shows the same
+    // result. Non-fatal on failure — the local AiAdviceStore cache still holds it.
+    private async Task SaveDailyToDbAsync(DailyCheck check, string? when)
     {
-        _aiActions = AiAdviceStore.LoadActions();
-        _hasAiKey = await AiCoach.IsConfiguredAsync();
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            var row = await db.DailyCheckResults.FirstOrDefaultAsync(r => r.Date == today);
+            if (row is null) { row = new DailyCheckResult { Date = today }; db.DailyCheckResults.Add(row); }
+            row.IsDeleted = false; row.DeletedAt = null;
+            row.Tone = check.Tone;
+            row.Synopsis = check.Synopsis;
+            row.Tips = string.Join("\n", check.Tips);
+            row.When = when;
+            await db.SaveChangesAsync();
+        }
+        catch { /* keep the local cache; sync will catch up next time */ }
+    }
+
+    // Prefer today's synced check-in (may have been run on the web); fall back to the local cache.
+    private async Task LoadTodayCheckAsync()
+    {
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            var row = await db.DailyCheckResults.FirstOrDefaultAsync(r => r.Date == today && !r.IsDeleted);
+            if (row is not null)
+            {
+                _daily = new DailyCheck(row.Tone, row.Synopsis, row.TipList.ToList());
+                _dailyWhen = row.When;
+                return;
+            }
+        }
+        catch { /* fall through to local cache */ }
+
         if (AiAdviceStore.LoadDaily() is { } cached)
         {
             _daily = cached.Check;
             _dailyWhen = cached.When;
         }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _aiActions = AiAdviceStore.LoadActions();
+        _hasAiKey = await AiCoach.IsConfiguredAsync();
+        await LoadTodayCheckAsync();
         await LoadForToday();
 
         if (Health.IsAvailable)
