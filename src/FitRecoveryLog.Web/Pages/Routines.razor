@@ -2,38 +2,98 @@
 @using Microsoft.AspNetCore.Authorization
 @using FitRecoveryLog.Application.Common
 @using FitRecoveryLog.Application.Workouts
+@using FitRecoveryLog.Application.Ai
 @using FitRecoveryLog.Domain.Workouts
 @using ExDef = FitRecoveryLog.Data.ExerciseDefinition
+@using ExerciseMeasure = FitRecoveryLog.Data.ExerciseMeasure
 @attribute [Authorize]
 @inject RoutineService RoutineSvc
+@inject IAiCoach Coach
 @inject AppState State
 @inject WebSyncClient Sync
 
 <PageTitle>Routines — Fit Log</PageTitle>
 
-<h1 class="mb-3">Routines</h1>
+<div class="content">
+    <div class="page-head">
+        <div>
+            <div class="eyebrow">Training</div>
+            <h1 class="dash-date">Routines</h1>
+        </div>
+        @if (!_loading && _error is null)
+        {
+            <div class="chip-row" style="gap:8px">
+                <input class="form-control" style="max-width:16rem" @bind="_newRoutineName" placeholder="New routine name" />
+                <button class="btn primary" @onclick="CreateRoutine" disabled="@(_busy || string.IsNullOrWhiteSpace(_newRoutineName))">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>Create
+                </button>
+            </div>
+        }
+    </div>
 
 @if (_loading)
 {
-    <p><em>Loading…</em></p>
+    <section class="card"><p class="muted">Loading…</p></section>
 }
 else if (_error is not null)
 {
-    <div class="alert alert-danger">@_error</div>
-    <button class="btn btn-primary" @onclick="() => LoadAll()">Retry</button>
+    <section class="card"><p class="warn-msg" style="margin:0">@_error</p><button class="save-btn" @onclick="() => LoadAll()">Retry</button></section>
 }
 else
 {
-    @if (_msg is not null) { <div class="alert alert-warning py-2">@_msg</div> }
+    @if (_msg is not null) { <section class="card"><p class="warn-msg" style="margin:0">@_msg</p></section> }
 
-    <div class="input-group mb-4" style="max-width:32rem">
-        <input class="form-control" @bind="_newRoutineName" placeholder="New routine name" />
-        <button class="btn btn-primary" @onclick="CreateRoutine" disabled="@(_busy || string.IsNullOrWhiteSpace(_newRoutineName))">+ Create</button>
-    </div>
+    @if (_hasAiKey && _aiDraft is null && Open is null)
+    {
+        <section class="card">
+            <div class="card-head"><h2>✨ Suggest a routine</h2></div>
+            <p class="muted" style="margin:0 0 0.6rem">Drafts a routine from your last 8 weeks — targeting the muscle
+            groups your current workouts under-train, mixing library exercises with a few new ones.</p>
+            <div class="field"><input class="form-control" @bind="_aiHint" placeholder="Optional: e.g. upper body, 20 min, something new" /></div>
+            <div class="chip-row" style="margin:0.5rem 0 0.7rem;gap:8px">
+                <button type="button" class="chip @(_aiBodyweightOnly ? "selected" : "")" @onclick="() => _aiBodyweightOnly = true">🏠 Bodyweight only</button>
+                <button type="button" class="chip @(!_aiBodyweightOnly ? "selected" : "")" @onclick="() => _aiBodyweightOnly = false">🏋️ Equipment OK</button>
+            </div>
+            <button class="btn primary" @onclick="SuggestRoutine" disabled="@_aiBusy">@(_aiBusy ? "Designing…" : "Generate draft")</button>
+            @if (_aiError is not null) { <p class="warn-msg" style="display:block;margin:0.6rem 0 0">@_aiError</p> }
+        </section>
+    }
+
+    @if (_aiDraft is not null)
+    {
+        <section class="card" style="border-color:var(--accent)">
+            <div class="card-head"><h2>🤖 @_aiDraft.Name <span class="muted" style="font-size:0.8rem;font-weight:400">draft — not saved</span></h2></div>
+            <p class="muted" style="margin:0 0 0.5rem">@_aiDraft.Rationale</p>
+            @if (_aiNote is not null) { <p class="muted" style="margin:0 0 0.6rem">⚠️ @_aiNote</p> }
+            <ul class="timeline">
+                @foreach (var ex in _aiExercises)
+                {
+                    <li class="ex-row" @key="ex">
+                        <div>
+                            <span class="ex-name">@ex.Name @if (ex.IsNew) { <span class="pill good">NEW</span> }</span>
+                            <span class="ex-target">
+                                @(ex.Measure == "duration" ? $"{ex.DurationSeconds ?? 30}s" : $"{ex.Reps ?? 10} reps") × @ex.Sets · @(ex.RestSeconds ?? 60)s rest
+                                @if (!string.IsNullOrWhiteSpace(ex.Muscles)) { <span class="muted"> · @ex.Muscles</span> }
+                            </span>
+                        </div>
+                        <div class="routine-actions">
+                            <button class="link-btn" @onclick="() => _aiExercises.Remove(ex)" disabled="@_aiBusy">Remove</button>
+                        </div>
+                    </li>
+                }
+            </ul>
+            <div class="routine-actions" style="margin-top:0.7rem">
+                <button class="btn primary" @onclick="SaveAiDraft" disabled="@(_aiBusy || _aiExercises.Count == 0)">Save routine</button>
+                <button class="link-btn" @onclick="DiscardAiDraft" disabled="@_aiBusy">Discard</button>
+            </div>
+            <p class="muted" style="font-size:0.76rem;margin:0.5rem 0 0">Targets are editable after saving (Open the routine).
+            New exercises join the library on save.</p>
+        </section>
+    }
 
     @if (Open is Routine open)
     {
-        <div class="card p-3 mb-4 border-primary">
+        <div class="card p-3 mb-4" style="border-color:var(--accent)">
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <h5 class="mb-0">Editing: @open.Name</h5>
                 <button class="btn btn-sm btn-secondary" @onclick="Close">Close</button>
@@ -122,47 +182,51 @@ else
         </div>
     }
 
-    <table class="table table-hover align-middle">
-        <tbody>
+    <section class="card">
+        <div class="card-head"><h2>Active routines</h2></div>
+        @if (!_routines.Any(x => !x.Archived)) { <p class="empty">No active routines yet.</p> }
+        <ul class="timeline">
             @foreach (var r in _routines.Where(x => !x.Archived).OrderBy(x => x.Name))
             {
-                <tr>
-                    <td>@r.Name</td>
-                    <td class="text-end text-muted">@r.Exercises.Count exercises</td>
-                    <td class="text-end" style="width:12rem">
-                        <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => Archive(r.Id)" disabled="@_busy">Archive</button>
-                        <button class="btn btn-sm btn-outline-primary" @onclick="() => OpenRoutine(r.Id)" disabled="@_busy">Open</button>
-                    </td>
-                </tr>
+                <li class="ex-row">
+                    <div>
+                        <span class="ex-name">@r.Name</span>
+                        <span class="ex-target">@r.Exercises.Count exercise@(r.Exercises.Count == 1 ? "" : "s")</span>
+                    </div>
+                    <div class="routine-actions">
+                        <button class="link-btn" @onclick="() => Archive(r.Id)" disabled="@_busy">Archive</button>
+                        <button class="link-btn" @onclick="() => OpenRoutine(r.Id)" disabled="@_busy">Open</button>
+                    </div>
+                </li>
             }
-            @if (!_routines.Any(x => !x.Archived)) { <tr><td colspan="3" class="text-muted">No active routines.</td></tr> }
-        </tbody>
-    </table>
+        </ul>
+    </section>
 
     @if (ArchivedRoutines.Count > 0)
     {
-        <button class="btn btn-link px-0" @onclick="() => _showArchived = !_showArchived">
-            @(_showArchived ? "▾" : "▸") Archived (@ArchivedRoutines.Count)
-        </button>
-        @if (_showArchived)
-        {
-            <table class="table table-sm align-middle">
-                <tbody>
+        <section class="card">
+            <button class="link-btn" style="padding:0" @onclick="() => _showArchived = !_showArchived">
+                @(_showArchived ? "▾" : "▸") Archived (@ArchivedRoutines.Count)
+            </button>
+            @if (_showArchived)
+            {
+                <ul class="timeline" style="margin-top:0.5rem">
                     @foreach (var r in ArchivedRoutines)
                     {
-                        <tr class="text-muted">
-                            <td>@r.Name</td>
-                            <td class="text-end" style="width:12rem">
-                                <button class="btn btn-sm btn-outline-success me-1" @onclick="() => Restore(r.Id)" disabled="@_busy">Restore</button>
-                                <button class="btn btn-sm btn-outline-primary" @onclick="() => OpenRoutine(r.Id)" disabled="@_busy">Open</button>
-                            </td>
-                        </tr>
+                        <li class="ex-row" style="opacity:0.7">
+                            <div><span class="ex-name">@r.Name</span></div>
+                            <div class="routine-actions">
+                                <button class="link-btn" @onclick="() => Restore(r.Id)" disabled="@_busy">Restore</button>
+                                <button class="link-btn" @onclick="() => OpenRoutine(r.Id)" disabled="@_busy">Open</button>
+                            </div>
+                        </li>
                     }
-                </tbody>
-            </table>
-        }
+                </ul>
+            }
+        </section>
     }
 }
+</div>
 
 @code {
     private bool _loading = true, _busy, _showArchived, _newExOpen;
@@ -179,6 +243,13 @@ else
     private ExDef _newEx = new();
     private string _newRoutineName = "";
 
+    // ✨ AI routine designer
+    private bool _hasAiKey, _aiBusy;
+    private bool _aiBodyweightOnly = true;
+    private string? _aiHint, _aiError, _aiNote;
+    private RoutineSuggestion? _aiDraft;
+    private List<SuggestedExercise> _aiExercises = new();
+
     private Routine? Open => _openId is Guid id ? _routines.FirstOrDefault(r => r.Id == id) : null;
     private List<Routine> ArchivedRoutines => _routines.Where(x => x.Archived).OrderBy(x => x.Name).ToList();
 
@@ -191,7 +262,90 @@ else
         public string? Note;
     }
 
-    protected override async Task OnInitializedAsync() => await LoadAll();
+    protected override async Task OnInitializedAsync()
+    {
+        try { _hasAiKey = await Coach.IsConfiguredAsync(); } catch { _hasAiKey = false; }
+        await LoadAll();
+    }
+
+    private async Task SuggestRoutine()
+    {
+        _aiBusy = true; _aiError = null; _aiNote = null;
+        try
+        {
+            var easy = (await Coach.RecentlyEasyExercisesAsync()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _aiDraft = await Coach.SuggestRoutineAsync(_aiHint, _aiBodyweightOnly)
+                ?? throw new InvalidOperationException("The AI returned nothing usable — try again.");
+            // Backstop the Easy rule in code: drop reused exercises rated Easy last time.
+            _aiExercises = _aiDraft.Exercises.Where(e => e.IsNew || !easy.Contains(e.Name)).ToList();
+            var dropped = _aiDraft.Exercises.Count - _aiExercises.Count;
+            _aiNote = dropped > 0 ? $"Removed {dropped} exercise(s) you rated Easy last time." : null;
+        }
+        catch (Exception ex) { _aiError = ex.Message; _aiDraft = null; }
+        finally { _aiBusy = false; }
+    }
+
+    private void DiscardAiDraft() { _aiDraft = null; _aiExercises.Clear(); _aiNote = null; }
+
+    // Persist the reviewed draft: pick-or-create each exercise in the library (case-insensitive),
+    // then add it to the new routine with per-exercise targets — mirrors the phone's save path.
+    private async Task SaveAiDraft()
+    {
+        if (_aiDraft is null || _aiExercises.Count == 0) return;
+        _aiBusy = true; _msg = null;
+        try
+        {
+            var baseName = _aiDraft.Name.Trim();
+            var name = baseName;
+            for (var i = 2; _routines.Any(r => string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase)); i++)
+                name = $"{baseName} {i}";
+
+            var create = await RoutineSvc.CreateAsync(name);
+            if (!create.IsSuccess) { _msg = create.Error; return; }
+            var routineId = create.Value;
+
+            var resolved = new Dictionary<string, (Guid Id, ExerciseMeasure Measure)>(StringComparer.OrdinalIgnoreCase);
+            var createdAny = false;
+            foreach (var ex in _aiExercises)
+            {
+                if (!resolved.TryGetValue(ex.Name, out var def))
+                {
+                    var existing = _exercises.FirstOrDefault(e => string.Equals(e.Name, ex.Name, StringComparison.OrdinalIgnoreCase));
+                    if (existing is null)
+                    {
+                        var entity = new ExDef
+                        {
+                            Name = ex.Name,
+                            Measure = ex.Measure == "duration" ? ExerciseMeasure.Duration : ExerciseMeasure.Reps,
+                            // Seed muscle groups from the suggestion so volume tracking works without manual tagging.
+                            MuscleGroups = string.IsNullOrWhiteSpace(ex.Muscles) ? null : ex.Muscles
+                        };
+                        await Sync.PushAsync(entity);   // exercise library isn't a domain aggregate yet
+                        createdAny = true;
+                        def = (entity.Id, entity.Measure);
+                    }
+                    else def = (existing.Id, existing.Measure);
+                    resolved[ex.Name] = def;
+                }
+
+                var prescription = new ExercisePrescription(
+                    ex.Sets,
+                    def.Measure == ExerciseMeasure.Reps ? (ex.Reps ?? 10) : null,
+                    def.Measure == ExerciseMeasure.Duration ? (ex.DurationSeconds ?? 30) : null,
+                    ex.RestSeconds ?? 60, null, null);
+                var add = await RoutineSvc.AddExerciseAsync(routineId, def.Id, prescription);
+                if (!add.IsSuccess) { _msg = add.Error; return; }
+            }
+
+            if (createdAny) State.Invalidate();
+            DiscardAiDraft();
+            _aiHint = "";
+            await LoadAll();
+            OpenRoutine(routineId);
+        }
+        catch (Exception ex) { _msg = ex.Message; }
+        finally { _aiBusy = false; }
+    }
 
     private async Task LoadAll()
     {

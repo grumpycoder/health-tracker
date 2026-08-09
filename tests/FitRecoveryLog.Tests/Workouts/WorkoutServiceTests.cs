@@ -45,6 +45,42 @@ public class WorkoutServiceTests
     }
 
     [Test]
+    public async Task CreateWithSets_SeedsSets_TagsRoutine_StaysOpen()
+    {
+        var routineId = Guid.NewGuid();
+        var ex1 = Guid.NewGuid();
+        var ex2 = Guid.NewGuid();
+        var seed = new List<WorkoutSetData>
+        {
+            new(ex1, new SetResult(8, 135, null, 90), false),
+            new(ex1, new SetResult(8, 135, null, 90), false),
+            new(ex2, new SetResult(10, 40, null, 60), false),
+        };
+
+        var result = await _service.CreateWithSetsAsync(Day, routineId, seed);
+
+        Assert.That(result.IsSuccess, Is.True);
+        var session = _workouts.Store[result.Value];
+        Assert.Multiple(() =>
+        {
+            Assert.That(session.RoutineId, Is.EqualTo(routineId));
+            Assert.That(session.Sets, Has.Count.EqualTo(3));
+            Assert.That(session.EndedAt, Is.Null, "seeded workout should stay open for editing");
+        });
+    }
+
+    [Test]
+    public async Task CreateWithSets_NoSets_EquivalentToCreate()
+    {
+        var result = await _service.CreateWithSetsAsync(Day, null, Array.Empty<WorkoutSetData>());
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.IsSuccess, Is.True);
+            Assert.That(_workouts.Store[result.Value].Sets, Is.Empty);
+        });
+    }
+
+    [Test]
     public async Task Complete_Finishes_AndRaisesEvent()
     {
         var id = (await _service.CreateAsync(Day)).Value;

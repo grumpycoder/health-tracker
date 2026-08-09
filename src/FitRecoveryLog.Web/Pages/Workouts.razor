@@ -6,33 +6,50 @@
 @using ExDef = FitRecoveryLog.Data.ExerciseDefinition
 @attribute [Authorize]
 @inject WorkoutService WorkoutSvc
+@inject RoutineService RoutineSvc
 @inject AppState State
 
 <PageTitle>Workouts — Fit Log</PageTitle>
 
-<h1 class="mb-3">Workouts</h1>
+<div class="content">
+    <div class="page-head">
+        <div>
+            <div class="eyebrow">Training</div>
+            <h1 class="dash-date">Workouts</h1>
+        </div>
+        @if (!_loading && _error is null)
+        {
+            <div class="chip-row" style="gap:8px">
+                <input type="date" class="form-control" style="max-width:10rem" @bind="_newDate" />
+                <select class="form-select" style="max-width:13rem" @bind="_newRoutineId">
+                    <option value="">One-off (no routine)</option>
+                    @foreach (var r in _routines)
+                    {
+                        <option value="@r.Id">@r.Name</option>
+                    }
+                </select>
+                <button class="btn primary" @onclick="CreateWorkout" disabled="@_busy">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14" /></svg>New workout
+                </button>
+            </div>
+        }
+    </div>
 
 @if (_loading)
 {
-    <p><em>Loading…</em></p>
+    <section class="card"><p class="muted">Loading…</p></section>
 }
 else if (_error is not null)
 {
-    <div class="alert alert-danger">@_error</div>
-    <button class="btn btn-primary" @onclick="LoadAll">Retry</button>
+    <section class="card"><p class="warn-msg" style="margin:0">@_error</p><button class="save-btn" @onclick="LoadAll">Retry</button></section>
 }
 else
 {
-    @if (_msg is not null) { <div class="alert alert-warning py-2">@_msg</div> }
-
-    <div class="input-group mb-4" style="max-width:26rem">
-        <input type="date" class="form-control" @bind="_newDate" />
-        <button class="btn btn-primary" @onclick="CreateWorkout" disabled="@_busy">+ New workout</button>
-    </div>
+    @if (_msg is not null) { <section class="card"><p class="warn-msg" style="margin:0">@_msg</p></section> }
 
     @if (Open is WorkoutSession w)
     {
-        <div class="card p-3 mb-4 border-primary">
+        <div class="card p-3 mb-4" style="border-color:var(--accent)">
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <h5 class="mb-0">Workout — @w.Date.ToString("ddd, MMM d, yyyy")</h5>
                 <button class="btn btn-sm btn-secondary" @onclick="Close">Close</button>
@@ -117,29 +134,38 @@ else
         </div>
     }
 
-    <table class="table table-hover align-middle">
-        <thead><tr><th>Date</th><th class="text-end">Duration</th><th class="text-end">Sets</th><th></th></tr></thead>
-        <tbody>
-            @foreach (var s in _sessions.OrderByDescending(x => x.Date))
-            {
-                <tr>
-                    <td>@s.Date.ToString("ddd, MMM d, yyyy")@(s.EndedAt is null ? "" : " ✓")</td>
-                    <td class="text-end">@(s.TotalSeconds is int t ? $"{t / 60} min" : "—")</td>
-                    <td class="text-end">@s.Sets.Count</td>
-                    <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => OpenSession(s.Id)" disabled="@_busy">Open</button></td>
-                </tr>
-            }
-            @if (_sessions.Count == 0) { <tr><td colspan="4" class="text-muted">No workouts.</td></tr> }
-        </tbody>
-    </table>
+    <section class="card">
+        <div class="card-head"><h2>History</h2></div>
+        @if (_sessions.Count == 0) { <p class="empty">No workouts logged yet.</p> }
+        else
+        {
+            <table class="history">
+                <thead><tr><th>Date</th><th class="num">Duration</th><th class="num">Sets</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var s in _sessions.OrderByDescending(x => x.Date))
+                    {
+                        <tr>
+                            <td>@s.Date.ToString("ddd, MMM d, yyyy") @if (s.EndedAt is not null) { <span class="badge good">✓ done</span> }</td>
+                            <td class="num">@(s.TotalSeconds is int t ? $"{t / 60} min" : "—")</td>
+                            <td class="num">@s.Sets.Count</td>
+                            <td class="num"><button class="link-btn" @onclick="() => OpenSession(s.Id)" disabled="@_busy">Open</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
 }
+</div>
 
 @code {
     private bool _loading = true, _busy;
     private string? _error, _msg;
     private IReadOnlyList<WorkoutSession> _sessions = Array.Empty<WorkoutSession>();
+    private IReadOnlyList<Routine> _routines = Array.Empty<Routine>();
     private List<ExDef> _exercises = new();
     private Dictionary<Guid, string> _exNames = new();
+    private string _newRoutineId = "";   // "" = one-off; else a routine Guid
 
     private Guid? _openId;
     private DateOnly _dateDraft;
@@ -166,6 +192,7 @@ else
             var defs = WebSyncClient.Rows<ExDef>(pull);
             _exNames = defs.ToDictionary(d => d.Id, d => d.Name);
             _exercises = defs.Where(d => !d.Retired).OrderBy(d => d.Name).ToList();
+            _routines = await RoutineSvc.ListAsync(includeArchived: false);
             _sessions = await WorkoutSvc.ListAsync();
             if (_openId is Guid id) BuildDrafts(id);
         }
@@ -214,13 +241,34 @@ else
         _busy = true; _msg = null;
         try
         {
-            var r = await WorkoutSvc.CreateAsync(_newDate);
+            Guid? routineId = Guid.TryParse(_newRoutineId, out var rid) ? rid : null;
+            var seed = SeedSetsFor(routineId);
+            var r = await WorkoutSvc.CreateWithSetsAsync(_newDate, routineId, seed);
             if (!r.IsSuccess) { _msg = r.Error; return; }
             await LoadAll();
             OpenSession(r.Value);
         }
         catch (Exception ex) { _msg = ex.Message; }
         finally { _busy = false; }
+    }
+
+    // Turn a routine's prescriptions into editable, not-yet-completed sets (target reps/weight
+    // pre-filled so you only adjust what actually differed). One-off (null) seeds nothing.
+    private List<WorkoutSetData> SeedSetsFor(Guid? routineId)
+    {
+        var seed = new List<WorkoutSetData>();
+        if (routineId is not Guid id) return seed;
+        var routine = _routines.FirstOrDefault(r => r.Id == id);
+        if (routine is null) return seed;
+        foreach (var e in routine.Exercises)
+        {
+            var p = e.Prescription;
+            var count = Math.Max(1, p.TargetSets ?? 1);
+            var result = new SetResult(p.TargetReps, p.TargetWeight, p.TargetDurationSeconds, p.RestSeconds);
+            for (var i = 0; i < count; i++)
+                seed.Add(new WorkoutSetData(e.ExerciseDefinitionId, result, false));
+        }
+        return seed;
     }
 
     private Task SaveDate() => Run(() => WorkoutSvc.SetDateAsync(_openId!.Value, _dateDraft));

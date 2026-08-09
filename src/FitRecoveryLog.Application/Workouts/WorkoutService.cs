@@ -36,6 +36,29 @@ public sealed class WorkoutService
         return Result<Guid>.Success(session.Id);
     }
 
+    /// <summary>
+    /// Create a workout and seed it with pre-planned sets in a single save — used when starting a
+    /// workout from a routine (each prescribed set becomes an editable, not-yet-completed set). The
+    /// session stays open (not finished), so no <see cref="Domain.Workouts.Events.WorkoutCompleted"/>
+    /// is raised until the caller marks it complete. Passing no sets is equivalent to <see cref="CreateAsync"/>.
+    /// </summary>
+    public async Task<Result<Guid>> CreateWithSetsAsync(DateOnly date, Guid? routineId,
+        IReadOnlyList<WorkoutSetData> sets, CancellationToken ct = default)
+    {
+        var session = WorkoutSession.Create(date, routineId);
+        try
+        {
+            foreach (var s in sets)
+                session.AddSet(s.ExerciseDefinitionId, s.Result, s.Completed);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            return Result<Guid>.Failure(ex.Message);
+        }
+        await _workouts.SaveAsync(session, ct);
+        return Result<Guid>.Success(session.Id);
+    }
+
     public Task<Result> SetDateAsync(Guid id, DateOnly date, CancellationToken ct = default) =>
         MutateAsync(id, s => s.SetDate(date), ct);
 
