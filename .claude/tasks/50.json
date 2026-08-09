@@ -1,0 +1,8 @@
+{
+  "id": "50",
+  "subject": "Web goals/settings store to enrich AI prompts",
+  "description": "DONE 2026-08-06. Synced GoalSettings entity (singleton) holds coaching goals + macro/hydration target ranges + cessation opt-in. WebAiSettings reads it via new AppState.Cached sync accessor and maps to IAiSettings (CoachingGoals/MacroTargets/IncludeCessationData); web Settings page got a Goals & targets editor (upsert); Trends target lines read it (fallback 2400/160). Lights up the web day-fit advice + daily check-in with real targets. SQLite + Azure SQL migrations (20260806232134_GoalSettings; serverless DB cold-start needed a retry). Server+web deployed, phone rebuilt+installed (table needed for sync; phone still uses its own Preferences goals, not yet wired to GoalSettings).",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": []
+}

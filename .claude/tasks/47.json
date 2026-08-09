@@ -1,0 +1,8 @@
+{
+  "id": "47",
+  "subject": "Web UI: surface pre-meal advisor + physical-workload advisor",
+  "description": "PROPOSED 2026-08-06 (from the web-AI session). The shared IAiCoach already exposes AdviseMealAsync and SuggestWorkloadAsync, and both work with data the web already has (AdviseMeal uses today's context via WebAiDataProvider.GetTodayContextAsync; SuggestWorkload is parameter-only). Their prompts are already editable in the web Settings page but nothing on the web triggers them. Build: (1) a '🤔 Thinking about…' input + Ask button on the web Meals page that calls AdviseMealAsync and shows verdict + reasoning + the two alternatives (mirror the phone), with a 'Going with it' that prefills the meal form; (2) a '✨ Rate this activity' button on the web Physical Workload form that calls SuggestWorkloadAsync (activity/minutes/notes + body-area vocabulary) and applies intensity/areas/note. No backend or data-provider work needed — just web pages + the already-registered IAiCoach. No new tests expected beyond existing AiCoach coverage.",
+  "status": "pending",
+  "blocks": [],
+  "blockedBy": []
+}

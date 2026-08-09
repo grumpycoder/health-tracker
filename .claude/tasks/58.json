@@ -1,0 +1,8 @@
+{
+  "id": "58",
+  "subject": "Auto-propagate synced goals to phone displays/AI (+ cessation-flag decision)",
+  "description": "PROPOSED 2026-08-07. Follow-ups from the goals unification (task 55) and the dedicated Goals page. (1) PROPAGATION GAP: GoalSettings is the synced source of truth, but the phone's displays (NutritionGoalsCard) and AI (MauiAiSettings) still read the device-local Preferences cache synchronously, which is only refreshed when the user opens the phone Goals page (reconcile-on-open). So a goal edited on the web doesn't reach the phone's day-fit/dashboard/daily-check-in until Goals is opened once. Fix options: (a) mirror GoalSettings→Preferences after every sync PULL (hook in CloudSyncService completion) — cheapest, keeps sync consumers synchronous; and/or (b) mirror once at app startup after db.Migrate(); watch the singleton-merge race (don't let a stale/empty local row overwrite a newer web row — guard by UpdatedAt). Avoid an automatic startup seed that could wipe local goals before the first pull. (2) COMPLIANCE DECISION: whether to also unify the cessation opt-in (GoalSettings.IncludeCessationData) on the phone so it syncs like the other goals. Currently excluded — the phone keeps its own device-local ai_include_cessation flag (Cessation page). Syncing substance-cessation opt-in crosses device→cloud under SOC 2 scope; loop in the CISO/Security Analyst before wiring it. Relates to task 55, 57 and [[fitlog-cloud-phase1]].",
+  "status": "pending",
+  "blocks": [],
+  "blockedBy": []
+}

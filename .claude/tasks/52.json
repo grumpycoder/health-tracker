@@ -1,0 +1,8 @@
+{
+  "id": "52",
+  "subject": "Web visual polish: charts/data-viz on more pages",
+  "description": "DONE 2026-08-06. Built web Pages/Trends.razor (route /trends, sidebar link) with inline-SVG charts from the sync pull (no chart lib): weight/waist/body-fat mini line charts with delta pills; sleep-hours line + avg and recovery-rating line; training minutes/week bars (last 8 weeks) + summary; daily calories bars + protein line over last 14 days with dashed target reference lines (web default targets 2400 kcal / 160 g until the goals store lands). Generic LineSeries helper + inline bar builders; all SVG attributes bind precomputed strings. Added .mini/.chart-title CSS. Original scope also mentioned measurement sparklines \u2014 covered by the body-composition charts.",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": []
+}

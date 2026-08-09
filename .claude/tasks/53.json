@@ -1,0 +1,8 @@
+{
+  "id": "53",
+  "subject": "Web polish: elevate Workouts/Routines set & feedback editors",
+  "description": "PROPOSED 2026-08-06 (from the web redesign session). During the redesign the page chrome (headers, state cards, history/list views) on Workouts and Routines was converted to the new vocabulary, but the DENSE inner editors — the per-set table (reps/weight/dur/rest/done) and per-exercise feedback rows on Workouts, and the exercise-prescription table on Routines — were deliberately left on Bootstrap form-controls (themed via the compat layer, but utilitarian). They work and are readable but aren't 'designed'. Rework them into the new component vocabulary (field/inline-fields/cards, nicer per-set rows, clearer add/remove) without changing the granular save-per-action logic. Web-only, no backend.",
+  "status": "pending",
+  "blocks": [],
+  "blockedBy": []
+}

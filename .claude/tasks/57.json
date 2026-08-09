@@ -1,0 +1,9 @@
+{
+  "id": "57",
+  "subject": "Surface body-measurement goals (progress + charts + AI)",
+  "description": "PROPOSED 2026-08-07. Follow-on to task 56, which delivered the INITIAL scope only: setting/storing body-measurement goals on GoalSettings (GoalWeightLbs/GoalWaistInches/GoalBodyFatPercent/GoalChestInches/GoalArmsInches/GoalThighsInches, null = unset) + a web Settings editor, synced phone↔web (migration 20260807165500_BodyMeasurementGoals applied to both DBs; server+web+phone deployed). This task is the deferred DISPLAY/AI surfaces: (a) on the Measurements pages (web + phone), show goal vs current with a delta / progress-to-goal indicator per metric (direction inferred from current vs target); (b) on Trends, draw a target reference line on the weight/waist/body-fat charts, mirroring how the nutrition charts already draw target lines from GoalSettings; (c) feed the body goals into the AI context (WebAiSettings/IAiSettings + the 8-week analysis body-trend section) so coaching advice is goal-aware. No schema change needed (columns already exist). Web-first; the phone Measurements progress display can follow. Relates to task 56 and [[fitlog-cloud-phase1]].",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": [],
+  "note": "Delivered 2026-08-07 (web scope): web Measurements stat cards show goal vs current with 'X to go / reached ✓'; Trends weight/waist/body-fat charts draw a dashed goal reference line (goal folded into the chart scale so it stays on-chart) + goal label; WebAiDataProvider.GetEightWeekContextAsync appends a BODY-MEASUREMENT GOALS block so the 8-week analysis body-trend is goal-aware. No schema change. DEFERRED: the PHONE Measurements goal-vs-current display — best done alongside task 55 (wiring the phone to read GoalSettings), since the phone currently uses its own Preferences goals and doesn't read GoalSettings yet."
+}

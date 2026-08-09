@@ -1,0 +1,8 @@
+{
+  "id": "54",
+  "subject": "Re-add progress-photo compare (read-only, cross-date)",
+  "description": "PROPOSED 2026-08-07 (surfaced during the photo/measurement coupling refactor). When photo capture was folded into the measurement entry/edit form, the old standalone 'Progress Photos' card was removed — and with it the cross-date side-by-side compare (tap-two-thumbnails: _compareA/_compareB, TapPhoto, compare-row markup). Photos now live tied to their measurement record; history rows show a per-entry thumbnail strip (display-only). Build compare back as a SEPARATE read-only view rather than bolting it onto the entry form: pick a pose (Front/Back/Left/Right) and two dates (or tap two thumbnails from history) and show them side by side, ideally with the date + key measurement deltas (weight/waist) between the two. Phone-first (photo files are device-local; web can't show them). Keep it read-only — no capture/delete in this view, so it doesn't re-muddy the 'photos belong to the measurement' model. Data is already there: ProgressPhoto rows (Date, Pose, FileName) + BodyMeasurement by date.",
+  "status": "pending",
+  "blocks": [],
+  "blockedBy": []
+}

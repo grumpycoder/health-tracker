@@ -1,0 +1,8 @@
+{
+  "id": "56",
+  "subject": "Goals for body measurements (targets + progress tracking)",
+  "description": "PROPOSED 2026-08-07; scope clarified by Mark same day. INITIAL SCOPE (the only must-have for a first cut): let the user SET and STORE goal values for body measurements — at least goal weight, waist, and body-fat %, ideally each tracked metric (chest/arms/thighs/etc.). This is specifically body-measurement goals; the existing macro/hydration/coaching targets already live in GoalSettings and are NOT part of this — leave them as they are. Implementation: extend the synced GoalSettings singleton with body-measurement target columns so they sync phone↔web and need no new entity; add a migration on both DBs (SQLite + Azure SQL) + phone rebuild since GoalSettings gains columns; add editor fields in the web Settings 'Goals & targets' section (and, once task 55 lands, the phone goals editor). Store a target value per metric and infer direction from current vs target (weight/waist/body-fat usually 'reduce to X', but a metric could be 'gain to X'), or store an explicit direction. LATER / OPTIONAL (nice-to-have, not required for the first cut — can be split off): (a) on the Measurements pages, show goal vs current with a delta/progress indicator; (b) on Trends, draw a target reference line on the weight/waist/body-fat charts (mirrors how nutrition charts already draw target lines from GoalSettings); (c) feed the target into the AI context (WebAiSettings/IAiSettings + the 8-week analysis body-trend section) so coaching advice is goal-aware. Relates to [[fitlog-cloud-phase1]] GoalSettings and task 50/55.",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": []
+}

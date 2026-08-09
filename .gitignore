@@ -58,3 +58,5 @@ src/FitRecoveryLog.Server/publish/
 
 # Transpiled Bicep output (generated from main.bicep)
 infra/main.json
+
+.env

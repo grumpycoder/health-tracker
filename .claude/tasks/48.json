@@ -1,0 +1,8 @@
+{
+  "id": "48",
+  "subject": "Implement web IAiDataProvider: 8-week + routine-design context",
+  "description": "PROPOSED 2026-08-06 (from the web-AI session). WebAiDataProvider.GetTodayContextAsync is implemented (drives the daily check-in), but GetEightWeekContextAsync and GetRoutineDesignContextAsync still throw NotSupported — so the analysis and routine-designer AI features can't run on the web. Build both over the sync-pull cache (WebSyncClient.Rows), mirroring the phone's EfAiDataProvider format: 8-week = workouts (sets+feedback via Rows<ExerciseSet>/Rows<ExerciseFeedback> joined by WorkoutSessionId, since Rows<WorkoutSession> has no nested children), meals, drinks (+ weekly volume), body measurements, sleep; routine-design = exercise library, existing routines, per-exercise history, per-muscle set volume. RecentlyEasyExercisesAsync can also be implemented from Rows<ExerciseFeedback>. Prereq for task 49.",
+  "status": "completed",
+  "blocks": ["49"],
+  "blockedBy": []
+}

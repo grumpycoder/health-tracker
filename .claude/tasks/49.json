@@ -1,0 +1,8 @@
+{
+  "id": "49",
+  "subject": "Web UI: 8-week analysis + AI routine designer",
+  "description": "PROPOSED 2026-08-06 (from the web-AI session). Once the web data provider supplies the 8-week and routine-design context (task 48), surface these on the web: (1) an 'AI analysis' view (its own page or a dashboard/Insights section) calling IAiCoach.AnalyzeAsync — render the analysis sections, top actions, meal flags, body trend, and per-exercise progress advice; consider persisting the result as a synced record like the daily check-in so it doesn't re-cost an LLM call across devices; (2) a '✨ Suggest a routine' button on the web Routines page calling SuggestRoutineAsync (hint + bodyweight toggle), showing the draft for review and saving via the existing routine/exercise create path (pick-or-create new exercises). Prompts already editable in web Settings. Blocked by task 48.",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": ["48"]
+}

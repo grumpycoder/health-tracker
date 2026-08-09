@@ -1,0 +1,8 @@
+{
+  "id": "51",
+  "subject": "Drink macro estimator: make entered ounces authoritative",
+  "description": "PROPOSED 2026-08-06 (from the web-AI session). The web drink '✨ Estimate macros' passes the entered Ounces as a soft portion hint (portionNote) into EstimateMealFromTextAsync; the prompt only says 'honor the portion note if given', and its calibration anchors are food-portion focused (nothing about scaling drink macros to a fluid volume). Result: a stated volume like 20 oz may not scale precisely, and if the Ounces field is blank nothing is sent (model assumes a standard serving). Options: (1) strengthen the estimate_text prompt (now editable in web Settings) to explicitly scale all macros to a stated fluid-ounce volume for drinks; and/or (2) in the web Meals drink flow, require/nudge Ounces before Estimate and pass it as an explicit 'estimate for exactly N fl oz; scale linearly' instruction. Small, web-only (plus optionally a shared prompt tweak).",
+  "status": "pending",
+  "blocks": [],
+  "blockedBy": []
+}
