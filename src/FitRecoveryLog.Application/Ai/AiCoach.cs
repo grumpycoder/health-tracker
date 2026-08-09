@@ -15,37 +15,36 @@ public sealed class AiCoach : IAiCoach
     private readonly ILlmClient _llm;
     private readonly IAiSettings _settings;
     private readonly IAiDataProvider _data;
+    private readonly IPromptStore _prompts;
 
-    public AiCoach(ILlmClient llm, IAiSettings settings, IAiDataProvider data)
+    public AiCoach(ILlmClient llm, IAiSettings settings, IAiDataProvider data, IPromptStore prompts)
     {
         _llm = llm;
         _settings = settings;
         _data = data;
+        _prompts = prompts;
     }
 
     public Task<bool> IsConfiguredAsync(CancellationToken ct = default) => _llm.IsConfiguredAsync(ct);
 
     public async Task<DailyCheck> DailyCheckAsync(CancellationToken ct = default)
     {
+        var partOfDay = DateTime.Now.Hour switch
+        {
+            < 5 => "the middle of the night",
+            < 12 => "the morning",
+            < 17 => "the afternoon",
+            < 21 => "the evening",
+            _ => "late at night",
+        };
+        // Editable template (falls back to the embedded default); the coach fills the placeholders
+        // and appends the dynamic goals/targets/context after it.
+        var template = await _prompts.GetTemplateAsync(PromptDefaults.DailyCheckKey, PromptDefaults.DailyCheck, ct);
+
         var sb = new StringBuilder();
-        sb.AppendLine("You are a supportive but honest health coach doing a quick mid-day check-in on one person's self-tracked day.");
-        sb.AppendLine("Respond with ONLY a JSON object:");
-        sb.AppendLine("""
-{
-  "tone": "good" | "mixed" | "poor",
-  "synopsis": "<2-3 sentences on how the day is going so far and the likely reasons — e.g. possible bloating from high-sodium restaurant food, sugary drinks adding up, short sleep dragging energy, solid workout done. Encouraging when earned, direct when not.>",
-  "tips": ["<up to 3 short, actionable suggestions for the REST of today>"]
-}
-""");
-        sb.AppendLine("Consider meal quality/timing, sugary drinks, sleep duration and score, whether a workout happened on a workout day, and physical workload — but JUDGE IN CONTEXT:");
-        sb.AppendLine("- Use TODAY'S NOTES for circumstances (travel, events, busy days). A fast-food dinner on a day spent out running errands is life, not failure.");
-        sb.AppendLine("- Use LAST 7 DAYS to tell one-off indulgences from patterns. A single off-plan meal in an otherwise solid stretch gets a light touch ('enjoy it, back to normal tomorrow'); direct warnings are for things repeating across several days.");
-        sb.AppendLine("- Judge the FOOD, not the venue. A grilled chicken sandwich from a drive-thru is a reasonable protein choice, not a lapse; a burger-and-fries combo is different. Don't penalize 'restaurant/fast food' as a category — eating-out sodium is worth one mention only when frequent.");
-        sb.AppendLine("- Zero-sugar drinks (Coke Zero, diet soda, sugar-free) are NOT sugary drinks — taste variety, not a concern.");
-        sb.AppendLine("- Keep sugar in PROPORTION: a single small treat/dessert (roughly ≤15g sugar) in an otherwise fine day is normal — don't flag it or suggest 'less sugar'. A banana has ~14g. Only raise sugar when a day's total is genuinely high or it's a daily pattern.");
+        sb.AppendLine(template.Replace("{timeOfDay}", partOfDay).Replace("{dayOfWeek}", DateTime.Now.DayOfWeek.ToString()));
         AppendUserGoals(sb);
         AppendMacroGoalTargets(sb, _settings.MacroTargets);
-        sb.AppendLine("If little is logged yet, say so and suggest what to log.");
         sb.AppendLine();
         sb.Append(await _data.GetTodayContextAsync(_settings.IncludeCessationData, ct));
 
@@ -72,22 +71,9 @@ public sealed class AiCoach : IAiCoach
 
     public async Task<MealAdvice?> AdviseMealAsync(string considering, CancellationToken ct = default)
     {
+        var template = await _prompts.GetTemplateAsync(PromptDefaults.AdviseMealKey, PromptDefaults.AdviseMeal, ct);
         var sb = new StringBuilder();
-        sb.AppendLine("You are a pragmatic nutrition coach. The user is deciding what to eat NEXT and is considering something specific.");
-        sb.AppendLine("Respond with ONLY a JSON object:");
-        sb.AppendLine("""
-{
-  "verdict": "good" | "fine" | "reconsider",
-  "reason": "<1-2 sentences grounded in TODAY's data and the user's goals, e.g. 'light on protein so far' or 'second restaurant meal today'>",
-  "restaurantAlternative": "<a similar-effort restaurant/fast-food option that fits better, or null if the considered choice is already solid>",
-  "homemadeAlternative": "<a quick homemade option, or null if homemade isn't realistic for the situation>"
-}
-""");
-        sb.AppendLine("Keep sugar in proportion — a small treat (~15g sugar or less) is normal (a banana has ~14g); " +
-                      "don't steer away from it unless the day's sugar is already high.");
-        sb.AppendLine("Rules: judge the FOOD, not the venue. Zero-sugar drinks are not a concern. Respect the user's " +
-                      "stated goals — never push toward ideals they haven't chosen. Alternatives must be realistic for " +
-                      "the same situation (on the road means no homemade — return null). Be brief and practical, not preachy.");
+        sb.AppendLine(template);
         AppendUserGoals(sb);
         sb.AppendLine();
         sb.AppendLine($"CONSIDERING: \"{considering.Trim()}\"");
@@ -114,30 +100,9 @@ public sealed class AiCoach : IAiCoach
 
     public async Task<AiOutcome> AnalyzeAsync(CancellationToken ct = default)
     {
+        var template = await _prompts.GetTemplateAsync(PromptDefaults.AnalyzeKey, PromptDefaults.Analyze, ct);
         var sb = new StringBuilder();
-        sb.AppendLine("You are a concise fitness and recovery coach analyzing one person's self-tracked logs (last 8 weeks).");
-        sb.AppendLine("Respond with ONLY a JSON object in this shape:");
-        sb.AppendLine("""
-{
-  "analysis": "plain-text analysis with sections: WORKOUT PROGRESSION, BODY TREND, MEAL PATTERNS, SLEEP, TOP 3 ACTIONS. Short uppercase headings and dash bullets, no markdown symbols.",
-  "exercises": [{ "name": "<exercise name exactly as it appears in the data>", "action": "progress" | "hold" | "backoff", "target": "<next-week target, e.g. 3x22 reps or 3x35s>" }],
-  "topActions": ["<highest-impact action>", "<second>", "<third>"],
-  "mealFlags": ["<0-2 short, balanced notes — a positive is fine ('Sweet tea down to ~16oz/day — on target'); reserve concerns for genuine multi-week patterns, never single items or 'cut it out' advice>"],
-  "bodyTrend": { "status": "on-track" | "off-track" | "unclear", "note": "<one short sentence, e.g. 'Weight down ~1 lb/week'>" }
-}
-""");
-        sb.AppendLine("Be specific and reference the data. Say plainly where data is too sparse to conclude anything.");
-        sb.AppendLine("DIET FRAMING — assess intake AS A WHOLE, balanced, not a hunt for negatives:");
-        sb.AppendLine("- Judge the overall diet and its TREND across the 8 weeks, not isolated items. Lead with what's working; raise at most 1-2 things genuinely worth attention.");
-        sb.AppendLine("- Coach MODERATION, never ELIMINATION. Do NOT recommend cutting sugar, sodium, sweet drinks, or any food to zero. Reasonable amounts relative to overall intake are fine.");
-        sb.AppendLine("- Judge QUANTITY and TREND, not frequency. Use the weekly volume data, but do NOT call rising logged volume an 'increasing consumption trend': early weeks usually have sparse/partial logging, so a rise across weeks typically means MORE COMPLETE LOGGING, not more intake. Only call a trend real if logging is consistent throughout — otherwise say the trend is unclear and defer to the user's stated goals for the real baseline/direction.");
-        sb.AppendLine("- Meal TAGS (e.g. 'High sodium', 'High sugar') are AI-suggested heuristics that over-apply; do NOT treat tag frequency as proof of a dietary pattern. Judge the actual foods eaten, not how often a tag appears.");
-        sb.AppendLine("- Judge the FOOD, not the venue: a grilled chicken sandwich from a drive-thru is a reasonable protein choice; don't penalize restaurant/fast-food as a category.");
-        sb.AppendLine("- Zero-sugar drinks (Coke Zero, diet, sugar-free) are NOT sugary drinks — taste variety, not a concern.");
-        sb.AppendLine("- Keep sugar in PROPORTION: a small treat (~15g or less; a banana is ~14g) is normal. Flag sugar only when daily totals are genuinely high or a frequent pattern.");
-        sb.AppendLine("- Keep sodium in PROPORTION too: normal seasoned or home-cooked meals and an occasional restaurant meal are fine — never suggest zero/low sodium; flag only a consistently high-sodium pattern.");
-        sb.AppendLine("- HIGH BAR for any sugar/sodium concern: never call ordinary eating — a treat, cereal, or a restaurant meal — a concerning 'pattern'. Raise sugar or sodium ONLY if you can cite a specific, genuinely excessive quantity from the data. If you can't cite a real number, don't raise it. Do not bundle unrelated items into a vague pattern.");
-        sb.AppendLine("- Against a stated goal, small overages (within ~25%, e.g. 20oz vs a 16oz goal) are ON-TRACK — mention neutrally at most; reserve 'significantly above' for large, sustained excess.");
+        sb.AppendLine(template);
         AppendUserGoals(sb);
         AppendMacroGoalTargets(sb, _settings.MacroTargets);
         sb.AppendLine();
@@ -197,37 +162,15 @@ public sealed class AiCoach : IAiCoach
 
     public async Task<RoutineSuggestion?> SuggestRoutineAsync(string? hint, bool bodyweightOnly = true, CancellationToken ct = default)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine("You are a strength coach designing ONE new workout routine for one person from their training history.");
-        sb.AppendLine("Goals: cover muscle groups the current training under-serves, keep continuity with exercises they already do, add a little novelty.");
-        sb.AppendLine("Respond with ONLY a JSON object:");
-        sb.AppendLine("""
-{
-  "name": "<short routine name>",
-  "rationale": "<2-4 sentences: which muscle groups the history under-trains and how this routine addresses them>",
-  "exercises": [{
-    "name": "<EXACT library name when reusing; clear conventional name when new>",
-    "isNew": true | false,
-    "muscles": "<primary muscles, e.g. chest/triceps>",
-    "measure": "reps" | "duration",
-    "sets": <int>, "reps": <int or null>, "durationSeconds": <int or null>, "restSeconds": <int>
-  }]
-}
-""");
-        sb.AppendLine("Rules: prefer library exercises (isNew=false, exact name and measure). " +
-                      "Add NEW exercises (isNew=true) where the library lacks coverage for an under-trained muscle group.");
-        sb.AppendLine("TARGET BALANCE — use the MUSCLE VOLUME data below (real sets per muscle group): prioritize the " +
-                      $"lowest-volume and untrained groups. Set each exercise's \"muscles\" from this list: {string.Join(", ", MuscleCatalog)}.");
-        sb.AppendLine("TIME BUDGET — the whole routine must finish in about 15-17 minutes (unless USER REQUEST says otherwise). " +
-                      "Estimate sets × (work + rest), a reps set ≈ 40s of work. That usually means 4-6 exercises; fewer, harder exercises beat a long list.");
-        sb.AppendLine("USE THE RATINGS — recent feedback, act on it:");
-        sb.AppendLine("- rated Easy: FORBIDDEN — do not include this exercise at any targets. Replace it with a clearly harder variation under a DIFFERENT name (isNew=true), e.g. squats -> Bulgarian split squats, plank -> plank shoulder taps.");
-        sb.AppendLine("- rated Moderate/Hard: include with targets slightly above the best shown (~5-10%).");
-        sb.AppendLine("- rated VeryHard: keep targets at or slightly below the best shown.");
-        sb.AppendLine("- PAIN flagged: exclude entirely.");
-        sb.AppendLine(bodyweightOnly
+        var equipment = bodyweightOnly
             ? "EQUIPMENT — STRICT: every exercise must be doable with bodyweight alone (a mat/floor/wall is fine). No dumbbells, bands, bars, benches, or machines."
-            : "EQUIPMENT: common home equipment is OK (dumbbells, bands, pull-up bar); prefer what the library's equipment notes already show.");
+            : "EQUIPMENT: common home equipment is OK (dumbbells, bands, pull-up bar); prefer what the library's equipment notes already show.";
+        var template = await _prompts.GetTemplateAsync(PromptDefaults.SuggestRoutineKey, PromptDefaults.SuggestRoutine, ct);
+
+        var sb = new StringBuilder();
+        sb.AppendLine(template
+            .Replace("{muscleCatalog}", string.Join(", ", MuscleCatalog))
+            .Replace("{equipment}", equipment));
         if (!string.IsNullOrWhiteSpace(hint)) sb.AppendLine($"USER REQUEST (honor this): {hint.Trim()}");
         sb.AppendLine();
         sb.Append(await _data.GetRoutineDesignContextAsync(ct));
@@ -295,11 +238,9 @@ public sealed class AiCoach : IAiCoach
     public async Task<WorkloadSuggestion> SuggestWorkloadAsync(string activity, int? minutes, string? notes,
         IReadOnlyList<string> areaVocabulary, CancellationToken ct = default)
     {
+        var template = await _prompts.GetTemplateAsync(PromptDefaults.SuggestWorkloadKey, PromptDefaults.SuggestWorkload, ct);
         var sb = new StringBuilder();
-        sb.AppendLine("You advise on logging one non-workout physical activity in a fitness-recovery tracker.");
-        sb.AppendLine("The log's purpose: capture activity that meaningfully taxes the body and affects recovery. Trivial chores are noise.");
-        sb.AppendLine("Respond with ONLY a JSON object:");
-        sb.AppendLine("""{ "intensity": "Light" | "Moderate" | "Heavy", "areas": ["<from the list, only clearly affected>"], "worthLogging": true | false, "note": "<one short practical sentence: why, or how to log it better — e.g. 'Log the basket-carrying up stairs, skip the folding.'>" }""");
+        sb.AppendLine(template);
         sb.AppendLine($"Body areas (use these exact strings): {string.Join(" | ", areaVocabulary)}");
         sb.AppendLine();
         sb.AppendLine($"ACTIVITY: \"{activity}\"" + (minutes is { } m ? $" {m}min" : "") +
@@ -332,11 +273,10 @@ public sealed class AiCoach : IAiCoach
     public async Task<TagSuggestion> SuggestMealTagsAsync(string mealType, string description, string? portionNote,
         IReadOnlyList<string> vocabulary, string? macros = null, CancellationToken ct = default)
     {
+        var template = await _prompts.GetTemplateAsync(PromptDefaults.SuggestMealTagsKey, PromptDefaults.SuggestMealTags, ct);
         var sb = new StringBuilder();
-        sb.AppendLine("Tag one logged meal for a personal nutrition tracker, and rate how well it fits the user's goals.");
-        sb.AppendLine("Respond with ONLY a JSON object:");
-        sb.AppendLine("""{ "tags": ["<existing tags that clearly apply>"], "newTag": "<one new tag ONLY if something important has no existing tag, else null>", "stars": <1-5 how well this meal fits the user's goals below>, "starReason": "<≤8 words, encouraging>" }""");
-        AppendMealTaggingRules(sb, vocabulary);
+        sb.AppendLine(template);
+        await AppendMealTaggingRulesAsync(sb, vocabulary, ct);
         sb.AppendLine();
         sb.AppendLine($"MEAL: {mealType} \"{description}\"" +
                       (string.IsNullOrWhiteSpace(portionNote) ? "" : $" portion:\"{portionNote}\""));
@@ -363,15 +303,10 @@ public sealed class AiCoach : IAiCoach
     public async Task<MealScan?> ReadNutritionLabelAsync(byte[] imageJpeg, IReadOnlyList<string> vocabulary,
         CancellationToken ct = default)
     {
+        var template = await _prompts.GetTemplateAsync(PromptDefaults.ReadLabelKey, PromptDefaults.ReadLabel, ct);
         var sb = new StringBuilder();
-        sb.AppendLine("Read a packaged-food Nutrition Facts label from this photo AND tag/rate the food. " +
-                      "Extract the values for ONE serving as printed. Respond with ONLY this JSON object " +
-                      "(null for anything not legible):");
-        sb.AppendLine("""{ "servingSize": "<as printed>", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "addedSugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num>, "tags": ["<existing tags that apply>"], "newTag": "<one new tag or null>", "stars": <1-5>, "starReason": "<≤8 words, encouraging>" }""");
-        sb.AppendLine("Use 'Total Sugars' for sugarG, 'Includes Xg Added Sugars' for addedSugarG (null if not listed), and 'Total Fat' for fatG. Numbers only — strip units. " +
-                      "If the image is not a nutrition label, return all nulls. " +
-                      "Base tags and the star rating on the ACTUAL macros you read (per serving), not guesses.");
-        AppendMealTaggingRules(sb, vocabulary);
+        sb.AppendLine(template);
+        await AppendMealTaggingRulesAsync(sb, vocabulary, ct);
 
         var text = await _llm.GenerateJsonAsync(sb.ToString(), imageJpeg, ct);
         if (string.IsNullOrWhiteSpace(text)) return null;
@@ -384,67 +319,65 @@ public sealed class AiCoach : IAiCoach
     }
 
     public async Task<MealScan?> EstimateMealFromPhotoAsync(byte[] imageJpeg, IReadOnlyList<string> vocabulary,
-        string? hint = null, CancellationToken ct = default)
+        string? hint = null, string? mealType = null, CancellationToken ct = default)
     {
+        var template = await _prompts.GetTemplateAsync(PromptDefaults.EstimatePhotoKey, PromptDefaults.EstimatePhoto, ct);
         var sb = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(hint))
             sb.AppendLine($"IMPORTANT USER CORRECTION — treat as authoritative and re-estimate accordingly: \"{hint.Trim()}\"");
-        sb.AppendLine("Estimate the nutrition of the meal in this photo AND tag/rate it. Identify each food, " +
-                      "estimate its portion, then TOTAL the macros for everything on the plate/bowl as shown. " +
-                      "Respond with ONLY this JSON object (null for anything you truly can't estimate):");
-        sb.AppendLine("""{ "foodDescription": "<short, e.g. 'meatloaf, mashed potatoes, green beans'>", "servingSize": "whole plate (estimate)", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "addedSugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num>, "tags": ["<existing tags that apply>"], "newTag": "<one new tag or null>", "stars": <1-5>, "starReason": "<≤8 words, encouraging>" }""");
-        sb.AppendLine("Numbers are for the whole plate, units stripped. If it isn't a photo of food, return all nulls.");
-        sb.AppendLine("CALIBRATION — photo estimates tend to run HIGH; do NOT overestimate. Assume STANDARD " +
-                      "home portions unless the plate is clearly oversized, and do NOT add calories for oil, " +
-                      "butter, or sauce you cannot actually see. Use these per-serving anchors and pick the " +
-                      "MIDDLE of the range, never the top:");
-        sb.AppendLine("  - cooked meat/protein, palm-sized 3-5 oz: 150-300 kcal");
-        sb.AppendLine("  - mashed potatoes ~1 cup: 200-250 kcal; rice/pasta ~1 cup: ~200 kcal");
-        sb.AppendLine("  - non-starchy veg (green beans, broccoli, salad) ~1 cup: 40-70 kcal");
-        sb.AppendLine("  - a slice of bread ~80 kcal; a pat of butter ~35 kcal");
-        sb.AppendLine("A normal meat-and-two-sides dinner plate totals roughly 500-750 kcal. Only exceed ~900 " +
-                      "if the plate is clearly large or obviously fried, breaded, heavily sauced, or cheesy. " +
-                      "Base tags and the star rating on the estimated macros.");
-        AppendMealTaggingRules(sb, vocabulary);
+        sb.AppendLine(template);
+        await AppendMealTaggingRulesAsync(sb, vocabulary, ct);
+        AppendMacroGoalTargets(sb, _settings.MacroTargets);
+        sb.Append(await _data.GetTodayContextAsync(_settings.IncludeCessationData, ct));
+        sb.AppendLine($"MEAL TYPE: {(string.IsNullOrWhiteSpace(mealType) ? "(infer from the time in NOW)" : mealType)}");
 
         var text = await _llm.GenerateJsonAsync(sb.ToString(), imageJpeg, ct);
         if (string.IsNullOrWhiteSpace(text)) return null;
         try
         {
             using var doc = JsonDocument.Parse(text);
-            var facts = ParseFacts(doc.RootElement);
+            var root = doc.RootElement;
+            var facts = ParseFacts(root);
             facts.ServingSize = "whole plate (estimate)";
-            return new MealScan(facts, ParseTagSuggestion(doc.RootElement, vocabulary));
+            return new MealScan(facts, ParseTagSuggestion(root, vocabulary), ParsePortionAdvice(root));
+        }
+        catch (JsonException) { return null; }
+    }
+
+    public async Task<MealScan?> EstimateMealFromTextAsync(string mealType, string description, string? portionNote,
+        IReadOnlyList<string> vocabulary, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(description)) return null;
+
+        var template = await _prompts.GetTemplateAsync(PromptDefaults.EstimateTextKey, PromptDefaults.EstimateText, ct);
+        var sb = new StringBuilder();
+        sb.AppendLine(template);
+        await AppendMealTaggingRulesAsync(sb, vocabulary, ct);
+        AppendMacroGoalTargets(sb, _settings.MacroTargets);
+        sb.Append(await _data.GetTodayContextAsync(_settings.IncludeCessationData, ct));
+        sb.AppendLine();
+        sb.AppendLine($"MEAL: {mealType} \"{description}\"" +
+                      (string.IsNullOrWhiteSpace(portionNote) ? "" : $" portion:\"{portionNote}\""));
+
+        var text = await _llm.GenerateJsonAsync(sb.ToString(), ct: ct);
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            var root = doc.RootElement;
+            return new MealScan(ParseFacts(root), ParseTagSuggestion(root, vocabulary), ParsePortionAdvice(root));
         }
         catch (JsonException) { return null; }
     }
 
     // ---- shared prompt helpers ----
 
-    private void AppendMealTaggingRules(StringBuilder sb, IReadOnlyList<string> vocabulary)
+    // Shared tagging + star-rating rules (editable via the "meal_tagging_rules" prompt), then the
+    // user's goals. Used by the tag suggester, both macro estimators, and the label scanner.
+    private async Task AppendMealTaggingRulesAsync(StringBuilder sb, IReadOnlyList<string> vocabulary, CancellationToken ct)
     {
-        sb.AppendLine($"Existing tags (use these exact strings, strongly prefer them): {string.Join(" | ", vocabulary)}");
-        sb.AppendLine("Only include tags well supported by the meal; when unsure, leave a tag out. Most meals need " +
-                      "just 0-2 tags. Do NOT apply a tag by default — each must clearly fit.");
-        sb.AppendLine("'High sodium' specifically: reserve it for foods genuinely high in salt — cured/processed " +
-                      "meats (bacon, deli, sausage), canned/instant foods, pizza, chips, or fast-food/restaurant " +
-                      "items known to be salt-heavy. A home-cooked rotisserie-chicken/rice/bean bowl or a plain " +
-                      "hamburger is NOT automatically high sodium. When unsure, leave it off.");
-        sb.AppendLine("Judge the meal AS A WHOLE for sodium — a lean/grilled main (e.g. grilled chicken sandwich) " +
-                      "is NOT 'high sodium' just because a side like fries is salty. Only tag High sodium when the " +
-                      "meal is PREDOMINANTLY salt-heavy, not when one minor side is.");
-        sb.AppendLine("'High sugar' specifically: keep sugar in PROPORTION. A snack or treat with a modest amount " +
-                      "(roughly ≤15g sugar — a banana is ~14g, a few graham crackers/cookies are single-digit grams) " +
-                      "is NORMAL — do NOT tag 'High sugar' and do NOT lower stars for it. Reserve 'High sugar' for " +
-                      "items genuinely loaded with sugar (candy, soda, dessert-sized sweets, ~25g+). When unsure, leave it off.");
-        sb.AppendLine("A newTag must be short (1-3 words, e.g. 'High sugar'), broadly reusable, and not a synonym of an existing tag. " +
-                      "Tags describe nutritional quality or food source. The entry already records its type " +
-                      "(breakfast/lunch/dinner/snack/drink), time, and portion — NEVER suggest those as tags.");
-        sb.AppendLine("STARS (1-5) = how well this meal fits the user's goals below, encouraging and moderation-minded: " +
-                      "a sensible everyday meal is 3-4; a great goal-aligned choice is 5; a clear off-plan splurge is 1-2. " +
-                      "A reasonable treat or modest snack is NOT a failure — a graham-cracker-sized snack with single-digit " +
-                      "sugar is a normal 3-4, not a 1-2. Do not dock stars or write a cautionary reason for modest sugar/sodium; " +
-                      "reserve low scores for genuinely large portions or truly indulgent items. If no goals are set, rate general balance/protein.");
+        var template = await _prompts.GetTemplateAsync(PromptDefaults.MealTaggingRulesKey, PromptDefaults.MealTaggingRules, ct);
+        sb.AppendLine(template.Replace("{vocabulary}", string.Join(" | ", vocabulary)));
         AppendUserGoals(sb);
     }
 
@@ -507,17 +440,42 @@ public sealed class AiCoach : IAiCoach
         || new[] { "meal", "drink", "morning", "evening", "late night" }
             .Any(w => tag.Equals(w, StringComparison.OrdinalIgnoreCase));
 
+    // Reads the day-fit advice block. Returns null when the meal fits (or no targets were given),
+    // or when there's no actionable suggestion — so the UI only shows a real, applyable trim.
+    private static PortionAdvice? ParsePortionAdvice(JsonElement root)
+    {
+        if (!root.TryGetProperty("portionAdvice", out var pa) || pa.ValueKind != JsonValueKind.Object) return null;
+        if (!(pa.TryGetProperty("needed", out var n) && n.ValueKind == JsonValueKind.True)) return null;
+        var suggestion = pa.TryGetProperty("suggestion", out var s) ? s.GetString() : null;
+        if (string.IsNullOrWhiteSpace(suggestion)) return null;
+        var message = pa.TryGetProperty("message", out var m) ? m.GetString() : null;
+        var adjusted = pa.TryGetProperty("adjusted", out var adj) && adj.ValueKind == JsonValueKind.Object
+            ? ParseFacts(adj) : new NutritionFacts();
+        return new PortionAdvice(true, message, suggestion, adjusted);
+    }
+
     private static NutritionFacts ParseFacts(JsonElement r)
     {
-        int? I(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : null;
-        double? D(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
-        string? S(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-        return new NutritionFacts
+        var facts = new NutritionFacts
         {
-            ServingSize = S("servingSize"), FoodDescription = S("foodDescription"),
-            Calories = I("calories"), ProteinG = D("proteinG"), CarbsG = D("carbsG"),
-            SugarG = D("sugarG"), FatG = D("fatG"), SodiumMg = I("sodiumMg"), FiberG = D("fiberG"),
-            AddedSugarG = D("addedSugarG")
+            ServingSize = SOf(r, "servingSize"), FoodDescription = SOf(r, "foodDescription"),
+            Calories = IOf(r, "calories"), ProteinG = DOf(r, "proteinG"), CarbsG = DOf(r, "carbsG"),
+            SugarG = DOf(r, "sugarG"), FatG = DOf(r, "fatG"), SodiumMg = IOf(r, "sodiumMg"), FiberG = DOf(r, "fiberG"),
+            AddedSugarG = DOf(r, "addedSugarG")
         };
+        if (r.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            foreach (var it in arr.EnumerateArray())
+                if (it.ValueKind == JsonValueKind.Object && SOf(it, "name") is { } nm && !string.IsNullOrWhiteSpace(nm))
+                    facts.Items.Add(new NutritionItem(nm.Trim(), IOf(it, "calories"), DOf(it, "proteinG"),
+                        DOf(it, "carbsG"), DOf(it, "sugarG"), DOf(it, "addedSugarG"), DOf(it, "fatG"),
+                        IOf(it, "sodiumMg"), DOf(it, "fiberG")));
+        return facts;
     }
+
+    private static int? IOf(JsonElement e, string k) =>
+        e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : null;
+    private static double? DOf(JsonElement e, string k) =>
+        e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
+    private static string? SOf(JsonElement e, string k) =>
+        e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 }

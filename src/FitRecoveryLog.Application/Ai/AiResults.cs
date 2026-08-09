@@ -44,8 +44,25 @@ public sealed class NutritionFacts
     public double? AddedSugarG { get; set; }
     /// <summary>Foods the AI identified on the plate (plate-estimate mode only).</summary>
     public string? FoodDescription { get; set; }
+    /// <summary>Per-item breakdown for a plate estimate (each item's own macros). The totals above
+    /// are the sum of these. Display-only — the meal is still tracked by the totals.</summary>
+    public List<NutritionItem> Items { get; set; } = new();
 }
 
-/// <summary>Macros plus tags/star rating from one photo scan — a single AI call
-/// instead of scan-then-suggest.</summary>
-public sealed record MealScan(NutritionFacts Facts, TagSuggestion Tags);
+/// <summary>One food on a plate with its own macros — lets the review UI show the plate as an
+/// aggregate of items and makes a "trim the corn" suggestion legible.</summary>
+public sealed record NutritionItem(string Name, int? Calories, double? ProteinG, double? CarbsG,
+    double? SugarG, double? AddedSugarG, double? FatG, int? SodiumMg, double? FiberG);
+
+/// <summary>
+/// Advice to trim a meal so the day stays within macro targets. <see cref="Needed"/> is true only
+/// when adding this meal would push a macro over its range (and targets are known); then
+/// <see cref="Adjusted"/> holds the meal's macros AFTER applying the <see cref="Suggestion"/>
+/// (e.g. skipping/reducing an item), so the UI can offer one-tap "Apply".
+/// </summary>
+public sealed record PortionAdvice(bool Needed, string? Message, string? Suggestion, NutritionFacts Adjusted);
+
+/// <summary>Macros plus tags/star rating from one scan/estimate — a single AI call instead of
+/// scan-then-suggest. <see cref="Advice"/> is set by the estimators when today's totals + targets
+/// are supplied and the meal would push a macro over range.</summary>
+public sealed record MealScan(NutritionFacts Facts, TagSuggestion Tags, PortionAdvice? Advice = null);

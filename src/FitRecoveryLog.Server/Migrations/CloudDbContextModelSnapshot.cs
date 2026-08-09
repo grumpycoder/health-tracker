@@ -22,6 +22,39 @@ namespace FitRecoveryLog.Server.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("FitRecoveryLog.Data.AiAnalysisResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Json")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("When")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AiAnalysisResults");
+                });
+
             modelBuilder.Entity("FitRecoveryLog.Data.BodyMeasurement", b =>
                 {
                     b.Property<Guid>("Id")
@@ -38,6 +71,9 @@ namespace FitRecoveryLog.Server.Migrations
                         .HasColumnType("float");
 
                     b.Property<double?>("BodyWaterPercent")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("CalvesInches")
                         .HasColumnType("float");
 
                     b.Property<double?>("ChestInches")
@@ -69,6 +105,9 @@ namespace FitRecoveryLog.Server.Migrations
 
                     b.Property<string>("PhotoPath")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<double?>("ShouldersInches")
+                        .HasColumnType("float");
 
                     b.Property<double?>("ThighsInches")
                         .HasColumnType("float");
@@ -196,6 +235,46 @@ namespace FitRecoveryLog.Server.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("CessationGoals");
+                });
+
+            modelBuilder.Entity("FitRecoveryLog.Data.DailyCheckResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Synopsis")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Tips")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Tone")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("When")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("DailyCheckResults");
                 });
 
             modelBuilder.Entity("FitRecoveryLog.Data.DailyLog", b =>
@@ -448,6 +527,116 @@ namespace FitRecoveryLog.Server.Migrations
                     b.ToTable("ExerciseSets");
                 });
 
+            modelBuilder.Entity("FitRecoveryLog.Data.GoalSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("AddedSugarMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CaloriesActiveMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CaloriesActiveMin")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CaloriesRestMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CaloriesRestMin")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CarbsActiveMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CarbsActiveMin")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CarbsRestMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("CarbsRestMin")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CoachingGoals")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("FatMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("FatMin")
+                        .HasColumnType("int");
+
+                    b.Property<int>("FiberMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("FiberMin")
+                        .HasColumnType("int");
+
+                    b.Property<double?>("GoalArmsInches")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("GoalBodyFatPercent")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("GoalCalvesInches")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("GoalChestInches")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("GoalShouldersInches")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("GoalThighsInches")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("GoalWaistInches")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("GoalWeightLbs")
+                        .HasColumnType("float");
+
+                    b.Property<bool>("IncludeCessationData")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("ProteinMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ProteinMin")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("WaterActiveMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WaterActiveMin")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WaterRestMax")
+                        .HasColumnType("int");
+
+                    b.Property<int>("WaterRestMin")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("GoalSettings");
+                });
+
             modelBuilder.Entity("FitRecoveryLog.Data.LabResult", b =>
                 {
                     b.Property<Guid>("Id")
@@ -520,6 +709,9 @@ namespace FitRecoveryLog.Server.Migrations
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
+
+                    b.Property<string>("ItemsJson")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("MealType")
                         .HasColumnType("int");
@@ -719,6 +911,70 @@ namespace FitRecoveryLog.Server.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("PhysicalWorkloadEntries");
+                });
+
+            modelBuilder.Entity("FitRecoveryLog.Data.ProgressPhoto", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Pose")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ProgressPhotos");
+                });
+
+            modelBuilder.Entity("FitRecoveryLog.Data.PromptTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("PromptKey")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PromptTemplates");
                 });
 
             modelBuilder.Entity("FitRecoveryLog.Data.RecoveryEntry", b =>

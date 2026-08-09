@@ -3,6 +3,7 @@ using System;
 using FitRecoveryLog.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,45 +11,14 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace FitRecoveryLog.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260806202216_PromptTemplate")]
+    partial class PromptTemplate
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.9");
-
-            modelBuilder.Entity("FitRecoveryLog.Data.AiAnalysisResult", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateOnly>("Date")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Json")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("When")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("AiAnalysisResults");
-                });
 
             modelBuilder.Entity("FitRecoveryLog.Data.BodyMeasurement", b =>
                 {
@@ -66,9 +36,6 @@ namespace FitRecoveryLog.Data.Migrations
                         .HasColumnType("REAL");
 
                     b.Property<double?>("BodyWaterPercent")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("CalvesInches")
                         .HasColumnType("REAL");
 
                     b.Property<double?>("ChestInches")
@@ -100,9 +67,6 @@ namespace FitRecoveryLog.Data.Migrations
 
                     b.Property<string>("PhotoPath")
                         .HasColumnType("TEXT");
-
-                    b.Property<double?>("ShouldersInches")
-                        .HasColumnType("REAL");
 
                     b.Property<double?>("ThighsInches")
                         .HasColumnType("REAL");
@@ -523,116 +487,6 @@ namespace FitRecoveryLog.Data.Migrations
                     b.ToTable("ExerciseSets");
                 });
 
-            modelBuilder.Entity("FitRecoveryLog.Data.GoalSettings", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("AddedSugarMax")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("CaloriesActiveMax")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("CaloriesActiveMin")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("CaloriesRestMax")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("CaloriesRestMin")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("CarbsActiveMax")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("CarbsActiveMin")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("CarbsRestMax")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("CarbsRestMin")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("CoachingGoals")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("FatMax")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("FatMin")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("FiberMax")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("FiberMin")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<double?>("GoalArmsInches")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("GoalBodyFatPercent")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("GoalCalvesInches")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("GoalChestInches")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("GoalShouldersInches")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("GoalThighsInches")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("GoalWaistInches")
-                        .HasColumnType("REAL");
-
-                    b.Property<double?>("GoalWeightLbs")
-                        .HasColumnType("REAL");
-
-                    b.Property<bool>("IncludeCessationData")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("ProteinMax")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("ProteinMin")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("WaterActiveMax")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("WaterActiveMin")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("WaterRestMax")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("WaterRestMin")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("GoalSettings");
-                });
-
             modelBuilder.Entity("FitRecoveryLog.Data.LabResult", b =>
                 {
                     b.Property<Guid>("Id")
@@ -705,9 +559,6 @@ namespace FitRecoveryLog.Data.Migrations
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("INTEGER");
-
-                    b.Property<string>("ItemsJson")
-                        .HasColumnType("TEXT");
 
                     b.Property<int>("MealType")
                         .HasColumnType("INTEGER");
@@ -907,39 +758,6 @@ namespace FitRecoveryLog.Data.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("PhysicalWorkloadEntries");
-                });
-
-            modelBuilder.Entity("FitRecoveryLog.Data.ProgressPhoto", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateOnly>("Date")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("Pose")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("ProgressPhotos");
                 });
 
             modelBuilder.Entity("FitRecoveryLog.Data.PromptTemplate", b =>

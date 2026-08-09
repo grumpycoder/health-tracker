@@ -1,0 +1,121 @@
+@page "/settings"
+@using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Application.Ai
+@using FitRecoveryLog.Data
+@attribute [Authorize]
+@inject AppState State
+@inject WebSyncClient Sync
+
+<PageTitle>Settings — Fit Log</PageTitle>
+
+<div class="content">
+    <div class="page-head">
+        <div>
+            <div class="eyebrow">Settings</div>
+            <h1 class="dash-date">AI prompts</h1>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <section class="card"><p class="muted">Loading…</p></section>
+    }
+    else if (_error is not null)
+    {
+        <section class="card"><p class="warn-msg" style="margin:0">@_error</p><button class="save-btn" @onclick="Load">Retry</button></section>
+    }
+    else
+    {
+        <section class="card">
+            <div class="card-head"><h2>AI prompts</h2></div>
+            <p class="muted" style="margin:0 0 .2rem">Looking for goals &amp; targets? They moved to the <a href="goals">Goals</a> page.</p>
+            <p class="muted" style="margin:0">Tune the wording your AI coach uses. Edits sync to the phone — no app update. The app fills the <code>{placeholders}</code> and appends your data automatically; clear a prompt to fall back to the built-in default.</p>
+        </section>
+
+        @foreach (var e in PromptCatalog.Entries)
+        {
+            <section class="card">
+                <div class="card-head">
+                    <h2>@e.Label</h2>
+                    <span class="pill @(_overridden.GetValueOrDefault(e.Key) ? "caution" : "good")">@(_overridden.GetValueOrDefault(e.Key) ? "Edited" : "Default")</span>
+                </div>
+                <p class="muted" style="font-size:.85rem;margin:0 0 .4rem">@e.Description</p>
+                <p class="muted" style="font-size:.78rem;margin:0 0 .6rem">Placeholders: @string.Join("  ", e.Placeholders)</p>
+                <textarea class="note" style="min-height:16rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.82rem;line-height:1.45" @bind="_text[e.Key]"></textarea>
+                <div class="routine-actions" style="margin-top:.6rem">
+                    <button class="save-btn" @onclick="() => Save(e)" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
+                    <button class="link-btn" @onclick="() => ResetToDefault(e)" disabled="@_busy">Reset to default</button>
+                    @if (_savedKey == e.Key) { <span class="saved-msg">Saved ✓</span> }
+                </div>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    private bool _loading = true, _busy;
+    private string? _error, _savedKey;
+    private readonly Dictionary<string, string> _text = new();
+    private readonly Dictionary<string, bool> _overridden = new();
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load()
+    {
+        _loading = true; _error = null; _savedKey = null;
+        try
+        {
+            var pull = await State.DataAsync();
+            var rows = WebSyncClient.Rows<PromptTemplate>(pull);
+            foreach (var e in PromptCatalog.Entries)
+            {
+                var row = rows.FirstOrDefault(p => p.PromptKey == e.Key);
+                var edited = row is not null && !string.IsNullOrWhiteSpace(row.Text);
+                _overridden[e.Key] = edited;
+                _text[e.Key] = edited ? row!.Text : e.Default;
+            }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private async Task Save(PromptCatalogEntry e)
+    {
+        _busy = true; _savedKey = null; _error = null;
+        try
+        {
+            var existing = WebSyncClient.Rows<PromptTemplate>(await State.DataAsync()).FirstOrDefault(p => p.PromptKey == e.Key);
+            var row = existing is not null ? WebSyncClient.Clone(existing) : new PromptTemplate { PromptKey = e.Key };
+            row.Text = _text[e.Key] ?? "";
+            row.IsDeleted = false; row.DeletedAt = null;
+            await Sync.PushAsync(row);
+            State.Invalidate();
+            await Load();
+            _savedKey = e.Key;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    // Reset = blank the stored override (the coach then uses the embedded default). Keeps the row
+    // so there's no tombstone churn; a blank template reads as "no override".
+    private async Task ResetToDefault(PromptCatalogEntry e)
+    {
+        _busy = true; _savedKey = null; _error = null;
+        try
+        {
+            var existing = WebSyncClient.Rows<PromptTemplate>(await State.DataAsync()).FirstOrDefault(p => p.PromptKey == e.Key);
+            if (existing is not null)
+            {
+                var row = WebSyncClient.Clone(existing);
+                row.Text = "";
+                await Sync.PushAsync(row);
+                State.Invalidate();
+            }
+            _text[e.Key] = e.Default;
+            _overridden[e.Key] = false;
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+}

@@ -1,0 +1,236 @@
+@page "/insights"
+@using System.Text.RegularExpressions
+@using System.Globalization
+@using System.Text.Json
+@using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Application.Ai
+@using AiAnalysisResult = FitRecoveryLog.Data.AiAnalysisResult
+@attribute [Authorize]
+@inject IAiCoach Coach
+@inject NavigationManager Nav
+@inject AppState State
+@inject WebSyncClient Sync
+
+<PageTitle>AI Insights — Fit Log</PageTitle>
+
+<div class="content">
+    <div class="page-head">
+        <div>
+            <div class="eyebrow">Coaching</div>
+            <h1 class="dash-date">AI Insights</h1>
+        </div>
+        @if (_hasKey == true && _result is not null)
+        {
+            <button class="btn primary" @onclick="RunAi" disabled="@_busy">
+                @(_busy ? "Analyzing…" : "Re-analyze")
+            </button>
+        }
+    </div>
+
+    <section class="card">
+        <div class="card-head"><h2>🤖 8-week analysis</h2></div>
+
+        @if (_hasKey is false)
+        {
+            <p class="muted" style="margin:0 0 0.7rem">Add a free Gemini API key to get a coach-style read of the
+            last 8 weeks of workouts, nutrition, body measurements, and sleep.</p>
+            <button class="btn primary" @onclick="@(() => Nav.NavigateTo("settings"))">Open Settings</button>
+        }
+        else if (_result is null)
+        {
+            <p class="muted" style="margin:0 0 0.7rem">Analyzes the last 8 weeks of workouts, meals, drinks,
+            body measurements, and sleep and returns progression advice, priority actions, and things to watch.
+            One AI call per run.</p>
+            <button class="btn primary" @onclick="RunAi" disabled="@_busy">@(_busy ? "Analyzing…" : "Analyze my data")</button>
+            @if (_error is not null) { <p class="warn-msg" style="display:block;margin:0.6rem 0 0">@_error</p> }
+        }
+        else
+        {
+            @if (_error is not null) { <p class="warn-msg" style="display:block;margin:0 0 0.6rem">@_error</p> }
+            <div class="ai-result">
+                @foreach (var seg in _segments)
+                {
+                    @if (seg.Kind == "h")
+                    {
+                        <h3 class="ai-h">@seg.Text</h3>
+                    }
+                    else if (seg.Kind == "li")
+                    {
+                        <div class="ai-li"><span class="ai-marker">@seg.Marker</span>
+                            <span>@if (seg.Label is not null) { <strong>@seg.Label:</strong> } @seg.Text</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="ai-p">@seg.Text</p>
+                    }
+                }
+            </div>
+            <p class="muted" style="margin:0.6rem 0 0;font-size:0.78rem">Generated @_when · sends workouts, meals,
+            drinks, sleep, and measurement numbers from the last 8 weeks (never meds, labs, photos, or notes).</p>
+        }
+    </section>
+
+    @if (_result is { } r)
+    {
+        @if (r.TopActions.Count > 0)
+        {
+            <section class="card">
+                <div class="card-head"><h2>Priority actions</h2></div>
+                <ul class="ai-actions">
+                    @foreach (var a in r.TopActions) { <li><span class="ai-check">✓</span>@a</li> }
+                </ul>
+            </section>
+        }
+
+        @if (r.BodyTrendStatus is not null || r.BodyTrendNote is not null)
+        {
+            <section class="card">
+                <div class="card-head"><h2>Body trend</h2></div>
+                @if (r.BodyTrendStatus is not null)
+                {
+                    <span class="pill @BodyPill(r.BodyTrendStatus)">@r.BodyTrendStatus</span>
+                }
+                @if (r.BodyTrendNote is not null) { <p class="muted" style="margin:0.5rem 0 0">@r.BodyTrendNote</p> }
+            </section>
+        }
+
+        @if (r.Exercises.Count > 0)
+        {
+            <section class="card">
+                <div class="card-head"><h2>Per-exercise progression</h2></div>
+                <table class="history">
+                    <thead><tr><th>Exercise</th><th>Action</th><th>Target</th></tr></thead>
+                    <tbody>
+                        @foreach (var e in r.Exercises)
+                        {
+                            <tr>
+                                <td>@e.Name</td>
+                                <td><span class="pill @ActionPill(e.Action)">@e.Action</span></td>
+                                <td>@(string.IsNullOrWhiteSpace(e.Target) ? "—" : e.Target)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </section>
+        }
+
+        @if (r.MealFlags.Count > 0)
+        {
+            <section class="card">
+                <div class="card-head"><h2>Nutrition watch-outs</h2></div>
+                <ul class="ai-actions">
+                    @foreach (var f in r.MealFlags) { <li><span class="ai-flag">⚠</span>@f</li> }
+                </ul>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    private bool? _hasKey;
+    private bool _busy;
+    private string? _error, _when;
+    private AiOutcome? _result;
+    private List<AiSeg> _segments = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _hasKey = await Coach.IsConfiguredAsync(); }
+        catch { _hasKey = false; }
+        await LoadSaved();
+    }
+
+    // Restore the last analysis (synced) so it survives a reload and shows across devices.
+    private async Task LoadSaved()
+    {
+        try
+        {
+            var row = WebSyncClient.Rows<AiAnalysisResult>(await State.DataAsync())
+                .OrderByDescending(r => r.UpdatedAt).FirstOrDefault();
+            if (row is null || string.IsNullOrWhiteSpace(row.Json)) return;
+            _result = JsonSerializer.Deserialize<AiOutcome>(row.Json);
+            if (_result is not null) { _segments = AiSegments(_result.Analysis).ToList(); _when = row.When; }
+        }
+        catch { /* stored result unreadable — just leave it blank, user can re-run */ }
+    }
+
+    private async Task RunAi()
+    {
+        _busy = true; _error = null;
+        try
+        {
+            _result = await Coach.AnalyzeAsync();
+            _segments = AiSegments(_result.Analysis).ToList();
+            _when = DateTime.Now.ToString("MMM d, h:mm tt");
+            await SaveResult(_result, _when);
+        }
+        catch (Exception ex) { _error = $"Analysis failed: {ex.Message}"; }
+        finally { _busy = false; }
+    }
+
+    // Persist as a synced singleton — reuse the latest row so we don't accumulate history.
+    private async Task SaveResult(AiOutcome outcome, string when)
+    {
+        try
+        {
+            var existing = WebSyncClient.Rows<AiAnalysisResult>(await State.DataAsync())
+                .OrderByDescending(r => r.UpdatedAt).FirstOrDefault();
+            var row = existing is not null ? WebSyncClient.Clone(existing) : new AiAnalysisResult();
+            row.Date = DateOnly.FromDateTime(DateTime.Now);
+            row.When = when;
+            row.Json = JsonSerializer.Serialize(outcome);
+            row.IsDeleted = false; row.DeletedAt = null;
+            await Sync.PushAsync(row);
+            State.Invalidate();
+        }
+        catch { /* persistence is best-effort; the in-memory result still renders this session */ }
+    }
+
+    private static string BodyPill(string status) =>
+        status.Contains("up", StringComparison.OrdinalIgnoreCase) || status.Contains("gain", StringComparison.OrdinalIgnoreCase) ? "caution"
+        : status.Contains("down", StringComparison.OrdinalIgnoreCase) || status.Contains("loss", StringComparison.OrdinalIgnoreCase) ? "good"
+        : "neutral";
+
+    private static string ActionPill(string action) =>
+        action.Contains("progress", StringComparison.OrdinalIgnoreCase) ? "good"
+        : action.Contains("back", StringComparison.OrdinalIgnoreCase) ? "caution"
+        : "neutral";
+
+    private sealed record AiSeg(string Kind, string Marker, string? Label, string Text);
+
+    // Parse the plain-text analysis into headings, bullets, and paragraphs so it renders scannably.
+    private static IEnumerable<AiSeg> AiSegments(string text)
+    {
+        foreach (var raw in text.Replace("**", "").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+
+            var unnumbered = Regex.Replace(line, @"^\d+\.\s*", "");
+            if (unnumbered.Length is > 0 and <= 60
+                && unnumbered == unnumbered.ToUpperInvariant()
+                && unnumbered.Any(char.IsLetter))
+            {
+                yield return new("h", "", null, ToTitle(unnumbered));
+                continue;
+            }
+
+            var m = Regex.Match(line, @"^(-|\d+\.)\s+(.*)$");
+            if (m.Success)
+            {
+                var body = m.Groups[2].Value;
+                string? label = null;
+                var colon = body.IndexOf(": ", StringComparison.Ordinal);
+                if (colon is > 0 and <= 40) { label = body[..colon]; body = body[(colon + 1)..].TrimStart(); }
+                yield return new("li", m.Groups[1].Value == "-" ? "–" : m.Groups[1].Value, label, body);
+                continue;
+            }
+
+            yield return new("p", "", null, line);
+        }
+    }
+
+    private static string ToTitle(string caps) =>
+        CultureInfo.CurrentCulture.TextInfo.ToTitleCase(caps.ToLowerInvariant());
+}

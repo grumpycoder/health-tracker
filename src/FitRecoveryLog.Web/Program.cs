@@ -64,4 +64,13 @@ builder.Services.AddScoped<FitRecoveryLog.Application.Labs.LabService>();
 builder.Services.AddScoped<FitRecoveryLog.Application.Notes.INoteRepository, FitRecoveryLog.Web.Infrastructure.ApiNoteRepository>();
 builder.Services.AddScoped<FitRecoveryLog.Application.Notes.NoteService>();
 
+// AI: the browser holds no provider key, so ILlmClient proxies prompts through the backend
+// (server-side key). The shared AiCoach runs on top; web supplies neutral settings and a
+// not-yet-implemented data provider (only the parameter-only features, e.g. meal tagging, are live).
+builder.Services.AddScoped<FitRecoveryLog.Application.Ai.ILlmClient, FitRecoveryLog.Web.Infrastructure.ApiLlmClient>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Ai.IAiSettings, FitRecoveryLog.Web.Infrastructure.WebAiSettings>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Ai.IAiDataProvider, FitRecoveryLog.Web.Infrastructure.WebAiDataProvider>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Ai.IPromptStore, FitRecoveryLog.Web.Infrastructure.ApiPromptStore>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Ai.IAiCoach, FitRecoveryLog.Application.Ai.AiCoach>();
+
 await builder.Build().RunAsync();

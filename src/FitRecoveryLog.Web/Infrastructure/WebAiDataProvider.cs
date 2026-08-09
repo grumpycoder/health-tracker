@@ -1,25 +1,23 @@
 using System.Text;
 using FitRecoveryLog.Application.Ai;
 using FitRecoveryLog.Data;
-using Microsoft.EntityFrameworkCore;
 
-namespace FitRecoveryLog.Infrastructure.Ai;
+namespace FitRecoveryLog.Web.Infrastructure;
 
 /// <summary>
-/// Phone implementation of <see cref="IAiDataProvider"/>: reads the local SQLite database (via EF)
-/// and formats the day's context for AI prompts. Lives here (not the app project) so the shared
-/// coach stays free of EF and of the non-migrated entities these prompts touch (daily logs,
-/// physical workload, cessation). The nutrition roll-ups are computed inline to avoid a dependency
-/// on the app's display-side helper.
+/// Web <see cref="IAiDataProvider"/> over the sync-pull cache (no EF). Mirrors the phone's
+/// today-context format so the shared coach's daily check-in behaves identically. The heavier
+/// windows (8-week analysis, routine design) aren't wired on the web yet and throw rather than
+/// send a partial prompt. Cessation is only rendered when the user opts in (web withholds it).
 /// </summary>
-public sealed class EfAiDataProvider : IAiDataProvider
+public sealed class WebAiDataProvider : IAiDataProvider
 {
-    private readonly IDbContextFactory<AppDbContext> _factory;
-    public EfAiDataProvider(IDbContextFactory<AppDbContext> factory) => _factory = factory;
+    private readonly AppState _state;
+    public WebAiDataProvider(AppState state) => _state = state;
 
     public async Task<string> GetTodayContextAsync(bool includeCessation, CancellationToken ct = default)
     {
-        await using var db = await _factory.CreateDbContextAsync(ct);
+        var pull = await _state.DataAsync();
         var sb = new StringBuilder();
 
         var now = DateTime.Now;
@@ -29,32 +27,42 @@ public sealed class EfAiDataProvider : IAiDataProvider
 
         sb.AppendLine($"NOW: {now:yyyy-MM-dd HH:mm} ({now.DayOfWeek})");
 
-        var day = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == today, ct);
+        var day = WebSyncClient.Rows<DailyLog>(pull).FirstOrDefault(x => x.Date == today);
         sb.AppendLine($"PLANNED DAY TYPE: {(day is null || day.DayType == DayType.Unset ? "(not set)" : day.DayType.ToString())}");
 
         sb.AppendLine("TODAY'S NOTES:");
-        var notes = await db.NoteEntries.Where(n => n.Time >= dayStart && n.Time < dayEnd)
-            .OrderBy(n => n.Time).ToListAsync(ct);
+        var notes = WebSyncClient.Rows<NoteEntry>(pull).Where(n => n.Time >= dayStart && n.Time < dayEnd).OrderBy(n => n.Time).ToList();
         if (notes.Count == 0) sb.AppendLine("(none)");
-        foreach (var n in notes)
-            sb.AppendLine($"  {n.Time:HH:mm} \"{n.Text}\"");
+        foreach (var n in notes) sb.AppendLine($"  {n.Time:HH:mm} \"{n.Text}\"");
 
-        var sleep = await db.SleepEntries.FirstOrDefaultAsync(s => s.Date == today, ct);
+        var sleep = WebSyncClient.Rows<SleepEntry>(pull).FirstOrDefault(s => s.Date == today);
         sb.AppendLine("SLEEP (last night): " + (sleep is null
             ? "(not logged)"
             : $"{sleep.DurationHours:0.#}h score:{sleep.SleepScore}{(sleep.ScoreEstimated ? "(rough estimate, not Apple's)" : "")} interruptions:{sleep.Interruptions}" +
               (string.IsNullOrWhiteSpace(sleep.Notes) ? "" : $" note:\"{sleep.Notes}\"")));
 
+        var rec = WebSyncClient.Rows<RecoveryEntry>(pull).FirstOrDefault(r => r.Date == today);
+        sb.AppendLine("RECOVERY CHECK-IN TODAY: " + (rec is null
+            ? "(not logged)"
+            : $"recovery:{rec.RecoveryRating?.ToString() ?? "-"}/10 fatigue:{rec.FatigueRating?.ToString() ?? "-"}/10" +
+              (rec.SorenessLocationList.Count == 0 ? "" : $" soreness:{rec.SorenessSeverity}({string.Join("/", rec.SorenessLocationList)})") +
+              (string.IsNullOrWhiteSpace(rec.Notes) ? "" : $" note:\"{rec.Notes}\"")));
+
         sb.AppendLine("WORKOUT TODAY:");
-        var sessions = await db.WorkoutSessions.Where(s => s.Date == today)
-            .Include(s => s.Sets).ThenInclude(x => x.ExerciseDefinition).ToListAsync(ct);
+        var sessions = WebSyncClient.Rows<WorkoutSession>(pull).Where(s => s.Date == today).ToList();
+        var setsBySession = WebSyncClient.Rows<ExerciseSet>(pull)
+            .Where(x => sessions.Any(s => s.Id == x.WorkoutSessionId))
+            .GroupBy(x => x.WorkoutSessionId).ToDictionary(g => g.Key, g => g.ToList());
         if (sessions.Count == 0) sb.AppendLine("(none yet)");
         foreach (var s in sessions)
-            sb.AppendLine($"  {(s.TotalSeconds ?? 0) / 60}min, {s.Sets.Count(x => x.Completed)}/{s.Sets.Count} sets" +
+        {
+            var sets = setsBySession.GetValueOrDefault(s.Id) ?? new();
+            sb.AppendLine($"  {(s.TotalSeconds ?? 0) / 60}min, {sets.Count(x => x.Completed)}/{sets.Count} sets" +
                           (string.IsNullOrWhiteSpace(s.Notes) ? "" : $" note:\"{s.Notes}\""));
+        }
 
         sb.AppendLine("MEALS TODAY:");
-        var meals = await db.MealEntries.Where(m => m.Time >= dayStart && m.Time < dayEnd).OrderBy(m => m.Time).ToListAsync(ct);
+        var meals = WebSyncClient.Rows<MealEntry>(pull).Where(m => m.Time >= dayStart && m.Time < dayEnd).OrderBy(m => m.Time).ToList();
         if (meals.Count == 0) sb.AppendLine("(none yet)");
         foreach (var m in meals)
             sb.AppendLine($"  {m.Time:HH:mm} {m.MealType} \"{m.Description}\"" +
@@ -63,7 +71,7 @@ public sealed class EfAiDataProvider : IAiDataProvider
                           (m.Satiety == Satiety.Unset ? "" : $" satiety:{m.Satiety}"));
 
         sb.AppendLine("DRINKS TODAY:");
-        var drinks = await db.DrinkEntries.Where(d => d.Time >= dayStart && d.Time < dayEnd).OrderBy(d => d.Time).ToListAsync(ct);
+        var drinks = WebSyncClient.Rows<DrinkEntry>(pull).Where(d => d.Time >= dayStart && d.Time < dayEnd).OrderBy(d => d.Time).ToList();
         if (drinks.Count == 0) sb.AppendLine("(none yet)");
         foreach (var d in drinks)
             sb.AppendLine($"  {d.Time:HH:mm} \"{d.Description}\"" +
@@ -83,15 +91,15 @@ public sealed class EfAiDataProvider : IAiDataProvider
                       "was logged with macros, so don't scold a low number that's just unlogged food.");
 
         sb.AppendLine("PHYSICAL WORKLOAD TODAY:");
-        var work = await db.PhysicalWorkloadEntries.Where(w => w.Date == today).ToListAsync(ct);
+        var work = WebSyncClient.Rows<PhysicalWorkloadEntry>(pull).Where(w => w.Date == today).ToList();
         if (work.Count == 0) sb.AppendLine("(none)");
         foreach (var w in work)
             sb.AppendLine($"  {w.Activity} {(w.DurationMinutes is { } mins ? $"{mins}min " : "")}{w.Intensity}");
 
         sb.AppendLine("LAST 7 DAYS (pattern context — cite specific entries when claiming a trend; never extrapolate a pattern the data doesn't show):");
         var weekStart = dayStart.AddDays(-7);
-        var weekMeals = await db.MealEntries.Where(m => m.Time >= weekStart && m.Time < dayStart).ToListAsync(ct);
-        var weekDrinks = await db.DrinkEntries.Where(d => d.Time >= weekStart && d.Time < dayStart).ToListAsync(ct);
+        var weekMeals = WebSyncClient.Rows<MealEntry>(pull).Where(m => m.Time >= weekStart && m.Time < dayStart).ToList();
+        var weekDrinks = WebSyncClient.Rows<DrinkEntry>(pull).Where(d => d.Time >= weekStart && d.Time < dayStart).ToList();
         for (var d = today.AddDays(-7); d < today; d = d.AddDays(1))
         {
             var ds = d.ToDateTime(TimeOnly.MinValue);
@@ -103,40 +111,7 @@ public sealed class EfAiDataProvider : IAiDataProvider
                           (oz > 0 ? $" | {oz:0}oz drinks" : ""));
         }
 
-        if (includeCessation)
-        {
-            var goals = await db.CessationGoals.Where(g => g.Active).ToListAsync(ct);
-            if (goals.Count > 0)
-            {
-                sb.AppendLine("CESSATION GOALS (user opted in — be supportive; never judgmental about slips):");
-                foreach (var g in goals)
-                {
-                    var todayEvents = await db.CessationEvents
-                        .Where(e => e.GoalId == g.Id && e.Time >= dayStart && e.Time < dayEnd).ToListAsync(ct);
-                    var cravings = todayEvents.Count(e => e.Type == CessationEventType.Craving);
-                    var usedToday = todayEvents.Where(e => e.Type == CessationEventType.Slip).Sum(e => e.Amount ?? 1);
-
-                    if (g.Taper && g.TaperStartDate is { } start && today < g.QuitDate)
-                    {
-                        var total = g.QuitDate.DayNumber - start.DayNumber;
-                        var allow = g.BaselineUnitsPerDay is { } b && total > 0
-                            ? (int)Math.Ceiling(b * (g.QuitDate.DayNumber - today.DayNumber) / (double)total) : 0;
-                        sb.AppendLine($"  {g.Substance}: tapering, quit day {g.QuitDate:yyyy-MM-dd}; " +
-                                      $"today used {usedToday:0.#} of {allow} allowed, {cravings} craving(s)");
-                        continue;
-                    }
-
-                    var daysQuit = today.DayNumber - g.QuitDate.DayNumber;
-                    var lastSlip = await db.CessationEvents
-                        .Where(e => e.GoalId == g.Id && e.Type == CessationEventType.Slip)
-                        .OrderByDescending(e => e.Time).FirstOrDefaultAsync(ct);
-                    sb.AppendLine($"  {g.Substance}: quit {daysQuit} day(s) ago; today " +
-                                  $"{cravings} craving(s), {usedToday:0.#} slip unit(s)" +
-                                  (lastSlip is null ? "; no slips ever" : $"; last slip {DateOnly.FromDateTime(lastSlip.Time):yyyy-MM-dd}"));
-                }
-            }
-        }
-
+        // Cessation is withheld unless the user opts in (WebAiSettings currently returns false).
         return sb.ToString();
 
         static string Trunc(string s, int len) => s.Length <= len ? s : s[..(len - 1)] + "…";
@@ -144,26 +119,31 @@ public sealed class EfAiDataProvider : IAiDataProvider
 
     public async Task<string> GetEightWeekContextAsync(CancellationToken ct = default)
     {
-        await using var db = await _factory.CreateDbContextAsync(ct);
+        var pull = await _state.DataAsync();
         var since = DateOnly.FromDateTime(DateTime.Now).AddDays(-WindowDays);
         var sinceDt = since.ToDateTime(TimeOnly.MinValue);
         var sb = new StringBuilder();
 
+        // Flat sync cache — no nav properties, so resolve exercises/routines by id ourselves.
+        var defsById = WebSyncClient.Rows<ExerciseDefinition>(pull).ToDictionary(d => d.Id);
+        string DefName(Guid id) => defsById.TryGetValue(id, out var d) ? d.Name : "?";
+        var routinesById = WebSyncClient.Rows<WorkoutRoutine>(pull).ToDictionary(r => r.Id);
+
         sb.AppendLine("WORKOUTS:");
-        var sessions = await db.WorkoutSessions
-            .Where(s => s.Date >= since)
-            .Include(s => s.Routine)
-            .Include(s => s.Sets).ThenInclude(x => x.ExerciseDefinition)
-            .Include(s => s.Feedback).ThenInclude(f => f.ExerciseDefinition)
-            .OrderBy(s => s.Date).ToListAsync(ct);
+        var sessions = WebSyncClient.Rows<WorkoutSession>(pull).Where(s => s.Date >= since).OrderBy(s => s.Date).ToList();
+        var setsBySession = WebSyncClient.Rows<ExerciseSet>(pull).GroupBy(x => x.WorkoutSessionId).ToDictionary(g => g.Key, g => g.ToList());
+        var fbBySession = WebSyncClient.Rows<ExerciseFeedback>(pull).GroupBy(f => f.WorkoutSessionId).ToDictionary(g => g.Key, g => g.ToList());
         if (sessions.Count == 0) sb.AppendLine("(none)");
         foreach (var s in sessions)
         {
-            sb.AppendLine($"{s.Date:yyyy-MM-dd} {s.Routine?.Name ?? "Workout"} {(s.TotalSeconds ?? 0) / 60}min" +
+            var rName = s.RoutineId is { } rid && routinesById.TryGetValue(rid, out var r) ? r.Name : "Workout";
+            sb.AppendLine($"{s.Date:yyyy-MM-dd} {rName} {(s.TotalSeconds ?? 0) / 60}min" +
                           (string.IsNullOrWhiteSpace(s.Notes) ? "" : $" note:\"{s.Notes}\""));
-            foreach (var g in s.Sets.GroupBy(x => x.ExerciseDefinition?.Name ?? "?"))
+            var sets = setsBySession.GetValueOrDefault(s.Id) ?? new();
+            var feedback = fbBySession.GetValueOrDefault(s.Id) ?? new();
+            foreach (var g in sets.GroupBy(x => DefName(x.ExerciseDefinitionId)))
             {
-                var fb = s.Feedback.FirstOrDefault(f => f.ExerciseDefinition?.Name == g.Key);
+                var fb = feedback.FirstOrDefault(f => DefName(f.ExerciseDefinitionId) == g.Key);
                 var vals = string.Join(",", g.OrderBy(x => x.SetNumber)
                     .Select(x => x.DurationSeconds is { } t ? $"{t}s" : x.Reps?.ToString() ?? "-"));
                 var done = g.Count(x => x.Completed);
@@ -176,7 +156,7 @@ public sealed class EfAiDataProvider : IAiDataProvider
         sb.AppendLine();
         sb.AppendLine("MEALS (date time type description [portion] [tags] [satiety]; 'items:' = per-item macros " +
                       "so you can see which plate items drove any overage):");
-        var meals = await db.MealEntries.Where(m => m.Time >= sinceDt).OrderBy(m => m.Time).ToListAsync(ct);
+        var meals = WebSyncClient.Rows<MealEntry>(pull).Where(m => m.Time >= sinceDt).OrderBy(m => m.Time).ToList();
         if (meals.Count == 0) sb.AppendLine("(none)");
         foreach (var m in meals)
         {
@@ -190,7 +170,7 @@ public sealed class EfAiDataProvider : IAiDataProvider
 
         sb.AppendLine();
         sb.AppendLine("DRINKS:");
-        var drinks = await db.DrinkEntries.Where(d => d.Time >= sinceDt).OrderBy(d => d.Time).ToListAsync(ct);
+        var drinks = WebSyncClient.Rows<DrinkEntry>(pull).Where(d => d.Time >= sinceDt).OrderBy(d => d.Time).ToList();
         if (drinks.Count == 0) sb.AppendLine("(none)");
         foreach (var d in drinks)
             sb.AppendLine($"{d.Time:yyyy-MM-dd HH:mm} \"{d.Description}\"" +
@@ -213,7 +193,7 @@ public sealed class EfAiDataProvider : IAiDataProvider
 
         sb.AppendLine();
         sb.AppendLine("BODY MEASUREMENTS (numbers only):");
-        var measurements = await db.BodyMeasurements.Where(m => m.Date >= since).OrderBy(m => m.Date).ToListAsync(ct);
+        var measurements = WebSyncClient.Rows<BodyMeasurement>(pull).Where(m => m.Date >= since).OrderBy(m => m.Date).ToList();
         if (measurements.Count == 0) sb.AppendLine("(none)");
         foreach (var m in measurements)
             sb.AppendLine($"{m.Date:yyyy-MM-dd}" +
@@ -225,9 +205,23 @@ public sealed class EfAiDataProvider : IAiDataProvider
                           (m.ShouldersInches is { } sh ? $" shoulders:{sh:0.##}in" : "") +
                           (m.CalvesInches is { } cv ? $" calves:{cv:0.##}in" : ""));
 
+        var goals = WebSyncClient.Rows<GoalSettings>(pull).OrderByDescending(x => x.UpdatedAt).FirstOrDefault();
+        if (goals is not null && (goals.GoalWeightLbs ?? goals.GoalWaistInches ?? goals.GoalBodyFatPercent
+                ?? goals.GoalChestInches ?? goals.GoalArmsInches ?? goals.GoalThighsInches) is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("BODY-MEASUREMENT GOALS (target values — judge progress against the latest measurement above; direction is whichever way closes the gap):");
+            if (goals.GoalWeightLbs is { } gw) sb.AppendLine($"- weight goal: {gw:0.#} lbs");
+            if (goals.GoalWaistInches is { } gwa) sb.AppendLine($"- waist goal: {gwa:0.##} in");
+            if (goals.GoalBodyFatPercent is { } gbf) sb.AppendLine($"- body-fat goal: {gbf:0.#} %");
+            if (goals.GoalChestInches is { } gc) sb.AppendLine($"- chest goal: {gc:0.##} in");
+            if (goals.GoalArmsInches is { } ga) sb.AppendLine($"- arms goal: {ga:0.##} in");
+            if (goals.GoalThighsInches is { } gt) sb.AppendLine($"- thighs goal: {gt:0.##} in");
+        }
+
         sb.AppendLine();
         sb.AppendLine("SLEEP:");
-        var sleep = await db.SleepEntries.Where(s => s.Date >= since).OrderBy(s => s.Date).ToListAsync(ct);
+        var sleep = WebSyncClient.Rows<SleepEntry>(pull).Where(s => s.Date >= since).OrderBy(s => s.Date).ToList();
         if (sleep.Count == 0) sb.AppendLine("(none)");
         foreach (var s in sleep)
             sb.AppendLine($"{s.Date:yyyy-MM-dd}" +
@@ -241,12 +235,15 @@ public sealed class EfAiDataProvider : IAiDataProvider
 
     public async Task<string> GetRoutineDesignContextAsync(CancellationToken ct = default)
     {
-        await using var db = await _factory.CreateDbContextAsync(ct);
+        var pull = await _state.DataAsync();
         var since = DateOnly.FromDateTime(DateTime.Now).AddDays(-WindowDays);
         var sb = new StringBuilder();
 
+        var allDefsById = WebSyncClient.Rows<ExerciseDefinition>(pull).ToDictionary(d => d.Id);
+        string DefName(Guid id) => allDefsById.TryGetValue(id, out var d) ? d.Name : "?";
+
         sb.AppendLine("EXERCISE LIBRARY (name | measure | muscles | equipment):");
-        var defs = await db.ExerciseDefinitions.Where(e => !e.Retired).OrderBy(e => e.Name).ToListAsync(ct);
+        var defs = WebSyncClient.Rows<ExerciseDefinition>(pull).Where(e => !e.Retired).OrderBy(e => e.Name).ToList();
         if (defs.Count == 0) sb.AppendLine("(empty)");
         foreach (var d in defs)
             sb.AppendLine($"- {d.Name} | {(d.Measure == ExerciseMeasure.Duration ? "duration" : "reps")}" +
@@ -255,31 +252,31 @@ public sealed class EfAiDataProvider : IAiDataProvider
 
         sb.AppendLine();
         sb.AppendLine("EXISTING ROUTINES (do not duplicate these):");
-        var routines = await db.WorkoutRoutines
-            .Include(r => r.Exercises).ThenInclude(e => e.ExerciseDefinition)
-            .Where(r => !r.Archived).ToListAsync(ct);
+        var routines = WebSyncClient.Rows<WorkoutRoutine>(pull).Where(r => !r.Archived).ToList();
+        var reByRoutine = WebSyncClient.Rows<RoutineExercise>(pull).GroupBy(e => e.RoutineId).ToDictionary(g => g.Key, g => g.ToList());
         if (routines.Count == 0) sb.AppendLine("(none)");
         foreach (var r in routines)
-            sb.AppendLine($"- {r.Name}: {string.Join(", ", r.Exercises.OrderBy(e => e.Order).Select(e => e.ExerciseDefinition?.Name ?? "?"))}");
+        {
+            var ex = reByRoutine.GetValueOrDefault(r.Id) ?? new();
+            sb.AppendLine($"- {r.Name}: {string.Join(", ", ex.OrderBy(e => e.Order).Select(e => DefName(e.ExerciseDefinitionId)))}");
+        }
 
         sb.AppendLine();
         sb.AppendLine("TRAINING HISTORY (last 8 weeks; per exercise: sessions, best set, latest rating):");
-        var sessions = await db.WorkoutSessions.Where(s => s.Date >= since)
-            .Include(s => s.Sets).ThenInclude(x => x.ExerciseDefinition)
-            .Include(s => s.Feedback).ThenInclude(f => f.ExerciseDefinition)
-            .OrderByDescending(s => s.Date).ToListAsync(ct);
-        var byExercise = sessions.SelectMany(s => s.Sets)
-            .Where(x => x.ExerciseDefinition is not null)
-            .GroupBy(x => x.ExerciseDefinition!.Name)
-            .ToList();
+        var sessions = WebSyncClient.Rows<WorkoutSession>(pull).Where(s => s.Date >= since).OrderByDescending(s => s.Date).ToList();
+        var sessionDate = sessions.ToDictionary(s => s.Id, s => s.Date);
+        var sessionIds = sessionDate.Keys.ToHashSet();
+        var sets = WebSyncClient.Rows<ExerciseSet>(pull).Where(x => sessionIds.Contains(x.WorkoutSessionId) && allDefsById.ContainsKey(x.ExerciseDefinitionId)).ToList();
+        var feedback = WebSyncClient.Rows<ExerciseFeedback>(pull).Where(f => sessionIds.Contains(f.WorkoutSessionId)).ToList();
+        var orderedFb = feedback.OrderByDescending(f => sessionDate.GetValueOrDefault(f.WorkoutSessionId)).ToList();
+        var byExercise = sets.GroupBy(x => DefName(x.ExerciseDefinitionId)).ToList();
         if (byExercise.Count == 0) sb.AppendLine("(none)");
         foreach (var g in byExercise)
         {
-            var sessCount = sessions.Count(s => s.Sets.Any(x => x.ExerciseDefinition?.Name == g.Key));
+            var sessCount = sessions.Count(s => sets.Any(x => x.WorkoutSessionId == s.Id && DefName(x.ExerciseDefinitionId) == g.Key));
             var bestSecs = g.Max(x => x.DurationSeconds ?? 0);
             var bestReps = g.Max(x => x.Reps ?? 0);
-            var lastFb = sessions.SelectMany(s => s.Feedback)
-                .FirstOrDefault(f => f.ExerciseDefinition?.Name == g.Key && f.Difficulty != Difficulty.Unset);
+            var lastFb = orderedFb.FirstOrDefault(f => DefName(f.ExerciseDefinitionId) == g.Key && f.Difficulty != Difficulty.Unset);
             sb.AppendLine($"- {g.Key}: {sessCount} session(s), best {(bestSecs > 0 ? $"{bestSecs}s" : $"{bestReps} reps")}" +
                           (lastFb is null ? "" : $", rated {lastFb.Difficulty}") +
                           (lastFb?.PainOrDiscomfort == true ? ", PAIN flagged" : ""));
@@ -287,10 +284,10 @@ public sealed class EfAiDataProvider : IAiDataProvider
 
         var muscleByName = defs.ToDictionary(d => d.Name, d => d.MuscleGroupList, StringComparer.OrdinalIgnoreCase);
         var volume = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var set in sessions.SelectMany(s => s.Sets))
+        foreach (var set in sets)
         {
-            var name = set.ExerciseDefinition?.Name;
-            if (name is null || !muscleByName.TryGetValue(name, out var groups)) continue;
+            var name = DefName(set.ExerciseDefinitionId);
+            if (!muscleByName.TryGetValue(name, out var groups)) continue;
             foreach (var mg in groups) volume[mg] = volume.GetValueOrDefault(mg) + 1;
         }
         sb.AppendLine();
@@ -313,15 +310,20 @@ public sealed class EfAiDataProvider : IAiDataProvider
 
     public async Task<IReadOnlyCollection<string>> RecentlyEasyExercisesAsync(CancellationToken ct = default)
     {
-        await using var db = await _factory.CreateDbContextAsync(ct);
+        var pull = await _state.DataAsync();
         var since = DateOnly.FromDateTime(DateTime.Now).AddDays(-WindowDays);
-        var sessions = await db.WorkoutSessions.Where(s => s.Date >= since)
-            .Include(s => s.Feedback).ThenInclude(f => f.ExerciseDefinition)
-            .OrderByDescending(s => s.Date).ToListAsync(ct);
+
+        var defsById = WebSyncClient.Rows<ExerciseDefinition>(pull).ToDictionary(d => d.Id);
+        var sessionDate = WebSyncClient.Rows<WorkoutSession>(pull).Where(s => s.Date >= since).ToDictionary(s => s.Id, s => s.Date);
+        var orderedFb = WebSyncClient.Rows<ExerciseFeedback>(pull)
+            .Where(f => sessionDate.ContainsKey(f.WorkoutSessionId) && f.Difficulty != Difficulty.Unset)
+            .OrderByDescending(f => sessionDate[f.WorkoutSessionId]);
+
+        // Latest rating per exercise wins; keep those whose most recent rating in the window is Easy.
         var latest = new Dictionary<string, Difficulty>(StringComparer.OrdinalIgnoreCase);
-        foreach (var f in sessions.SelectMany(s => s.Feedback))
-            if (f.Difficulty != Difficulty.Unset && f.ExerciseDefinition?.Name is { } n && !latest.ContainsKey(n))
-                latest[n] = f.Difficulty;
+        foreach (var f in orderedFb)
+            if (defsById.TryGetValue(f.ExerciseDefinitionId, out var d) && !latest.ContainsKey(d.Name))
+                latest[d.Name] = f.Difficulty;
         return latest.Where(kv => kv.Value == Difficulty.Easy).Select(kv => kv.Key)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }

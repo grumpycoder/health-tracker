@@ -76,5 +76,9 @@ public sealed class AppState
         return _pull;
     }
 
+    /// <summary>The last pulled dataset if one has been loaded this session, else null. Lets
+    /// synchronous consumers (e.g. IAiSettings) read cached rows without an await.</summary>
+    public SyncPullResponse? Cached => _pull;
+
     public void Invalidate() => _pull = null;
 }

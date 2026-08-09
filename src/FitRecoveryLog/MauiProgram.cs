@@ -65,6 +65,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.ILlmClient, FitRecoveryLog.Infrastructure.Ai.GeminiLlmClient>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.IAiSettings, FitRecoveryLog.Services.MauiAiSettings>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.IAiDataProvider, FitRecoveryLog.Infrastructure.Ai.EfAiDataProvider>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.IPromptStore, FitRecoveryLog.Infrastructure.Ai.EfPromptStore>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.IAiCoach, FitRecoveryLog.Application.Ai.AiCoach>();
 
 		// Clean Architecture: application use cases over real (EF) repositories.

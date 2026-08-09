@@ -38,5 +38,11 @@ public interface IAiCoach
         CancellationToken ct = default);
 
     Task<MealScan?> EstimateMealFromPhotoAsync(byte[] imageJpeg, IReadOnlyList<string> vocabulary,
-        string? hint = null, CancellationToken ct = default);
+        string? hint = null, string? mealType = null, CancellationToken ct = default);
+
+    /// <summary>Estimate a meal's macros from a text description (no photo) plus tag/rate it — the
+    /// camera-free counterpart to <see cref="EstimateMealFromPhotoAsync"/>, for clients without a
+    /// camera (the web) or a "describe it instead of scanning" path. Null if unusable.</summary>
+    Task<MealScan?> EstimateMealFromTextAsync(string mealType, string description, string? portionNote,
+        IReadOnlyList<string> vocabulary, CancellationToken ct = default);
 }

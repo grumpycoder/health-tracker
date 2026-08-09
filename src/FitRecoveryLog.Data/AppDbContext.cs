@@ -31,6 +31,11 @@ public class AppDbContext : DbContext
     public DbSet<ReminderSetting> ReminderSettings => Set<ReminderSetting>();
     public DbSet<CessationGoal> CessationGoals => Set<CessationGoal>();
     public DbSet<CessationEvent> CessationEvents => Set<CessationEvent>();
+    public DbSet<DailyCheckResult> DailyCheckResults => Set<DailyCheckResult>();
+    public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
+    public DbSet<GoalSettings> GoalSettings => Set<GoalSettings>();
+    public DbSet<ProgressPhoto> ProgressPhotos => Set<ProgressPhoto>();
+    public DbSet<AiAnalysisResult> AiAnalysisResults => Set<AiAnalysisResult>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
