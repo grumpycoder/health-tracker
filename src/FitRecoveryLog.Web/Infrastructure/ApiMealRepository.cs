@@ -54,6 +54,7 @@ public sealed class ApiMealRepository : IMealRepository
             SodiumMg = meal.Macros.SodiumMg,
             FiberG = meal.Macros.FiberG,
             AddedSugarG = meal.Macros.AddedSugarG,
+            ItemsJson = existing?.ItemsJson,   // out-of-aggregate breakdown — preserve across edits
             CreatedAt = existing?.CreatedAt ?? DateTime.UtcNow,
         });
         _state.Invalidate();

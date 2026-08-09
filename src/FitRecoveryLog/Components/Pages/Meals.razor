@@ -138,6 +138,38 @@
                         Per serving@(string.IsNullOrWhiteSpace(_scan.ServingSize) ? "" : $" ({_scan.ServingSize})") — review, set servings eaten, then apply.
                     </p>
                 }
+                @if (_scan.Items.Count > 0)
+                {
+                    <p class="muted" style="margin:0.2rem 0 0.3rem;font-size:0.78rem">On the plate — drag to adjust how much of each you ate; the total below updates live.</p>
+                    <div class="item-list">
+                        @for (var i = 0; i < _scan.Items.Count; i++)
+                        {
+                            var idx = i;
+                            var it = _scan.Items[idx];
+                            var pct = idx < _itemPct.Count ? _itemPct[idx] : 1.0;
+                            <div class="item-adj">
+                                <div class="item-adj-top">
+                                    <span class="entry">@it.Name</span>
+                                    <span class="muted" style="font-size:0.8rem">@((int)Math.Round((it.Calories ?? 0) * pct)) cal · @((int)Math.Round(pct * 100))%</span>
+                                </div>
+                                <input type="range" min="0" max="100" step="5" value="@((int)Math.Round(pct * 100))"
+                                       @oninput="e => SetItemPct(idx, e.Value)" style="width:100%" />
+                            </div>
+                        }
+                    </div>
+                }
+                @if (_plateAdvice is not null)
+                {
+                    <div style="border:1px solid #d9a441;border-radius:10px;padding:0.5rem 0.6rem;margin:0 0 0.5rem;background:rgba(217,164,65,0.10)">
+                        <div style="font-weight:700;font-size:0.72rem;letter-spacing:0.05em;color:#c47f00;margin-bottom:2px">⚠ OVER YOUR TARGETS</div>
+                        @if (!string.IsNullOrEmpty(_plateAdvice.Message)) { <p style="margin:0 0 0.3rem;font-size:0.85rem">@_plateAdvice.Message</p> }
+                        <p style="margin:0 0 0.4rem;font-size:0.85rem"><strong>Suggestion:</strong> @_plateAdvice.Suggestion</p>
+                        <div class="routine-actions">
+                            <button class="save-btn" @onclick="ApplyPlateAdvice">Apply suggestion</button>
+                            <button class="link-btn" @onclick="() => _plateAdvice = null">Keep full plate</button>
+                        </div>
+                    </div>
+                }
                 <div class="inline-fields">
                     <div class="field"><label>Servings eaten</label><input type="number" inputmode="decimal" step="0.25" min="0" @bind="_scanServings" /></div>
                     <div class="field"><label>Calories</label><input type="number" inputmode="numeric" @bind="_scan.Calories" /></div>
@@ -165,7 +197,7 @@
                     {
                         <button class="save-btn" @onclick="() => ApplyScan(false)">Apply to meal</button>
                     }
-                    <button class="link-btn" @onclick="() => { _scan = null; _scanMsg = null; _plateJpeg = null; _plateHint = string.Empty; }">Discard</button>
+                    <button class="link-btn" @onclick="() => { _scan = null; _scanMsg = null; _plateJpeg = null; _plateHint = string.Empty; _plateAutoDesc = null; _plateAdvice = null; }">Discard</button>
                 </div>
             </div>
         }
@@ -390,6 +422,37 @@
                                     </select>
                                 </div>
                                 <p class="muted" style="margin:0.4rem 0 0.2rem;font-size:0.8rem">Macros</p>
+                                @if (_mealEditItems.Count > 0)
+                                {
+                                    <p class="muted" style="margin:0 0 0.3rem;font-size:0.78rem">Adjust how much of each item you ate — the totals below update live.</p>
+                                    <div class="item-list">
+                                        @for (var i = 0; i < _mealEditItems.Count; i++)
+                                        {
+                                            var idx = i;
+                                            var it = _mealEditItems[idx];
+                                            <div class="item-adj">
+                                                <div class="item-adj-top">
+                                                    <span class="entry">@it.Name</span>
+                                                    <span class="muted" style="font-size:0.8rem">@((int)Math.Round((it.Calories ?? 0) * it.Portion)) cal · @((int)Math.Round(it.Portion * 100))%</span>
+                                                </div>
+                                                <input type="range" min="0" max="100" step="5" value="@((int)Math.Round(it.Portion * 100))"
+                                                       @oninput="e => SetMealEditItemPct(idx, e.Value)" style="width:100%" />
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="field">
+                                        <label>Adjust portion eaten <span class="muted" style="font-weight:400">— scales all macros below</span></label>
+                                        <div class="chip-row">
+                                            @foreach (var f in PortionFactors)
+                                            {
+                                                <button type="button" class="chip @(Math.Abs(_mealEditFactor - f) < 0.001 ? "selected" : "")" @onclick="() => RescaleMealEdit(f)">@f.ToString("0.##")×</button>
+                                            }
+                                        </div>
+                                    </div>
+                                }
                                 <div class="inline-fields">
                                     <div class="field"><label>Calories</label><input type="number" inputmode="numeric" @bind="_mealEdit.Calories" /></div>
                                     <div class="field"><label>Protein (g)</label><input type="number" inputmode="decimal" @bind="_mealEdit.ProteinG" /></div>
@@ -436,6 +499,32 @@
                                         <button class="icon-action danger" title="Delete" aria-label="Delete" @onclick="() => DeleteMeal(m)">🗑</button>
                                     </div>
                                 </div>
+                                @if (m.Items is { Count: > 0 } items)
+                                {
+                                    <button class="link-btn" style="padding:0;margin-top:0.3rem;font-size:0.8rem"
+                                            @onclick="() => ToggleMealDetails(m.Id)">
+                                        @(_detailMeals.Contains(m.Id) ? "▾" : "▸") @items.Count item@(items.Count == 1 ? "" : "s")
+                                    </button>
+                                    @if (_detailMeals.Contains(m.Id))
+                                    {
+                                        <ul class="meal-items">
+                                            @foreach (var it in items)
+                                            {
+                                                <li>
+                                                    <span class="entry">@it.Name</span>
+                                                    @if (it.Portion < 0.999)
+                                                    {
+                                                        <span class="muted" style="font-size:0.75rem"> · @((int)Math.Round(it.Portion * 100))% eaten</span>
+                                                    }
+                                                    @if (ItemLine(it) is { Length: > 0 } il)
+                                                    {
+                                                        <span class="muted" style="display:block;font-size:0.72rem">@il</span>
+                                                    }
+                                                </li>
+                                            }
+                                        </ul>
+                                    }
+                                }
                                 @if (m.Satiety == Satiety.Unset)
                                 {
                                     <div class="chip-row" style="margin-top:0.4rem">
@@ -560,10 +649,16 @@
     private bool _scanBusy;
     private string? _scanMsg;
     private NutritionFacts? _scan;   // values under review
+    private PortionAdvice? _plateAdvice;   // day-fit trim advice from a plate estimate
     private double _scanServings = 1;
+    private List<double> _itemPct = new();   // per-item "how much I ate" fraction (plate estimate), drives the live total
+    private List<MealItemPortion> _pendingMealItems = new();   // plate breakdown to persist with the meal being logged
+    private List<MealItemPortion> _mealEditItems = new();      // the editing meal's breakdown (sliders on the edit screen)
     private bool _scanIsEstimate;                   // true = plate estimate, false = label read
     private byte[]? _plateJpeg;                     // plate photo kept in-memory for re-estimate
     private string _plateHint = "";                 // user correction fed back to the estimator
+    private string? _plateAutoDesc;                 // last food name the estimator auto-filled, so a
+                                                    // re-estimate can replace it without clobbering typed text
     // Drink label-scan state (separate from the meal scan). Drinks scale by ounces
     // drunk ÷ label serving-size ounces, not a manual serving count.
     private NutritionFacts? _drinkScan;
@@ -676,6 +771,13 @@
                 ? lib
                 : lib.Where(x => x.Contains(q, StringComparison.OrdinalIgnoreCase)))
             .Take(10).ToList();
+    }
+
+    // Meals whose item breakdown is expanded read-only in the list (no edit screen needed).
+    private readonly HashSet<Guid> _detailMeals = new();
+    private void ToggleMealDetails(Guid id)
+    {
+        if (!_detailMeals.Remove(id)) _detailMeals.Add(id);
     }
 
     // Inline edit state for today's entries. Editable time lets you fix a late-logged
@@ -892,7 +994,7 @@
                 _scanMsg = "Couldn't read a nutrition label from that photo — try again or enter macros by hand.";
             else
             {
-                _scan = facts; _scanServings = 1; _scanIsEstimate = false;
+                _scan = facts; _scanServings = 1; _scanIsEstimate = false; _plateAdvice = null; _itemPct = new();
                 _plateJpeg = null; _plateHint = "";   // no re-estimate for label reads
                 // Tags + stars came back in the same call — no separate ✨ needed.
                 ApplySuggestionToBox(_mealTagBox, _mealTagOptions, result!.Tags);
@@ -912,7 +1014,7 @@
         {
             var jpeg = await CapturePhotoAsync(camera);
             if (jpeg is null) { _scanBusy = false; return; } // cancelled
-            _plateHint = "";
+            _plateHint = ""; _plateAutoDesc = null;
             await RunPlateEstimate(jpeg);
         }
         catch (Exception ex) { _scanMsg = $"Estimate failed: {ex.Message}"; }
@@ -932,10 +1034,41 @@
     /// <summary>Shared plate-estimate call (initial capture and hint re-runs). Keeps the
     /// photo in memory so a correction can re-estimate; the bytes are cleared on apply/
     /// discard/save (never written to disk).</summary>
+    // Per-item portion slider → recompute the whole-plate totals live from each item's macros.
+    private void SetItemPct(int i, object? value)
+    {
+        if (i < 0 || i >= _itemPct.Count) return;
+        if (double.TryParse(value?.ToString(), out var p))
+        {
+            _itemPct[i] = Math.Clamp(p / 100.0, 0, 1);
+            RecomputeFromItems();
+        }
+    }
+
+    private void RecomputeFromItems()
+    {
+        if (_scan is not { } f || f.Items.Count == 0) return;
+        double Sum(Func<NutritionItem, double?> sel)
+        {
+            double t = 0;
+            for (var i = 0; i < f.Items.Count; i++)
+                t += (sel(f.Items[i]) ?? 0) * (i < _itemPct.Count ? _itemPct[i] : 1);
+            return t;
+        }
+        f.Calories = (int)Math.Round(Sum(x => (double?)x.Calories));
+        f.ProteinG = Math.Round(Sum(x => x.ProteinG), 1);
+        f.CarbsG = Math.Round(Sum(x => x.CarbsG), 1);
+        f.SugarG = Math.Round(Sum(x => x.SugarG), 1);
+        f.AddedSugarG = Math.Round(Sum(x => x.AddedSugarG), 1);
+        f.FatG = Math.Round(Sum(x => x.FatG), 1);
+        f.SodiumMg = (int)Math.Round(Sum(x => (double?)x.SodiumMg));
+        f.FiberG = Math.Round(Sum(x => x.FiberG), 1);
+    }
+
     private async Task RunPlateEstimate(byte[] jpeg)
     {
         var result = await AiCoach.EstimateMealFromPhotoAsync(jpeg, _mealTagOptions,
-            string.IsNullOrWhiteSpace(_plateHint) ? null : _plateHint);
+            string.IsNullOrWhiteSpace(_plateHint) ? null : _plateHint, _meal.MealType.ToString());
         var facts = result?.Facts;
         if (facts is null || (facts.Calories is null && facts.ProteinG is null && facts.CarbsG is null))
         {
@@ -943,10 +1076,32 @@
             return;
         }
         _scan = facts; _scanServings = 1; _scanIsEstimate = true; _plateJpeg = jpeg;
-        // Prefill the food name from what the AI saw, if not already typed.
-        if (string.IsNullOrWhiteSpace(_meal.Description) && !string.IsNullOrWhiteSpace(facts.FoodDescription))
-            _meal.Description = facts.FoodDescription;
-        ApplySuggestionToBox(_mealTagBox, _mealTagOptions, result!.Tags);
+        _itemPct = Enumerable.Repeat(1.0, facts.Items.Count).ToList();   // start every item at 100% eaten
+        _plateAdvice = result!.Advice;   // set when the plate would push a macro over today's targets
+        // Fill the food name from what the AI saw. Overwrite it on a re-estimate when the field still
+        // holds the estimator's own previous guess (so a hint correction updates it), but never clobber
+        // a name the user typed themselves.
+        var seen = facts.FoodDescription;
+        if (!string.IsNullOrWhiteSpace(seen)
+            && (string.IsNullOrWhiteSpace(_meal.Description)
+                || string.Equals(_meal.Description.Trim(), _plateAutoDesc?.Trim(), StringComparison.OrdinalIgnoreCase)))
+        {
+            _meal.Description = seen;
+            _plateAutoDesc = seen;
+        }
+        ApplySuggestionToBox(_mealTagBox, _mealTagOptions, result.Tags);
+    }
+
+    /// <summary>Apply the estimator's trim suggestion: replace the reviewed macros with the adjusted
+    /// values, then let the user set servings and add/replace onto the meal as usual.</summary>
+    private void ApplyPlateAdvice()
+    {
+        if (_plateAdvice is null || _scan is null) return;
+        var a = _plateAdvice.Adjusted;
+        _scan.Calories = a.Calories; _scan.ProteinG = a.ProteinG; _scan.CarbsG = a.CarbsG; _scan.FatG = a.FatG;
+        _scan.SugarG = a.SugarG; _scan.AddedSugarG = a.AddedSugarG; _scan.FiberG = a.FiberG; _scan.SodiumMg = a.SodiumMg;
+        _plateAdvice = null;
+        _scanMsg = "Adjusted per the suggestion — review and apply.";
     }
 
     /// <summary>Multiply the reviewed per-serving values by servings eaten onto the meal.</summary>
@@ -985,8 +1140,33 @@
         _meal.SodiumMg = CombineInt(_meal.SodiumMg, f.SodiumMg, n, add);
         _meal.FiberG = CombineDbl(_meal.FiberG, f.FiberG, n, add);
         _meal.AddedSugarG = CombineDbl(_meal.AddedSugarG, f.AddedSugarG, n, add);
-        _scan = null; _plateJpeg = null; _plateHint = "";
+
+        // Remember the per-item breakdown (macros baked with servings, portion = how much eaten) so the
+        // edit screen can show the same sliders. Only plate estimates carry items; labels don't.
+        if (f.Items.Count > 0)
+        {
+            var items = new List<MealItemPortion>();
+            for (var i = 0; i < f.Items.Count; i++)
+            {
+                var it = f.Items[i];
+                items.Add(new MealItemPortion
+                {
+                    Name = it.Name,
+                    Calories = it.Calories is int ic ? (int)Math.Round(ic * n) : null,
+                    ProteinG = MulN(it.ProteinG, n), CarbsG = MulN(it.CarbsG, n), SugarG = MulN(it.SugarG, n),
+                    AddedSugarG = MulN(it.AddedSugarG, n), FatG = MulN(it.FatG, n),
+                    SodiumMg = it.SodiumMg is int isod ? (int)Math.Round(isod * n) : null, FiberG = MulN(it.FiberG, n),
+                    Portion = i < _itemPct.Count ? _itemPct[i] : 1.0,
+                });
+            }
+            if (add) _pendingMealItems.AddRange(items); else _pendingMealItems = items;
+        }
+        else if (!add) _pendingMealItems = new();
+
+        _scan = null; _plateJpeg = null; _plateHint = ""; _plateAutoDesc = null;
         _scanMsg = add ? "Added to meal ✓" : "Macros applied ✓";
+
+        static double? MulN(double? v, double n) => v is double d ? Math.Round(d * n, 1) : null;
     }
 
     private static string MacroLine(MealEntry m)
@@ -1000,6 +1180,19 @@
         if (m.SodiumMg is { } so) parts.Add($"{so}mg sodium");
         if (m.FiberG is { } fi) parts.Add($"{fi:0.#}g fiber");
         return parts.Count == 0 ? "" : "🏷 " + string.Join(" · ", parts);
+    }
+
+    /// <summary>Compact macro line for a single plate item, scaled to the portion eaten.</summary>
+    private static string ItemLine(MealItemPortion it)
+    {
+        var p = it.Portion;
+        var parts = new List<string>();
+        if (it.Calories is { } c) parts.Add($"{Math.Round(c * p)} cal");
+        if (it.ProteinG is { } pr) parts.Add($"{pr * p:0.#}g protein");
+        if (it.CarbsG is { } cb) parts.Add($"{cb * p:0.#}g carbs");
+        if (it.SugarG is { } su) parts.Add($"{su * p:0.#}g sugar");
+        if (it.FatG is { } ft) parts.Add($"{ft * p:0.#}g fat");
+        return string.Join(" · ", parts);
     }
 
     /// <summary>Scan a drink's Nutrition Facts label → per-serving macros + tags for review.</summary>
@@ -1102,6 +1295,12 @@
         _mealAdvice = null;
     }
 
+    // Portion rescale on the edit form: factors scale the macros as they were when edit opened
+    // (kept in _mealEditBase) so re-tapping is non-lossy — tap 1× to return to the original.
+    private static readonly double[] PortionFactors = { 0.5, 0.75, 1.0, 1.25, 1.5, 2.0 };
+    private MealEntry _mealEditBase = new();
+    private double _mealEditFactor = 1;
+
     private void StartEditMeal(MealEntry m)
     {
         _editDrinkId = null;
@@ -1114,9 +1313,57 @@
             SugarG = m.SugarG, FatG = m.FatG, SodiumMg = m.SodiumMg, FiberG = m.FiberG,
             AddedSugarG = m.AddedSugarG
         };
+        _mealEditBase = new MealEntry
+        {
+            Calories = m.Calories, ProteinG = m.ProteinG, CarbsG = m.CarbsG, SugarG = m.SugarG,
+            FatG = m.FatG, SodiumMg = m.SodiumMg, FiberG = m.FiberG, AddedSugarG = m.AddedSugarG
+        };
+        _mealEditFactor = 1;
+        _mealEditItems = m.Items.ToList();   // per-item breakdown (empty for label/hand-entered meals)
         _mealEditTagBox.Load(m.TagList);
         _mealEditTagBox.Stars = m.QualityStars;
         _mealEditTime = m.Time;
+    }
+
+    // Edit-screen per-item slider → recompute the meal's macro totals from the stored breakdown.
+    private void SetMealEditItemPct(int i, object? value)
+    {
+        if (i < 0 || i >= _mealEditItems.Count) return;
+        if (double.TryParse(value?.ToString(), out var p))
+        {
+            _mealEditItems[i].Portion = Math.Clamp(p / 100.0, 0, 1);
+            RecomputeMealEditFromItems();
+        }
+    }
+
+    private void RecomputeMealEditFromItems()
+    {
+        if (_mealEditItems.Count == 0) return;
+        double Sum(Func<MealItemPortion, double?> sel) => _mealEditItems.Sum(it => (sel(it) ?? 0) * it.Portion);
+        _mealEdit.Calories = (int)Math.Round(Sum(x => (double?)x.Calories));
+        _mealEdit.ProteinG = Math.Round(Sum(x => x.ProteinG), 1);
+        _mealEdit.CarbsG = Math.Round(Sum(x => x.CarbsG), 1);
+        _mealEdit.SugarG = Math.Round(Sum(x => x.SugarG), 1);
+        _mealEdit.AddedSugarG = Math.Round(Sum(x => x.AddedSugarG), 1);
+        _mealEdit.FatG = Math.Round(Sum(x => x.FatG), 1);
+        _mealEdit.SodiumMg = (int)Math.Round(Sum(x => (double?)x.SodiumMg));
+        _mealEdit.FiberG = Math.Round(Sum(x => x.FiberG), 1);
+    }
+
+    private void RescaleMealEdit(double factor)
+    {
+        _mealEditFactor = factor <= 0 ? 1 : factor;
+        var f = _mealEditFactor;
+        _mealEdit.Calories = _mealEditBase.Calories is int c ? (int)Math.Round(c * f) : null;
+        _mealEdit.SodiumMg = _mealEditBase.SodiumMg is int s ? (int)Math.Round(s * f) : null;
+        _mealEdit.ProteinG = ScaleMacro(_mealEditBase.ProteinG, f);
+        _mealEdit.CarbsG = ScaleMacro(_mealEditBase.CarbsG, f);
+        _mealEdit.SugarG = ScaleMacro(_mealEditBase.SugarG, f);
+        _mealEdit.AddedSugarG = ScaleMacro(_mealEditBase.AddedSugarG, f);
+        _mealEdit.FatG = ScaleMacro(_mealEditBase.FatG, f);
+        _mealEdit.FiberG = ScaleMacro(_mealEditBase.FiberG, f);
+
+        static double? ScaleMacro(double? v, double f) => v is double d ? Math.Round(d * f, 1) : null;
     }
 
     private async Task SaveMealEdit()
@@ -1127,6 +1374,13 @@
         _mealEdit.QualityStars = _mealEditTagBox.Stars;
         var result = await MealSvc.UpdateAsync(id, MealToData(_mealEdit));
         if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
+        // Persist adjusted item portions (out-of-aggregate) after the macro update.
+        if (_mealEditItems.Count > 0)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MealEntries.FindAsync(id);
+            if (row is not null) { row.Items = _mealEditItems; await db.SaveChangesAsync(); }
+        }
         if (_mealEdit.Satiety != Satiety.Unset)
             ReminderNotifier.Cancel(ReminderNotifier.MealRatingNotificationId);
         _editMealId = null;
@@ -1218,6 +1472,15 @@
 
         var result = await MealSvc.CreateAsync(MealToData(_meal));
         if (!result.IsSuccess) { _mealWarn = result.Error; return; }
+
+        // Persist the plate's per-item breakdown (out-of-aggregate) so it can be re-adjusted on edit.
+        if (_pendingMealItems.Count > 0)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MealEntries.FindAsync(result.Value);
+            if (row is not null) { row.Items = _pendingMealItems; await db.SaveChangesAsync(); }
+        }
+        _pendingMealItems = new();
 
         if (remind)
             try { await ReminderNotifier.ScheduleMealRatingAsync(foodName, isSnack); } catch { }

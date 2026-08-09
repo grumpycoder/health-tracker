@@ -3,9 +3,11 @@
 @using FitRecoveryLog.Application.Nutrition
 @using FitRecoveryLog.Domain.Common
 @using FitRecoveryLog.Domain.Nutrition
+@using FitRecoveryLog.Application.Ai
 @attribute [Authorize]
 @inject MealService MealSvc
 @inject DrinkService DrinkSvc
+@inject IAiCoach Coach
 
 <PageTitle>Meals &amp; Drinks — Fit Log</PageTitle>
 
@@ -67,7 +69,36 @@
                     <div class="field"><label>Sodium (mg)</label><input type="number" @bind="_meal.SodiumMg" /></div>
                 </div>
                 <div class="field"><label>Portion note</label><input @bind="_meal.PortionNote" /></div>
-                <div class="field"><label>Tags (comma-separated)</label><input @bind="_meal.Tags" /></div>
+                <div class="field">
+                    <label>Tags (comma-separated)</label>
+                    <input @bind="_meal.Tags" />
+                    <div class="chip-row" style="gap:1rem;margin-top:0.35rem">
+                        <button class="link-btn" style="padding:0" @onclick="EstimateMacros" disabled="@(_aiBusy || string.IsNullOrWhiteSpace(_meal.Description))">
+                            @(_aiBusy ? "Thinking…" : "✨ Estimate macros")
+                        </button>
+                        <button class="link-btn" style="padding:0" @onclick="SuggestTags" disabled="@(_aiBusy || string.IsNullOrWhiteSpace(_meal.Description))">
+                            ✨ Suggest tags only
+                        </button>
+                    </div>
+                    @if (_meal.QualityStars is { } stars)
+                    {
+                        <span class="pill @(stars >= 4 ? "good" : stars >= 3 ? "caution" : "critical")" style="margin-left:0.5rem">
+                            @(new string('★', stars))@(new string('☆', 5 - stars))@(string.IsNullOrWhiteSpace(_starReason) ? "" : $" · {_starReason}")
+                        </span>
+                    }
+                </div>
+                @if (_advice is not null)
+                {
+                    <div class="card" style="border-color:var(--caution);margin:0 0 0.8rem">
+                        <div style="color:var(--caution);font-weight:700;font-size:.78rem;letter-spacing:.06em;margin-bottom:4px">⚠ OVER YOUR TARGETS</div>
+                        @if (!string.IsNullOrEmpty(_advice.Message)) { <p style="margin:0 0 .4rem;line-height:1.45">@_advice.Message</p> }
+                        <p style="margin:0 0 .6rem"><strong>Suggestion:</strong> @_advice.Suggestion</p>
+                        <div class="chip-row" style="gap:12px">
+                            <button class="save-btn" @onclick="ApplyAdvice">Apply suggestion</button>
+                            <button class="link-btn" @onclick="() => _advice = null">Dismiss</button>
+                        </div>
+                    </div>
+                }
                 <div class="routine-actions">
                     <button class="save-btn" @onclick="SaveMeal" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
                     <button class="link-btn" @onclick="() => _meal = null" disabled="@_busy">Cancel</button>
@@ -133,7 +164,36 @@
                     <div class="field"><label>Fiber (g)</label><input type="number" step="0.1" @bind="_drink.FiberG" /></div>
                     <div class="field"><label>Sodium (mg)</label><input type="number" @bind="_drink.SodiumMg" /></div>
                 </div>
-                <div class="field"><label>Tags (comma-separated)</label><input @bind="_drink.Tags" /></div>
+                <div class="field">
+                    <label>Tags (comma-separated)</label>
+                    <input @bind="_drink.Tags" />
+                    <div class="chip-row" style="gap:1rem;margin-top:0.35rem">
+                        <button class="link-btn" style="padding:0" @onclick="EstimateDrinkMacros" disabled="@(_aiBusy || string.IsNullOrWhiteSpace(_drink.Description))">
+                            @(_aiBusy ? "Thinking…" : "✨ Estimate macros")
+                        </button>
+                        <button class="link-btn" style="padding:0" @onclick="SuggestDrinkTags" disabled="@(_aiBusy || string.IsNullOrWhiteSpace(_drink.Description))">
+                            ✨ Suggest tags only
+                        </button>
+                    </div>
+                    @if (_drinkStars is { } stars)
+                    {
+                        <span class="pill @(stars >= 4 ? "good" : stars >= 3 ? "caution" : "critical")" style="margin-top:0.4rem;display:inline-block">
+                            @(new string('★', stars))@(new string('☆', 5 - stars))@(string.IsNullOrWhiteSpace(_starReason) ? "" : $" · {_starReason}")
+                        </span>
+                    }
+                </div>
+                @if (_advice is not null)
+                {
+                    <div class="card" style="border-color:var(--caution);margin:0 0 0.8rem">
+                        <div style="color:var(--caution);font-weight:700;font-size:.78rem;letter-spacing:.06em;margin-bottom:4px">⚠ OVER YOUR TARGETS</div>
+                        @if (!string.IsNullOrEmpty(_advice.Message)) { <p style="margin:0 0 .4rem;line-height:1.45">@_advice.Message</p> }
+                        <p style="margin:0 0 .6rem"><strong>Suggestion:</strong> @_advice.Suggestion</p>
+                        <div class="chip-row" style="gap:12px">
+                            <button class="save-btn" @onclick="ApplyAdvice">Apply suggestion</button>
+                            <button class="link-btn" @onclick="() => _advice = null">Dismiss</button>
+                        </div>
+                    </div>
+                }
                 <div class="routine-actions">
                     <button class="save-btn" @onclick="SaveDrink" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
                     <button class="link-btn" @onclick="() => _drink = null" disabled="@_busy">Cancel</button>
@@ -166,8 +226,13 @@
 
 @code {
     private string _tab = "meal";
-    private bool _loading = true, _busy;
-    private string? _error, _msg;
+    private bool _loading = true, _busy, _aiBusy;
+    private string? _error, _msg, _starReason;
+    private int? _drinkStars;
+    private PortionAdvice? _advice;                       // day-fit trim advice from the estimator
+    private readonly List<string> _mealAiTags = new();   // tags the last AI run added (for replace-on-rerun)
+    private readonly List<string> _drinkAiTags = new();
+    private List<string> _tagVocab = new();
 
     private IReadOnlyList<Meal> _meals = Array.Empty<Meal>();
     private IReadOnlyList<Drink> _drinks = Array.Empty<Drink>();
@@ -178,7 +243,7 @@
     private List<string> _foodNames = new();
     private List<string> _drinkNames = new();
 
-    private void Switch(string tab) { _tab = tab; _meal = null; _drink = null; _msg = null; }
+    private void Switch(string tab) { _tab = tab; _meal = null; _drink = null; _msg = null; _starReason = null; _drinkStars = null; _advice = null; _mealAiTags.Clear(); _drinkAiTags.Clear(); }
 
     protected override async Task OnInitializedAsync() => await Load();
 
@@ -197,14 +262,162 @@
                 .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.OrderByDescending(d => d.Time).First(), StringComparer.OrdinalIgnoreCase);
             _drinkNames = _drinkMemory.Values.OrderByDescending(d => d.Time).Select(d => d.Description.Trim()).ToList();
+
+            // Existing tags become the suggester's vocabulary (it strongly prefers reusing them).
+            _tagVocab = _meals.SelectMany(m => m.Tags.Values)
+                .Concat(_drinks.SelectMany(d => d.Tags.Values))
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
         catch (Exception ex) { _error = ex.Message; }
         finally { _loading = false; }
     }
 
+    // ✨ Estimate macros from the text description (no camera) + tag/rate it, then fill the form.
+    // Values are estimates — left editable so the user can correct portions.
+    private async Task EstimateMacros()
+    {
+        if (_meal is null || string.IsNullOrWhiteSpace(_meal.Description)) return;
+        _aiBusy = true; _msg = null; _starReason = null;
+        try
+        {
+            var scan = await Coach.EstimateMealFromTextAsync(
+                _meal.MealType.ToString(), _meal.Description!, _meal.PortionNote, _tagVocab);
+            if (scan is null) { _msg = "The AI couldn't estimate that — try a clearer description."; return; }
+
+            var f = scan.Facts;
+            _meal.Calories = f.Calories; _meal.ProteinG = f.ProteinG; _meal.CarbsG = f.CarbsG; _meal.FatG = f.FatG;
+            _meal.SugarG = f.SugarG; _meal.AddedSugarG = f.AddedSugarG; _meal.FiberG = f.FiberG; _meal.SodiumMg = f.SodiumMg;
+            ApplyTags(scan.Tags);
+            _advice = scan.Advice;
+            _msg = $"Estimated{(string.IsNullOrWhiteSpace(f.ServingSize) ? "" : $" for {f.ServingSize}")} — adjust if needed.";
+        }
+        catch (Exception ex) { _msg = "AI request failed: " + ex.Message; }
+        finally { _aiBusy = false; }
+    }
+
+    // ✨ Tags + fit rating only (leaves macros as the user entered them).
+    private async Task SuggestTags()
+    {
+        if (_meal is null || string.IsNullOrWhiteSpace(_meal.Description)) return;
+        _aiBusy = true; _msg = null; _starReason = null;
+        try
+        {
+            var macros = _meal.Calories is { } c ? $"{c} kcal, {_meal.ProteinG ?? 0:0}g protein, {_meal.CarbsG ?? 0:0}g carbs, {_meal.FatG ?? 0:0}g fat, {_meal.SugarG ?? 0:0}g sugar, {_meal.SodiumMg ?? 0}mg sodium" : null;
+            var suggestion = await Coach.SuggestMealTagsAsync(
+                _meal.MealType.ToString(), _meal.Description!, _meal.PortionNote, _tagVocab, macros);
+            ApplyTags(suggestion);
+            _advice = null;
+            if (suggestion.Known.Count == 0 && string.IsNullOrWhiteSpace(suggestion.Proposed) && suggestion.Stars is null)
+                _msg = "The AI didn't return any suggestions — try adding a description or macros.";
+        }
+        catch (Exception ex) { _msg = "AI request failed: " + ex.Message; }
+        finally { _aiBusy = false; }
+    }
+
+    // Apply the estimator's trim suggestion: overwrite the open draft's macros with the adjusted
+    // values, note the change on a meal's portion, and clear the advice.
+    private void ApplyAdvice()
+    {
+        if (_advice is null) return;
+        var a = _advice.Adjusted;
+        if (_meal is not null)
+        {
+            _meal.Calories = a.Calories; _meal.ProteinG = a.ProteinG; _meal.CarbsG = a.CarbsG; _meal.FatG = a.FatG;
+            _meal.SugarG = a.SugarG; _meal.AddedSugarG = a.AddedSugarG; _meal.FiberG = a.FiberG; _meal.SodiumMg = a.SodiumMg;
+            _meal.PortionNote = string.IsNullOrWhiteSpace(_meal.PortionNote) ? "Trimmed per suggestion" : $"{_meal.PortionNote} · trimmed per suggestion";
+        }
+        else if (_drink is not null)
+        {
+            _drink.Calories = a.Calories; _drink.ProteinG = a.ProteinG; _drink.CarbsG = a.CarbsG; _drink.FatG = a.FatG;
+            _drink.SugarG = a.SugarG; _drink.AddedSugarG = a.AddedSugarG; _drink.FiberG = a.FiberG; _drink.SodiumMg = a.SodiumMg;
+        }
+        _advice = null;
+        _msg = "Macros updated from the suggestion.";
+    }
+
+    // Meal: refresh tags from a suggestion + record the persisted quality score.
+    private void ApplyTags(TagSuggestion s)
+    {
+        if (_meal is null) return;
+        _meal.Tags = ApplyAiTags(_meal.Tags, s, _mealAiTags);
+        _meal.QualityStars = s.Stars;
+        _starReason = s.StarReason;
+    }
+
+    // Merge an AI suggestion into a tag CSV: drop the tags a PRIOR AI run added (so re-running on a
+    // changed item replaces, not accumulates), keep the user's own tags, add the new suggestion.
+    // Records the tags this run attributes to the AI into <paramref name="priorAiTags"/>.
+    private static readonly StringComparer Ci = StringComparer.OrdinalIgnoreCase;
+    private static string ApplyAiTags(string? currentCsv, TagSuggestion s, List<string> priorAiTags)
+    {
+        var tags = Tags.FromCsv(currentCsv).Values.ToList();
+        tags.RemoveAll(t => priorAiTags.Contains(t, Ci));   // strip last run's AI tags
+        var userTags = new List<string>(tags);              // whatever's left is the user's
+        var aiTags = new List<string>();
+
+        void Add(string? tag)
+        {
+            if (string.IsNullOrWhiteSpace(tag)) return;
+            if (!tags.Contains(tag, Ci)) tags.Add(tag);
+            if (!userTags.Contains(tag, Ci) && !aiTags.Contains(tag, Ci)) aiTags.Add(tag);
+        }
+        foreach (var t in s.Known) Add(t);
+        Add(s.Proposed);
+
+        priorAiTags.Clear();
+        priorAiTags.AddRange(aiTags);
+        return string.Join(", ", tags);
+    }
+
+    // ✨ Drinks — same two AI actions. Drinks carry no persisted quality score, so the ★ rating
+    // is shown transiently (_drinkStars) for feedback but not saved.
+    private async Task EstimateDrinkMacros()
+    {
+        if (_drink is null || string.IsNullOrWhiteSpace(_drink.Description)) return;
+        _aiBusy = true; _msg = null; _starReason = null; _drinkStars = null;
+        try
+        {
+            var portion = _drink.Ounces is { } oz ? $"{oz:0.#} oz" : null;
+            var scan = await Coach.EstimateMealFromTextAsync("Drink", _drink.Description!, portion, _tagVocab);
+            if (scan is null) { _msg = "The AI couldn't estimate that — try a clearer description."; return; }
+
+            var f = scan.Facts;
+            _drink.Calories = f.Calories; _drink.ProteinG = f.ProteinG; _drink.CarbsG = f.CarbsG; _drink.FatG = f.FatG;
+            _drink.SugarG = f.SugarG; _drink.AddedSugarG = f.AddedSugarG; _drink.FiberG = f.FiberG; _drink.SodiumMg = f.SodiumMg;
+            _drink.Tags = ApplyAiTags(_drink.Tags, scan.Tags, _drinkAiTags);
+            _drinkStars = scan.Tags.Stars; _starReason = scan.Tags.StarReason;
+            _advice = scan.Advice;
+            _msg = $"Estimated{(string.IsNullOrWhiteSpace(f.ServingSize) ? "" : $" for {f.ServingSize}")} — adjust if needed.";
+        }
+        catch (Exception ex) { _msg = "AI request failed: " + ex.Message; }
+        finally { _aiBusy = false; }
+    }
+
+    private async Task SuggestDrinkTags()
+    {
+        if (_drink is null || string.IsNullOrWhiteSpace(_drink.Description)) return;
+        _aiBusy = true; _msg = null; _starReason = null; _drinkStars = null;
+        try
+        {
+            var portion = _drink.Ounces is { } oz ? $"{oz:0.#} oz" : null;
+            var macros = _drink.Calories is { } c ? $"{c} kcal, {_drink.ProteinG ?? 0:0}g protein, {_drink.CarbsG ?? 0:0}g carbs, {_drink.SugarG ?? 0:0}g sugar, {_drink.SodiumMg ?? 0}mg sodium" : null;
+            var s = await Coach.SuggestMealTagsAsync("Drink", _drink.Description!, portion, _tagVocab, macros);
+            _drink.Tags = ApplyAiTags(_drink.Tags, s, _drinkAiTags);
+            _drinkStars = s.Stars; _starReason = s.StarReason;
+            _advice = null;
+            if (s.Known.Count == 0 && string.IsNullOrWhiteSpace(s.Proposed) && s.Stars is null)
+                _msg = "The AI didn't return any suggestions.";
+        }
+        catch (Exception ex) { _msg = "AI request failed: " + ex.Message; }
+        finally { _aiBusy = false; }
+    }
+
     // ---- meals ----
-    private void AddMeal() { _meal = new MealDraft { Time = DateTime.Now }; _msg = null; }
-    private void EditMeal(Meal m) { _meal = MealDraft.From(m); _msg = null; }
+    private void AddMeal() { _meal = new MealDraft { Time = DateTime.Now }; _msg = null; _starReason = null; _mealAiTags.Clear(); }
+    private void EditMeal(Meal m) { _meal = MealDraft.From(m); _msg = null; _starReason = null; _mealAiTags.Clear(); }
     private void RepeatFood(ChangeEventArgs e)
     {
         if (_meal is null || e.Value?.ToString() is not { Length: > 0 } name || !_foodMemory.TryGetValue(name, out var src)) return;
@@ -231,8 +444,8 @@
     }
 
     // ---- drinks ----
-    private void AddDrink() { _drink = new DrinkDraft { Time = DateTime.Now }; _msg = null; }
-    private void EditDrink(Drink d) { _drink = DrinkDraft.From(d); _msg = null; }
+    private void AddDrink() { _drink = new DrinkDraft { Time = DateTime.Now }; _msg = null; _drinkStars = null; _starReason = null; _drinkAiTags.Clear(); }
+    private void EditDrink(Drink d) { _drink = DrinkDraft.From(d); _msg = null; _drinkStars = null; _starReason = null; _drinkAiTags.Clear(); }
     private void RepeatDrink(ChangeEventArgs e)
     {
         if (_drink is null || e.Value?.ToString() is not { Length: > 0 } name || !_drinkMemory.TryGetValue(name, out var src)) return;
