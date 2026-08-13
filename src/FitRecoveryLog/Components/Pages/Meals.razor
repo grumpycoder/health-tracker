@@ -201,9 +201,27 @@
                 </div>
             </div>
         }
-        else if (_meal.Calories is not null || _meal.SugarG is not null || _meal.ProteinG is not null)
+        else if (MealHasMacros)
         {
-            <p class="muted" style="font-size:0.8rem">@MacroLine(_meal)</p>
+            <div class="meal-build">
+                @if (_mealComponents.Count > 0)
+                {
+                    <div class="build-head">
+                        <span class="muted" style="font-size:0.75rem">Building this meal — @_mealComponents.Count item@(_mealComponents.Count == 1 ? "" : "s")</span>
+                    </div>
+                    <ul class="build-items">
+                        @foreach (var name in _mealComponents)
+                        {
+                            <li><span class="entry">@name</span></li>
+                        }
+                    </ul>
+                }
+                <p class="muted" style="font-size:0.8rem;margin:0.2rem 0">@MacroLine(_meal)</p>
+                <div class="chip-row">
+                    <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanLabel(_captureSupported)">➕ Scan another label</button>
+                    <button type="button" class="link-btn" @onclick="ClearMealBuild">Clear</button>
+                </div>
+            </div>
         }
 
         @TagField(_mealTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealTagBox, _mealTagOptions, _meal.MealType.ToString(), _meal.Description, _meal.PortionNote, _meal), showStars: true)
@@ -686,6 +704,8 @@
     private double DayProtein => NutritionMath.Protein(_todayMeals, _todayDrinks);
     private double DaySodium => NutritionMath.Sodium(_todayMeals, _todayDrinks);
     private double DaySugar => NutritionMath.Sugar(_todayMeals, _todayDrinks);
+    private List<string> _mealComponents = new();   // names of the labels/foods added to the meal being built (multi-scan)
+    private string? _mealAutoDesc;                   // last description we auto-filled from components, so typed text wins
     private bool HasNutritionData => NutritionMath.HasData(_todayMeals, _todayDrinks);
 
     private int WorkoutKcal   // MET ~5 strength, scaled by body weight
@@ -765,6 +785,8 @@
     }
 
     private static List<string> Suggest(List<string> lib, string? query)
+            // Seed the build list so a follow-up scan reads as "<this food> + <scan>".
+            _mealComponents = new() { name };
     {
         var q = (query ?? "").Trim();
         return (q.Length == 0
@@ -1195,12 +1217,47 @@
         return string.Join(" · ", parts);
     }
 
+        // Track the components building this meal so the multi-scan flow is visible. "Add" appends;
+        // "Replace"/first apply starts the list fresh.
+        var comp = ComponentName();
+        if (add) _mealComponents.Add(comp); else _mealComponents = new() { comp };
+        // Auto-name the meal from its components until the user types their own name.
+        if (string.IsNullOrWhiteSpace(_meal.Description)
+            || string.Equals(_meal.Description.Trim(), _mealAutoDesc?.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            _meal.Description = string.Join(" + ", _mealComponents);
+            _mealAutoDesc = _meal.Description;
+        }
+
     /// <summary>Scan a drink's Nutrition Facts label → per-serving macros + tags for review.</summary>
     private async Task ScanDrinkLabel(bool camera)
     {
         _drinkScanMsg = null;
         if (!_hasAiKey) { _drinkScanMsg = "Set a Gemini API key in Settings to scan labels."; return; }
         _scanBusy = true;
+    /// <summary>Reset the multi-scan build (macros + component list). Keeps the meal type and a
+    /// name the user typed themselves; clears an auto-generated name.</summary>
+    private void ClearMealBuild()
+    {
+        _meal.Calories = null; _meal.ProteinG = null; _meal.CarbsG = null; _meal.SugarG = null;
+        _meal.FatG = null; _meal.SodiumMg = null; _meal.FiberG = null; _meal.AddedSugarG = null;
+        _mealComponents = new();
+        _pendingMealItems = new();
+        if (string.Equals(_meal.Description?.Trim(), _mealAutoDesc?.Trim(), StringComparison.OrdinalIgnoreCase))
+            _meal.Description = "";
+        _mealAutoDesc = null;
+        _scanMsg = null;
+    }
+
+    /// <summary>A short label for the just-scanned component, for the "building this meal" list.</summary>
+    private string ComponentName()
+    {
+        if (_scan is not { } f) return "Item";
+        if (!string.IsNullOrWhiteSpace(f.FoodDescription)) return f.FoodDescription!.Trim();
+        if (f.Items.Count > 0) return string.Join(", ", f.Items.Select(i => i.Name));
+        return $"Item {_mealComponents.Count + 1}";
+    }
+
         try
         {
             var jpeg = await CapturePhotoAsync(camera);
@@ -1608,6 +1665,7 @@
 
         // Separate vocabularies: each = its starter tags + custom tags already used
         // on that entry type, so meal and drink chips don't bleed into each other.
+        _mealComponents = new(); _mealAutoDesc = null;
         // Exclude the OTHER type's starter tags from used tags, so cross-tagged
         // historical entries (back when the vocabulary was shared) don't bleed in.
         var usedMealTags = (await db.MealEntries.Select(m => m.Tags).ToListAsync()).SelectMany(CsvField.Split)

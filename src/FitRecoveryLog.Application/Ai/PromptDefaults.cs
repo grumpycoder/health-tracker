@@ -129,7 +129,7 @@ Respond with ONLY a JSON object:
     public const string ReadLabel =
 """
 Read a packaged-food Nutrition Facts label from this photo AND tag/rate the food. Extract the values for ONE serving as printed. Respond with ONLY this JSON object (null for anything not legible):
-{ "servingSize": "<as printed>", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "addedSugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num>, "tags": ["<existing tags that apply>"], "newTag": "<one new tag or null>", "stars": <1-5>, "starReason": "<=8 words, encouraging>" }
+{ "foodDescription": "<short product name, e.g. 'Greek yogurt' or 'whey protein'>", "servingSize": "<as printed>", "calories": <int>, "proteinG": <num>, "carbsG": <num>, "sugarG": <num>, "addedSugarG": <num>, "fatG": <num>, "sodiumMg": <int>, "fiberG": <num>, "tags": ["<existing tags that apply>"], "newTag": "<one new tag or null>", "stars": <1-5>, "starReason": "<=8 words, encouraging>" }
 Use 'Total Sugars' for sugarG, 'Includes Xg Added Sugars' for addedSugarG (null if not listed), and 'Total Fat' for fatG. Numbers only — strip units. If the image is not a nutrition label, return all nulls. Base tags and the star rating on the ACTUAL macros you read (per serving), not guesses.
 """;
 
