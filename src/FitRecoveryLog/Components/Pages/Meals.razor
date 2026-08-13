@@ -1681,3 +1681,5 @@
     private static string Pretty(string camel) =>
         System.Text.RegularExpressions.Regex.Replace(camel, "(?<=.)([A-Z])", " $1");
 }
+        var hiddenFoods = HiddenFoods.Load();
+            .Where(s => !hiddenFoods.Contains(s))

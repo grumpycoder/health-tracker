@@ -1,0 +1,160 @@
+@page "/saved-foods"
+@using FitRecoveryLog.Services
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ToastService Toast
+
+<PageTitle>Saved foods</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Saved foods</div>
+        <div class="dash-date-sub">Rename to merge duplicates · hide to declutter suggestions</div>
+    </header>
+
+    <section class="card">
+        <div class="field">
+            <input value="@_filter" @oninput="e => _filter = e.Value?.ToString() ?? string.Empty"
+                   placeholder="Filter foods…" />
+        </div>
+        @if (_loading)
+        {
+            <p class="muted">Loading…</p>
+        }
+        else if (Filtered.Count == 0)
+        {
+            <p class="muted">No foods logged yet.</p>
+        }
+        else
+        {
+            <ul class="timeline">
+                @foreach (var f in Filtered)
+                {
+                    var name = f.Name;
+                    <li>
+                        <div class="meas-item">
+                            @if (_renaming == name)
+                            {
+                                <div class="edit-exercise" style="width:100%">
+                                    <div class="field">
+                                        <label>Rename — updates all @f.Count log(s)</label>
+                                        <input @bind="_renameTo" />
+                                    </div>
+                                    <div class="routine-actions">
+                                        <button class="save-btn" @onclick="() => CommitRename(name)">Save</button>
+                                        <button class="link-btn" @onclick="() => _renaming = null">Cancel</button>
+                                    </div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="ex-row">
+                                    <div>
+                                        <span class="entry">
+                                            <strong>@name</strong>
+                                            @if (_hidden.Contains(name))
+                                            {
+                                                <span class="muted" style="font-size:0.72rem"> · hidden</span>
+                                            }
+                                        </span>
+                                        <span class="muted" style="display:block;font-size:0.75rem">
+                                            @f.Count log@(f.Count == 1 ? "" : "s") · last @f.LastUsed.ToString("MMM d, yyyy")
+                                        </span>
+                                    </div>
+                                    <div class="routine-actions">
+                                        <button class="icon-action" title="Rename" aria-label="Rename"
+                                                @onclick="() => StartRename(name)">✏️</button>
+                                        @if (_hidden.Contains(name))
+                                        {
+                                            <button class="icon-action" title="Show in suggestions" aria-label="Unhide"
+                                                    @onclick="() => ToggleHide(name)">👁</button>
+                                        }
+                                        else
+                                        {
+                                            <button class="icon-action" title="Hide from suggestions" aria-label="Hide"
+                                                    @onclick="() => ToggleHide(name)">🙈</button>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+</div>
+
+@code {
+    private sealed record Food(string Name, int Count, DateTime LastUsed);
+
+    private List<Food> _foods = new();
+    private HashSet<string> _hidden = new(StringComparer.OrdinalIgnoreCase);
+    private string _filter = "";
+    private string? _renaming;
+    private string _renameTo = "";
+    private bool _loading = true;
+
+    private List<Food> Filtered =>
+        string.IsNullOrWhiteSpace(_filter)
+            ? _foods
+            : _foods.Where(f => f.Name.Contains(_filter.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _hidden = HiddenFoods.Load();
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var rows = await db.MealEntries
+            .Select(m => new { m.Description, m.Time })
+            .ToListAsync();
+        _foods = rows
+            .Where(r => !string.IsNullOrWhiteSpace(r.Description))
+            .GroupBy(r => r.Description.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => new Food(g.Key, g.Count(), g.Max(x => x.Time)))
+            .OrderByDescending(f => f.LastUsed)
+            .ToList();
+        _loading = false;
+    }
+
+    private void StartRename(string name)
+    {
+        _renaming = name;
+        _renameTo = name;
+    }
+
+    private async Task CommitRename(string oldName)
+    {
+        var target = _renameTo.Trim();
+        _renaming = null;
+        if (string.IsNullOrWhiteSpace(target) || string.Equals(target, oldName, StringComparison.Ordinal))
+            return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        // Match trim/case-insensitively so casing or whitespace variants merge too.
+        var all = await db.MealEntries.ToListAsync();
+        var matches = all
+            .Where(m => string.Equals(m.Description?.Trim(), oldName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        foreach (var m in matches) m.Description = target;
+        await db.SaveChangesAsync();   // stamps UpdatedAt so the rename syncs when the cloud is available
+
+        // Carry a hide flag over to the new name so a merge doesn't un-hide it.
+        if (_hidden.Remove(oldName)) { _hidden.Add(target); HiddenFoods.Save(_hidden); }
+
+        _ = Toast.Show($"Renamed {matches.Count} log(s) → “{target}”");
+        await Load();
+    }
+
+    private void ToggleHide(string name)
+    {
+        if (!_hidden.Remove(name)) _hidden.Add(name);
+        HiddenFoods.Save(_hidden);
+        _ = Toast.Show(_hidden.Contains(name) ? $"“{name}” hidden from suggestions" : $"“{name}” shown again");
+    }
+}
