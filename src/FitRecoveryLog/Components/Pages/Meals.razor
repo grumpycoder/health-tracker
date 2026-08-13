@@ -61,6 +61,38 @@
         </Collapsible>
     }
 
+    @if (_lunchIdeas.Count > 0 && _meal.MealType == MealType.Lunch)
+    {
+        <section class="card">
+            <h2>🍱 Leftover lunch ideas</h2>
+            <p class="muted" style="margin:0 0 0.5rem;font-size:0.8rem">
+                From the last 5 days' dinners — these fit today's @(_viewDayActive ? "active" : "rest")-day budget and still leave room for dinner.
+            </p>
+            <ul class="timeline">
+                @foreach (var idea in _lunchIdeas)
+                {
+                    var d = idea;
+                    <li>
+                        <div class="meas-item">
+                            <div class="ex-row">
+                                <div>
+                                    <span class="entry"><strong>@d.Description</strong></span>
+                                    @if (MacroLine(d) is { Length: > 0 } ml)
+                                    {
+                                        <span class="muted" style="display:block;font-size:0.75rem">@ml</span>
+                                    }
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="save-btn" @onclick="() => LogLeftoverAsLunch(d)">Log as lunch</button>
+                                </div>
+                            </div>
+                        </div>
+                    </li>
+                }
+            </ul>
+        </section>
+    }
+
     <section class="card">
         <h2>Log meal / snack</h2>
         <div class="field">
@@ -672,6 +704,8 @@
     private List<double> _itemPct = new();   // per-item "how much I ate" fraction (plate estimate), drives the live total
     private List<MealItemPortion> _pendingMealItems = new();   // plate breakdown to persist with the meal being logged
     private List<MealItemPortion> _mealEditItems = new();      // the editing meal's breakdown (sliders on the edit screen)
+    private List<string> _mealComponents = new();   // names of the labels/foods added to the meal being built (multi-scan)
+    private string? _mealAutoDesc;                   // last description we auto-filled from components, so typed text wins
     private bool _scanIsEstimate;                   // true = plate estimate, false = label read
     private byte[]? _plateJpeg;                     // plate photo kept in-memory for re-estimate
     private string _plateHint = "";                 // user correction fed back to the estimator
@@ -704,8 +738,6 @@
     private double DayProtein => NutritionMath.Protein(_todayMeals, _todayDrinks);
     private double DaySodium => NutritionMath.Sodium(_todayMeals, _todayDrinks);
     private double DaySugar => NutritionMath.Sugar(_todayMeals, _todayDrinks);
-    private List<string> _mealComponents = new();   // names of the labels/foods added to the meal being built (multi-scan)
-    private string? _mealAutoDesc;                   // last description we auto-filled from components, so typed text wins
     private bool HasNutritionData => NutritionMath.HasData(_todayMeals, _todayDrinks);
 
     private int WorkoutKcal   // MET ~5 strength, scaled by body weight
@@ -753,6 +785,8 @@
             // Carry macros + star rating forward — a repeat needs no AI call.
             _meal.Calories = d.Calories; _meal.ProteinG = d.ProteinG; _meal.CarbsG = d.CarbsG;
             _meal.SugarG = d.SugarG; _meal.FatG = d.FatG; _meal.SodiumMg = d.SodiumMg; _meal.FiberG = d.FiberG;
+            // Seed the build list so a follow-up scan reads as "<this food> + <scan>".
+            _mealComponents = new() { name };
             if (d.Stars is not null)
             {
                 _mealTagBox.Stars = d.Stars;
@@ -785,8 +819,6 @@
     }
 
     private static List<string> Suggest(List<string> lib, string? query)
-            // Seed the build list so a follow-up scan reads as "<this food> + <scan>".
-            _mealComponents = new() { name };
     {
         var q = (query ?? "").Trim();
         return (q.Length == 0
@@ -1185,10 +1217,133 @@
         }
         else if (!add) _pendingMealItems = new();
 
+        // Track the components building this meal so the multi-scan flow is visible. "Add" appends;
+        // "Replace"/first apply starts the list fresh.
+        var comp = ComponentName();
+        if (add) _mealComponents.Add(comp); else _mealComponents = new() { comp };
+        // Auto-name the meal from its components until the user types their own name.
+        if (string.IsNullOrWhiteSpace(_meal.Description)
+            || string.Equals(_meal.Description.Trim(), _mealAutoDesc?.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            _meal.Description = string.Join(" + ", _mealComponents);
+            _mealAutoDesc = _meal.Description;
+        }
+
         _scan = null; _plateJpeg = null; _plateHint = ""; _plateAutoDesc = null;
         _scanMsg = add ? "Added to meal ✓" : "Macros applied ✓";
 
         static double? MulN(double? v, double n) => v is double d ? Math.Round(d * n, 1) : null;
+    }
+
+    /// <summary>A short label for the just-scanned component, for the "building this meal" list.</summary>
+    private string ComponentName()
+    {
+        if (_scan is not { } f) return "Item";
+        if (!string.IsNullOrWhiteSpace(f.FoodDescription)) return f.FoodDescription!.Trim();
+        if (f.Items.Count > 0) return string.Join(", ", f.Items.Select(i => i.Name));
+        return $"Item {_mealComponents.Count + 1}";
+    }
+
+    // Leftover-dinner → lunch suggestions for today (deterministic; recomputed on each load).
+    private List<MealEntry> _lunchIdeas = new();
+
+    /// <summary>Rank recent dinners that fit today's lunch: within the day-type calorie/carb
+    /// ceiling AFTER what's already logged AND after reserving a typical dinner, so lunch doesn't
+    /// front-load the day. Ranks by how well each closes the protein gap. Today-only.</summary>
+    private void ComputeLunchIdeas(List<MealEntry> recentDinners)
+    {
+        _lunchIdeas = new();
+        if (_viewDate != DateTime.Now.Date) return;                          // leftovers are for *today*
+        if (_todayMeals.Any(m => m.MealType == MealType.Lunch)) return;      // lunch already logged
+
+        var calCeil = NutritionGoals.GetDay(NutritionGoals.Calories, _viewDayActive).Max;
+        var carbCeil = NutritionGoals.GetDay(NutritionGoals.Carbs, _viewDayActive).Max;
+        if (calCeil <= 0 && carbCeil <= 0) return;                           // no ceiling to reason about
+        var protein = NutritionGoals.Get(NutritionGoals.Protein);
+        var fatMax = NutritionGoals.Get(NutritionGoals.Fat).Max;
+
+        double loggedCal = NutritionMath.Calories(_todayMeals, _todayDrinks);
+        double loggedCarb = NutritionMath.Carbs(_todayMeals, _todayDrinks);
+        double loggedProtein = NutritionMath.Protein(_todayMeals, _todayDrinks);
+        double loggedFat = NutritionMath.Fat(_todayMeals, _todayDrinks);
+
+        var dinners = recentDinners
+            .Where(m => !string.IsNullOrWhiteSpace(m.Description))
+            .GroupBy(m => m.Description.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.OrderByDescending(x => x.Time).First())
+            .ToList();
+        if (dinners.Count == 0) return;
+
+        // Reserve a typical dinner for tonight = average of recent dinners (fallback ~35% of ceiling).
+        double reserveCal = Avg(dinners, d => d.Calories) ?? (calCeil > 0 ? calCeil * 0.35 : 0);
+        double reserveCarb = Avg(dinners, d => d.CarbsG) ?? (carbCeil > 0 ? carbCeil * 0.35 : 0);
+        double lunchCalBudget = calCeil > 0 ? calCeil - loggedCal - reserveCal : double.MaxValue;
+        double lunchCarbBudget = carbCeil > 0 ? carbCeil - loggedCarb - reserveCarb : double.MaxValue;
+        double proteinGap = protein.Max > 0 ? Math.Max(0, protein.Min - loggedProtein) : 0;
+
+        var fits = new List<(MealEntry Meal, double Score)>();
+        foreach (var d in dinners)
+        {
+            if (d.Calories is null && d.CarbsG is null) continue;            // nothing to judge
+            double cal = d.Calories ?? 0, carb = d.CarbsG ?? 0, pro = d.ProteinG ?? 0, fat = d.FatG ?? 0;
+            if (calCeil > 0 && cal > lunchCalBudget) continue;              // leaves room for dinner
+            if (carbCeil > 0 && carb > lunchCarbBudget) continue;
+            if (protein.Max > 0 && loggedProtein + pro > protein.Max) continue;
+            if (fatMax > 0 && loggedFat + fat > fatMax) continue;
+            fits.Add((d, proteinGap > 0 ? Math.Min(pro, proteinGap) : pro));
+        }
+        // Recency-first: last night's leftover is the most relevant; protein-fit breaks ties.
+        _lunchIdeas = fits
+            .OrderByDescending(x => x.Meal.Time).ThenByDescending(x => x.Score)
+            .Take(3).Select(x => x.Meal).ToList();
+
+        static double? Avg(List<MealEntry> ds, Func<MealEntry, double?> sel)
+        {
+            var vals = ds.Select(sel).Where(v => v is not null).Select(v => v!.Value).ToList();
+            return vals.Count == 0 ? null : vals.Average();
+        }
+    }
+
+    /// <summary>One-tap: clone a recent dinner into a Lunch entry for today (macros + breakdown).</summary>
+    private async Task LogLeftoverAsLunch(MealEntry source)
+    {
+        var lunch = new MealEntry
+        {
+            Time = DateTime.Now,
+            MealType = MealType.Lunch,
+            Description = source.Description,
+            PortionNote = source.PortionNote,
+            Tags = source.Tags,
+            QualityStars = source.QualityStars,
+            Calories = source.Calories, ProteinG = source.ProteinG, CarbsG = source.CarbsG,
+            SugarG = source.SugarG, FatG = source.FatG, SodiumMg = source.SodiumMg,
+            FiberG = source.FiberG, AddedSugarG = source.AddedSugarG,
+            Satiety = Satiety.Satisfied,
+        };
+        var result = await MealSvc.CreateAsync(MealToData(lunch));
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
+        if (!string.IsNullOrWhiteSpace(source.ItemsJson))
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.MealEntries.FindAsync(result.Value);
+            if (row is not null) { row.ItemsJson = source.ItemsJson; await db.SaveChangesAsync(); }
+        }
+        await LoadToday();
+        _ = Toast.Show("Logged as lunch ✓");
+    }
+
+    /// <summary>Reset the multi-scan build (macros + component list). Keeps the meal type and a
+    /// name the user typed themselves; clears an auto-generated name.</summary>
+    private void ClearMealBuild()
+    {
+        _meal.Calories = null; _meal.ProteinG = null; _meal.CarbsG = null; _meal.SugarG = null;
+        _meal.FatG = null; _meal.SodiumMg = null; _meal.FiberG = null; _meal.AddedSugarG = null;
+        _mealComponents = new();
+        _pendingMealItems = new();
+        if (string.Equals(_meal.Description?.Trim(), _mealAutoDesc?.Trim(), StringComparison.OrdinalIgnoreCase))
+            _meal.Description = "";
+        _mealAutoDesc = null;
+        _scanMsg = null;
     }
 
     private static string MacroLine(MealEntry m)
@@ -1217,47 +1372,12 @@
         return string.Join(" · ", parts);
     }
 
-        // Track the components building this meal so the multi-scan flow is visible. "Add" appends;
-        // "Replace"/first apply starts the list fresh.
-        var comp = ComponentName();
-        if (add) _mealComponents.Add(comp); else _mealComponents = new() { comp };
-        // Auto-name the meal from its components until the user types their own name.
-        if (string.IsNullOrWhiteSpace(_meal.Description)
-            || string.Equals(_meal.Description.Trim(), _mealAutoDesc?.Trim(), StringComparison.OrdinalIgnoreCase))
-        {
-            _meal.Description = string.Join(" + ", _mealComponents);
-            _mealAutoDesc = _meal.Description;
-        }
-
     /// <summary>Scan a drink's Nutrition Facts label → per-serving macros + tags for review.</summary>
     private async Task ScanDrinkLabel(bool camera)
     {
         _drinkScanMsg = null;
         if (!_hasAiKey) { _drinkScanMsg = "Set a Gemini API key in Settings to scan labels."; return; }
         _scanBusy = true;
-    /// <summary>Reset the multi-scan build (macros + component list). Keeps the meal type and a
-    /// name the user typed themselves; clears an auto-generated name.</summary>
-    private void ClearMealBuild()
-    {
-        _meal.Calories = null; _meal.ProteinG = null; _meal.CarbsG = null; _meal.SugarG = null;
-        _meal.FatG = null; _meal.SodiumMg = null; _meal.FiberG = null; _meal.AddedSugarG = null;
-        _mealComponents = new();
-        _pendingMealItems = new();
-        if (string.Equals(_meal.Description?.Trim(), _mealAutoDesc?.Trim(), StringComparison.OrdinalIgnoreCase))
-            _meal.Description = "";
-        _mealAutoDesc = null;
-        _scanMsg = null;
-    }
-
-    /// <summary>A short label for the just-scanned component, for the "building this meal" list.</summary>
-    private string ComponentName()
-    {
-        if (_scan is not { } f) return "Item";
-        if (!string.IsNullOrWhiteSpace(f.FoodDescription)) return f.FoodDescription!.Trim();
-        if (f.Items.Count > 0) return string.Join(", ", f.Items.Select(i => i.Name));
-        return $"Item {_mealComponents.Count + 1}";
-    }
-
         try
         {
             var jpeg = await CapturePhotoAsync(camera);
@@ -1545,6 +1665,7 @@
         _meal = NewMeal();
         _mealTagBox.Reset();
         _remindFullness = false;
+        _mealComponents = new(); _mealAutoDesc = null;
         _scan = null; _scanMsg = null; _scanServings = 1; _scanIsEstimate = false;
         _plateJpeg = null; _plateHint = "";
         await LoadToday();
@@ -1610,6 +1731,13 @@
         var dayType = (await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == viewDate))?.DayType ?? DayType.Unset;
         _viewDayActive = dayType is DayType.Workout or DayType.HighWorkload;
 
+        // Leftover-lunch ideas: recent dinners that fit today's remaining budget with room for dinner.
+        var since = start.AddDays(-5);
+        var recentDinners = await db.MealEntries
+            .Where(m => m.MealType == MealType.Dinner && m.Time >= since && m.Time < start)
+            .ToListAsync();
+        ComputeLunchIdeas(recentDinners);
+
         // Build typeahead libraries: seed list + every distinct food/drink logged.
         var mealRows = await db.MealEntries.OrderByDescending(m => m.Time)
             .Select(m => new { m.Description, m.PortionNote, m.Tags, m.Calories, m.ProteinG,
@@ -1626,8 +1754,10 @@
                 return new FoodMemory(f.PortionNote, f.Tags, f.Calories, f.ProteinG,
                     f.CarbsG, f.SugarG, f.FatG, f.SodiumMg, f.FiberG, f.QualityStars);
             }, StringComparer.OrdinalIgnoreCase);
+        var hiddenFoods = HiddenFoods.Load();
         _foodLib = CommonFoods.Concat(loggedFoods)
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
+            .Where(s => !hiddenFoods.Contains(s))
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
         var drinkRows = await db.DrinkEntries
             .OrderByDescending(d => d.Time)
@@ -1665,7 +1795,6 @@
 
         // Separate vocabularies: each = its starter tags + custom tags already used
         // on that entry type, so meal and drink chips don't bleed into each other.
-        _mealComponents = new(); _mealAutoDesc = null;
         // Exclude the OTHER type's starter tags from used tags, so cross-tagged
         // historical entries (back when the vocabulary was shared) don't bleed in.
         var usedMealTags = (await db.MealEntries.Select(m => m.Tags).ToListAsync()).SelectMany(CsvField.Split)
@@ -1681,5 +1810,3 @@
     private static string Pretty(string camel) =>
         System.Text.RegularExpressions.Regex.Replace(camel, "(?<=.)([A-Z])", " $1");
 }
-        var hiddenFoods = HiddenFoods.Load();
-            .Where(s => !hiddenFoods.Contains(s))
