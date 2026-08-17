@@ -476,14 +476,25 @@ else // Feedback
             _exercises.Add(vm);
         }
 
-        // Circuit queue: one set of each exercise per round, in routine order.
+        // Build the step queue in the routine's chosen order.
         _steps.Clear();
         _stepIndex = 0;
-        var rounds = _exercises.Count == 0 ? 0 : _exercises.Max(e => e.Sets.Count);
-        for (var round = 0; round < rounds; round++)
+        if (routine.ExecutionMode == RoutineExecutionMode.Circuit)
+        {
+            // Circuit: one set of each exercise per round, rotating (A1,B1,C1,A2,B2,C2…).
+            var rounds = _exercises.Count == 0 ? 0 : _exercises.Max(e => e.Sets.Count);
+            for (var round = 0; round < rounds; round++)
+                foreach (var ex in _exercises)
+                    if (round < ex.Sets.Count)
+                        _steps.Add(new StepVM { Ex = ex, Set = ex.Sets[round] });
+        }
+        else
+        {
+            // Straight sets: all sets of one exercise, then the next (A1,A2,A3,B1,B2,B3…).
             foreach (var ex in _exercises)
-                if (round < ex.Sets.Count)
-                    _steps.Add(new StepVM { Ex = ex, Set = ex.Sets[round] });
+                foreach (var set in ex.Sets)
+                    _steps.Add(new StepVM { Ex = ex, Set = set });
+        }
 
         _routineId = routine.Id;
         _routineName = routine.Name;

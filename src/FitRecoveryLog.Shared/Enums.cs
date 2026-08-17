@@ -17,6 +17,15 @@ public enum ExerciseMeasure
     Duration
 }
 
+/// <summary>Order sets are performed in when running a routine.</summary>
+public enum RoutineExecutionMode
+{
+    /// <summary>All sets of one exercise, then the next exercise (A1,A2,A3,B1,B2,B3…).</summary>
+    StraightSets = 0,
+    /// <summary>One set of each exercise per round, rotating (A1,B1,C1,A2,B2,C2…).</summary>
+    Circuit = 1
+}
+
 public enum ReminderRepeat
 {
     Once = 0,

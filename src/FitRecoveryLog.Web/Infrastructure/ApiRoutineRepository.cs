@@ -52,6 +52,7 @@ public sealed class ApiRoutineRepository : IRoutineRepository
             Name = routine.Name,
             Notes = routine.Notes,
             Archived = routine.Archived,
+            ExecutionMode = (Persistence.RoutineExecutionMode)(int)routine.ExecutionMode,
             CreatedAt = existing?.CreatedAt ?? DateTime.UtcNow,
         });
 
@@ -103,6 +104,7 @@ public sealed class ApiRoutineRepository : IRoutineRepository
 
     private static Routine ToDomain(Persistence.WorkoutRoutine row, IEnumerable<Persistence.RoutineExercise> exercises) =>
         Routine.Rehydrate(row.Id, row.Name, row.Notes, row.Archived,
+            (FitRecoveryLog.Domain.Workouts.RoutineExecutionMode)(int)row.ExecutionMode,
             exercises.Select(e => FitRecoveryLog.Domain.Workouts.RoutineExercise.Rehydrate(
                 e.Id, e.ExerciseDefinitionId, e.Order,
                 new ExercisePrescription(e.TargetSets, e.TargetReps, e.TargetDurationSeconds,

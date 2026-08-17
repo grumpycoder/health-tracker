@@ -14,24 +14,28 @@ public sealed class Routine
     public string Name { get; private set; }
     public string? Notes { get; private set; }
     public bool Archived { get; private set; }
+    /// <summary>Order sets are performed in (straight sets vs circuit). Defaults to straight sets.</summary>
+    public RoutineExecutionMode ExecutionMode { get; private set; }
 
     /// <summary>The routine's exercises, always in ascending prescribed order.</summary>
     public IReadOnlyList<RoutineExercise> Exercises =>
         _exercises.OrderBy(e => e.Order).ToList();
 
-    private Routine(Guid id, string name, string? notes, bool archived, List<RoutineExercise> exercises)
+    private Routine(Guid id, string name, string? notes, bool archived, RoutineExecutionMode executionMode,
+                    List<RoutineExercise> exercises)
     {
         Id = id;
         Name = name;
         Notes = notes;
         Archived = archived;
+        ExecutionMode = executionMode;
         _exercises = exercises;
     }
 
     /// <summary>Create a new routine. Name is required.</summary>
     public static Routine Create(string name, string? notes = null)
     {
-        var routine = new Routine(Guid.NewGuid(), "", null, false, new List<RoutineExercise>());
+        var routine = new Routine(Guid.NewGuid(), "", null, false, RoutineExecutionMode.StraightSets, new List<RoutineExercise>());
         routine.Rename(name);
         routine.SetNotes(notes);
         return routine;
@@ -40,11 +44,11 @@ public sealed class Routine
     /// <summary>Reconstruct a routine from persisted state (used by repositories). Orders are
     /// normalized so stored gaps/dupes can't violate the invariant.</summary>
     public static Routine Rehydrate(Guid id, string name, string? notes, bool archived,
-                                    IEnumerable<RoutineExercise> exercises)
+                                    RoutineExecutionMode executionMode, IEnumerable<RoutineExercise> exercises)
     {
         if (id == Guid.Empty) throw new ArgumentException("Id is required.", nameof(id));
         var routine = new Routine(id, name, string.IsNullOrWhiteSpace(notes) ? null : notes,
-            archived, exercises.OrderBy(e => e.Order).ToList());
+            archived, executionMode, exercises.OrderBy(e => e.Order).ToList());
         routine.Normalize();
         return routine;
     }
@@ -60,6 +64,8 @@ public sealed class Routine
 
     public void Archive() => Archived = true;
     public void Restore() => Archived = false;
+
+    public void SetExecutionMode(RoutineExecutionMode mode) => ExecutionMode = mode;
 
     /// <summary>Append an exercise; it takes the next order slot. Returns its id.</summary>
     public Guid AddExercise(Guid exerciseDefinitionId, ExercisePrescription prescription)

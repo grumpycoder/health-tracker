@@ -296,6 +296,13 @@
 
             <div style="margin-top:0.9rem">
                 <div class="field">
+                    <label>Set order</label>
+                    <select value="@r.ExecutionMode" @onchange="@(e => SetMode(r, e.Value))">
+                        <option value="@RoutineExecutionMode.StraightSets">Straight sets — all sets, then next exercise</option>
+                        <option value="@RoutineExecutionMode.Circuit">Circuit — one set of each, rotating</option>
+                    </select>
+                </div>
+                <div class="field">
                     <label>Routine name</label>
                     <input @bind="_renameDraft" />
                 </div>
@@ -596,6 +603,14 @@
         if (!result.IsSuccess) { await Toast.Show(result.Error!); return; }
         _editId = null;
         if (_expandedId == r.Id) _expandedId = null;
+        await Load();
+    }
+
+    private async Task SetMode(WorkoutRoutine r, object? value)
+    {
+        if (!Enum.TryParse<RoutineExecutionMode>(value?.ToString(), out var mode) || mode == r.ExecutionMode) return;
+        var result = await RoutineSvc.SetExecutionModeAsync(r.Id, (FitRecoveryLog.Domain.Workouts.RoutineExecutionMode)(int)mode);
+        if (!result.IsSuccess) { await Toast.Show(result.Error!); return; }
         await Load();
     }
 

@@ -114,6 +114,13 @@ else
                         <button class="btn btn-outline-primary" @onclick="SaveNotes" disabled="@_busy">Save</button>
                     </div>
                 </div>
+                <div class="col-md-8">
+                    <label class="form-label mb-0"><small>Set order</small></label>
+                    <select class="form-select form-select-sm" value="@open.ExecutionMode" @onchange="SetMode" disabled="@_busy">
+                        <option value="@RoutineExecutionMode.StraightSets">Straight sets — all sets, then next exercise</option>
+                        <option value="@RoutineExecutionMode.Circuit">Circuit — one set of each, rotating</option>
+                    </select>
+                </div>
             </div>
 
             <div class="table-responsive">
@@ -417,6 +424,10 @@ else
 
     private Task SaveName() => Run(() => RoutineSvc.RenameAsync(_openId!.Value, _nameDraft));
     private Task SaveNotes() => Run(() => RoutineSvc.SetNotesAsync(_openId!.Value, _notesDraft));
+    private Task SetMode(ChangeEventArgs e) =>
+        Enum.TryParse<RoutineExecutionMode>(e.Value?.ToString(), out var mode)
+            ? Run(() => RoutineSvc.SetExecutionModeAsync(_openId!.Value, mode))
+            : Task.CompletedTask;
     private Task Archive(Guid id) => Run(() => RoutineSvc.ArchiveAsync(id));
     private Task Restore(Guid id) => Run(() => RoutineSvc.RestoreAsync(id));
     private Task RemoveExercise(Guid reId) => Run(() => RoutineSvc.RemoveExerciseAsync(_openId!.Value, reId));

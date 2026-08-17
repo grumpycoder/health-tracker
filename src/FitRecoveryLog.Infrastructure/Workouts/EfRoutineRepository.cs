@@ -50,6 +50,7 @@ public sealed class EfRoutineRepository : IRoutineRepository
         row.Name = routine.Name;
         row.Notes = routine.Notes;
         row.Archived = routine.Archived;
+        row.ExecutionMode = (Persistence.RoutineExecutionMode)(int)routine.ExecutionMode;
 
         // Reconcile the child collection to match the aggregate.
         var keep = routine.Exercises.Select(e => e.Id).ToHashSet();
@@ -98,6 +99,7 @@ public sealed class EfRoutineRepository : IRoutineRepository
 
     private static Routine ToDomain(Persistence.WorkoutRoutine row) =>
         Routine.Rehydrate(row.Id, row.Name, row.Notes, row.Archived,
+            (FitRecoveryLog.Domain.Workouts.RoutineExecutionMode)(int)row.ExecutionMode,
             row.Exercises.Select(e => FitRecoveryLog.Domain.Workouts.RoutineExercise.Rehydrate(
                 e.Id, e.ExerciseDefinitionId, e.Order,
                 new ExercisePrescription(e.TargetSets, e.TargetReps, e.TargetDurationSeconds,

@@ -43,6 +43,9 @@ public sealed class RoutineService
     public Task<Result> RestoreAsync(Guid id, CancellationToken ct = default) =>
         MutateAsync(id, r => r.Restore(), ct);
 
+    public Task<Result> SetExecutionModeAsync(Guid id, RoutineExecutionMode mode, CancellationToken ct = default) =>
+        MutateAsync(id, r => r.SetExecutionMode(mode), ct);
+
     public Task<Result> RemoveExerciseAsync(Guid id, Guid routineExerciseId, CancellationToken ct = default) =>
         MutateAsync(id, r => r.RemoveExercise(routineExerciseId), ct);
 

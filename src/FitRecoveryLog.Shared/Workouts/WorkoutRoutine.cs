@@ -8,5 +8,7 @@ public class WorkoutRoutine : EntityBase
     /// <summary>Archived routines are kept (with their history) but hidden from the active
     /// routine list; they can be restored. Distinct from a soft-delete (<see cref="EntityBase.IsDeleted"/>).</summary>
     public bool Archived { get; set; }
+    /// <summary>Order sets are performed in when running this routine (straight sets vs circuit).</summary>
+    public RoutineExecutionMode ExecutionMode { get; set; } = RoutineExecutionMode.StraightSets;
     public List<RoutineExercise> Exercises { get; set; } = new();
 }

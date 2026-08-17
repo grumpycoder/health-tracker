@@ -110,7 +110,7 @@ public class RoutineTests
     {
         var e1 = RoutineExercise.Rehydrate(Guid.NewGuid(), Guid.NewGuid(), 5, ExercisePrescription.None);
         var e2 = RoutineExercise.Rehydrate(Guid.NewGuid(), Guid.NewGuid(), 20, ExercisePrescription.None);
-        var r = Routine.Rehydrate(Guid.NewGuid(), "Legs", null, false, new[] { e2, e1 });
+        var r = Routine.Rehydrate(Guid.NewGuid(), "Legs", null, false, RoutineExecutionMode.StraightSets, new[] { e2, e1 });
         Assert.That(r.Exercises.Select(e => e.Order), Is.EqualTo(new[] { 1, 2 }));
     }
 }
