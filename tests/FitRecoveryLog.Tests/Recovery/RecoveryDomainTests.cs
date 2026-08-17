@@ -61,14 +61,14 @@ public class RecoveryDomainTests
     {
         var m = Measurement.Create(Day);
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            m.Update(-1, null, null, null, null, null, null, null, null, null, null, null, null, null, null));
+            m.Update(-1, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null));
     }
 
     [Test]
     public void Measurement_StoresValues()
     {
         var m = Measurement.Create(Day);
-        m.Update(186.3, 37.25, null, null, 14.75, 22.5, 48.0, 15.5, 27.2, 88.2, 9, 54, 1648, 53, "shirts looser");
+        m.Update(186.3, 37.25, null, null, 14.75, null, 22.5, 48.0, 15.5, 27.2, 88.2, 9, 54, 1648, 53, "shirts looser");
         Assert.Multiple(() =>
         {
             Assert.That(m.WeightLbs, Is.EqualTo(186.3));

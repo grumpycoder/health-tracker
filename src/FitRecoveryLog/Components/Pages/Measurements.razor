@@ -76,8 +76,16 @@
                 <input type="number" inputmode="decimal" step="0.01" @bind="_entry.ChestInches" />
             </div>
             <div class="field">
+                <label>Hips (in)</label>
+                <input type="number" inputmode="decimal" step="0.01" @bind="_entry.HipsInches" />
+            </div>
+            <div class="field">
                 <label>Arms (in)</label>
                 <input type="number" inputmode="decimal" step="0.01" @bind="_entry.ArmsInches" />
+            </div>
+            <div class="field">
+                <label>Forearms (in)</label>
+                <input type="number" inputmode="decimal" step="0.01" @bind="_entry.ForearmsInches" />
             </div>
             <div class="field">
                 <label>Thighs (in)</label>
@@ -185,7 +193,11 @@
                                 </div>
                                 <div class="inline-fields">
                                     <div class="field"><label>Chest</label><input type="number" inputmode="decimal" step="0.01" @bind="_edit.ChestInches" /></div>
+                                    <div class="field"><label>Hips</label><input type="number" inputmode="decimal" step="0.01" @bind="_edit.HipsInches" /></div>
                                     <div class="field"><label>Arms</label><input type="number" inputmode="decimal" step="0.01" @bind="_edit.ArmsInches" /></div>
+                                </div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Forearms</label><input type="number" inputmode="decimal" step="0.01" @bind="_edit.ForearmsInches" /></div>
                                     <div class="field"><label>Thighs</label><input type="number" inputmode="decimal" step="0.01" @bind="_edit.ThighsInches" /></div>
                                 </div>
                                 <div class="inline-fields">
@@ -456,7 +468,8 @@
         _edit = new BodyMeasurement
         {
             WeightLbs = m.WeightLbs, WaistInches = m.WaistInches, ChestInches = m.ChestInches,
-            ArmsInches = m.ArmsInches, ThighsInches = m.ThighsInches, ShouldersInches = m.ShouldersInches,
+            HipsInches = m.HipsInches, ArmsInches = m.ArmsInches, ForearmsInches = m.ForearmsInches,
+            ThighsInches = m.ThighsInches, ShouldersInches = m.ShouldersInches,
             CalvesInches = m.CalvesInches, ClothingFitNotes = m.ClothingFitNotes,
             BodyFatPercent = m.BodyFatPercent, MuscleMassLbs = m.MuscleMassLbs, VisceralFat = m.VisceralFat,
             BodyWaterPercent = m.BodyWaterPercent, BasalMetabolicRate = m.BasalMetabolicRate, MetabolicAge = m.MetabolicAge
@@ -595,7 +608,8 @@
     private async Task Save()
     {
         var hasNumbers = _entry.WeightLbs is not null || _entry.WaistInches is not null || _entry.ChestInches is not null
-            || _entry.ArmsInches is not null || _entry.ThighsInches is not null
+            || _entry.HipsInches is not null || _entry.ArmsInches is not null || _entry.ForearmsInches is not null
+            || _entry.ThighsInches is not null
             || _entry.ShouldersInches is not null || _entry.CalvesInches is not null
             || _entry.BodyFatPercent is not null || _entry.MuscleMassLbs is not null || _entry.VisceralFat is not null
             || _entry.BodyWaterPercent is not null || _entry.BasalMetabolicRate is not null || _entry.MetabolicAge is not null
@@ -642,7 +656,7 @@
 
     // Bridge the form's Data POCO to the aggregate's save DTO (photos/reads keep the POCO).
     private static MeasurementData ToData(BodyMeasurement e, DateOnly date) =>
-        new(date, e.WeightLbs, e.WaistInches, e.ChestInches, e.HipsInches, e.ArmsInches, e.ThighsInches,
+        new(date, e.WeightLbs, e.WaistInches, e.ChestInches, e.HipsInches, e.ArmsInches, e.ForearmsInches, e.ThighsInches,
             e.ShouldersInches, e.CalvesInches, e.BodyFatPercent, e.MuscleMassLbs, e.VisceralFat, e.BodyWaterPercent,
             e.BasalMetabolicRate, e.MetabolicAge, e.ClothingFitNotes);
 }

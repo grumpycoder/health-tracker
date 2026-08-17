@@ -86,6 +86,9 @@ namespace FitRecoveryLog.Data.Migrations
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<double?>("ForearmsInches")
+                        .HasColumnType("REAL");
+
                     b.Property<double?>("HipsInches")
                         .HasColumnType("REAL");
 

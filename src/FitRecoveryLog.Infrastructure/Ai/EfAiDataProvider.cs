@@ -220,7 +220,9 @@ public sealed class EfAiDataProvider : IAiDataProvider
                           (m.WeightLbs is { } w ? $" weight:{w:0.#}lbs" : "") +
                           (m.WaistInches is { } wa ? $" waist:{wa:0.##}in" : "") +
                           (m.ChestInches is { } c ? $" chest:{c:0.##}in" : "") +
+                          (m.HipsInches is { } hp ? $" hips:{hp:0.##}in" : "") +
                           (m.ArmsInches is { } a ? $" arms:{a:0.##}in" : "") +
+                          (m.ForearmsInches is { } fa ? $" forearms:{fa:0.##}in" : "") +
                           (m.ThighsInches is { } t ? $" thighs:{t:0.##}in" : "") +
                           (m.ShouldersInches is { } sh ? $" shoulders:{sh:0.##}in" : "") +
                           (m.CalvesInches is { } cv ? $" calves:{cv:0.##}in" : ""));

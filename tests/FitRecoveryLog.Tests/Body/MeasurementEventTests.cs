@@ -14,7 +14,7 @@ public class MeasurementEventTests
     public void Update_WithWeight_RaisesMeasurementRecorded()
     {
         var m = Measurement.Create(Date);
-        m.Update(185.4, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
+        m.Update(185.4, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);
 
         var evt = m.DomainEvents.OfType<MeasurementRecorded>().SingleOrDefault();
         Assert.That(evt, Is.Not.Null);
@@ -26,7 +26,7 @@ public class MeasurementEventTests
     {
         var m = Measurement.Create(Date);
         // Only body-composition values — nothing HealthKit mirrors.
-        m.Update(null, null, 40, null, null, null, null, null, 18.0, null, null, null, null, null, "belt notch");
+        m.Update(null, null, 40, null, null, null, null, null, null, 18.0, null, null, null, null, null, "belt notch");
 
         Assert.That(m.DomainEvents, Is.Empty);
     }
@@ -35,7 +35,7 @@ public class MeasurementEventTests
     public void Rehydrate_DoesNotRaise()
     {
         var m = Measurement.Rehydrate(Guid.NewGuid(), Date, 185, 34, null, null, null, null,
-            null, null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null);
 
         Assert.That(m.DomainEvents, Is.Empty, "reconstructing persisted state must not raise events");
     }

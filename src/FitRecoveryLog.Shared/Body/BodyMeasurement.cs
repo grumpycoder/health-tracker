@@ -8,6 +8,7 @@ public class BodyMeasurement : EntityBase
     public double? ChestInches { get; set; }
     public double? HipsInches { get; set; }
     public double? ArmsInches { get; set; }
+    public double? ForearmsInches { get; set; }
     public double? ThighsInches { get; set; }
     public double? ShouldersInches { get; set; }
     public double? CalvesInches { get; set; }
