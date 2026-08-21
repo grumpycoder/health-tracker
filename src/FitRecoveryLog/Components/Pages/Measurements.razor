@@ -6,6 +6,7 @@
 @inject IHealthService Health
 @inject NavigationManager Nav
 @inject FitRecoveryLog.Services.ToastService Toast
+@inject IJSRuntime JS
 
 <PageTitle>Body Measurements</PageTitle>
 
@@ -56,6 +57,13 @@
         </section>
     }
 
+    <div class="segmented">
+        <button class="seg @(_tab == "entry" ? "active" : "")" @onclick='() => _tab = "entry"'>✍️ Entry</button>
+        <button class="seg @(_tab == "log" ? "active" : "")" @onclick="ShowLog">📋 Log</button>
+    </div>
+
+    @if (_tab == "entry")
+    {
     <section class="card">
         <h2>New entry</h2>
         <EditForm Model="_entry" OnValidSubmit="Save">
@@ -169,7 +177,10 @@
             }
         </section>
     }
+    }
 
+    @if (_tab == "log")
+    {
     <section class="card">
         <h2>History</h2>
         @if (_history.Count == 0)
@@ -292,6 +303,7 @@
             </ul>
         }
     </section>
+    }
 </div>
 
 @code {
@@ -638,7 +650,22 @@
         _newPhotos.Clear();
         await LoadHistory();
         await CheckGoalsMet();
+        _tab = "log"; _scrollLogTop = true;   // land on the log (top) so the saved entry is visible + editable
         _ = Toast.Show("Measurement saved ✓");
+    }
+
+    // Meals-style tabs: chart/goal-progress stays pinned above; Entry vs Log below.
+    private string _tab = "entry";
+    private bool _scrollLogTop;
+    private void ShowLog() { _tab = "log"; _scrollLogTop = true; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_scrollLogTop)
+        {
+            _scrollLogTop = false;
+            try { await JS.InvokeVoidAsync("scrollContentTop"); } catch { }
+        }
     }
 
     // After a save, flag any body goal the newest measurement just reached — a prompt to reassess.
