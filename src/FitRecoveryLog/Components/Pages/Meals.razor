@@ -8,6 +8,7 @@
 @inject IAiCoach AiCoach
 @inject NavigationManager Nav
 @inject ToastService Toast
+@inject IJSRuntime JS
 
 <PageTitle>Meals & Drinks</PageTitle>
 
@@ -20,7 +21,7 @@
     <div class="segmented">
         <button class="seg @(_tab == "meal" ? "active" : "")" @onclick='() => _tab = "meal"'>🍽️ Meal</button>
         <button class="seg @(_tab == "drink" ? "active" : "")" @onclick='() => _tab = "drink"'>🥤 Drink</button>
-        <button class="seg @(_tab == "today" ? "active" : "")" @onclick='() => _tab = "today"'>📋 Log</button>
+        <button class="seg @(_tab == "today" ? "active" : "")" @onclick="ShowLog">📋 Log</button>
     </div>
 
 @if (_tab == "meal")
@@ -249,6 +250,22 @@
                     </ul>
                 }
                 <p class="muted" style="font-size:0.8rem;margin:0.2rem 0">@MacroLine(_meal)</p>
+                <div class="add-item">
+                    <div class="chip-row">
+                        <input value="@_addFoodEntry" @oninput="e => _addFoodEntry = e.Value?.ToString() ?? string.Empty"
+                               placeholder="add a saved food…" style="flex:1;min-width:0" />
+                        <button type="button" class="chip" disabled="@string.IsNullOrWhiteSpace(_addFoodEntry)" @onclick="() => AddFoodItem(false)">Add item</button>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_addFoodEntry) && Suggest(_foodLib, _addFoodEntry) is { Count: > 0 } esug)
+                    {
+                        <div class="chip-row">
+                            @foreach (var f in esug)
+                            {
+                                <button type="button" class="chip" @onclick="() => { _addFoodEntry = f; AddFoodItem(false); }">@f</button>
+                            }
+                        </div>
+                    }
+                </div>
                 <div class="chip-row">
                     <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanLabel(_captureSupported)">➕ Scan another label</button>
                     <button type="button" class="link-btn" @onclick="ClearMealBuild">Clear</button>
@@ -256,27 +273,34 @@
             </div>
         }
 
-        @TagField(_mealTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealTagBox, _mealTagOptions, _meal.MealType.ToString(), _meal.Description, _meal.PortionNote, _meal), showStars: true)
-        @if (!_remindFullness)
+        <button type="button" class="link-btn" style="padding:0;margin:0.2rem 0 0.5rem"
+                @onclick="() => _showMealExtras = !_showMealExtras">
+            @(_showMealExtras ? "▾" : "▸") Tags &amp; rating (optional)@(_mealTagBox.Selected.Count > 0 || _mealTagBox.Stars is not null ? " · set" : "")
+        </button>
+        @if (_showMealExtras)
         {
-            <div class="field">
-                <label>How did this meal leave you? <span class="muted">(log after eating)</span></label>
-                <select @bind="_meal.Satiety">
-                    @foreach (var s in SatietyOptions)
-                    {
-                        <option value="@s">@Pretty(s.ToString())</option>
-                    }
-                </select>
-            </div>
-        }
-        @if (ReminderNotifier.IsSupported)
-        {
-            <div class="chip-row" style="margin-bottom:0.4rem">
-                <button type="button" class="chip @(_remindFullness ? "selected" : "")"
-                        @onclick="() => _remindFullness = !_remindFullness">
-                    ⏰ Logging before eating — remind me to rate fullness
-                </button>
-            </div>
+            @TagField(_mealTagBox, _mealTagOptions, () => SuggestTagsAsync(_mealTagBox, _mealTagOptions, _meal.MealType.ToString(), _meal.Description, _meal.PortionNote, _meal), showStars: true)
+            @if (!_remindFullness)
+            {
+                <div class="field">
+                    <label>How did this meal leave you? <span class="muted">(log after eating)</span></label>
+                    <select @bind="_meal.Satiety">
+                        @foreach (var s in SatietyOptions)
+                        {
+                            <option value="@s">@Pretty(s.ToString())</option>
+                        }
+                    </select>
+                </div>
+            }
+            @if (ReminderNotifier.IsSupported)
+            {
+                <div class="chip-row" style="margin-bottom:0.4rem">
+                    <button type="button" class="chip @(_remindFullness ? "selected" : "")"
+                            @onclick="() => _remindFullness = !_remindFullness">
+                        ⏰ Logging before eating — remind me to rate fullness
+                    </button>
+                </div>
+            }
         }
         <button class="save-btn" disabled="@string.IsNullOrWhiteSpace(_meal.Description)" @onclick="SaveMeal">Save Meal</button>
         @if (_mealWarn is not null)
@@ -503,6 +527,29 @@
                                         </div>
                                     </div>
                                 }
+                                <div class="add-item">
+                                    <label class="muted" style="font-size:0.78rem">➕ Add an item to this meal</label>
+                                    <div class="chip-row">
+                                        <input value="@_addFoodEdit" @oninput="e => _addFoodEdit = e.Value?.ToString() ?? string.Empty"
+                                               placeholder="type a saved food" style="flex:1;min-width:0" />
+                                        <button type="button" class="chip" disabled="@string.IsNullOrWhiteSpace(_addFoodEdit)" @onclick="() => AddFoodItem(true)">Add</button>
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(_addFoodEdit) && Suggest(_foodLib, _addFoodEdit) is { Count: > 0 } sug)
+                                    {
+                                        <div class="chip-row">
+                                            @foreach (var f in sug)
+                                            {
+                                                <button type="button" class="chip" @onclick="() => { _addFoodEdit = f; AddFoodItem(true); }">@f</button>
+                                            }
+                                        </div>
+                                    }
+                                    <div class="chip-row">
+                                        @if (_captureSupported) { <button type="button" class="chip" disabled="@_addScanBusy" @onclick="() => AddScannedItem(true, true)">📷 Scan label to add</button> }
+                                        <button type="button" class="chip" disabled="@_addScanBusy" @onclick="() => AddScannedItem(true, false)">🖼 Label photo</button>
+                                        @if (_addScanBusy) { <span class="muted" style="align-self:center;font-size:0.8rem">Reading…</span> }
+                                    </div>
+                                    @if (_mealEditScanMsg is not null) { <span class="muted" style="font-size:0.75rem">@_mealEditScanMsg</span> }
+                                </div>
                                 <div class="inline-fields">
                                     <div class="field"><label>Calories</label><input type="number" inputmode="numeric" @bind="_mealEdit.Calories" /></div>
                                     <div class="field"><label>Protein (g)</label><input type="number" inputmode="decimal" @bind="_mealEdit.ProteinG" /></div>
@@ -1012,6 +1059,19 @@
         await LoadToday();
     }
 
+    // Switch to the Log tab, resetting scroll to the top (Blazor keeps the entry page's position otherwise).
+    private void ShowLog() { _tab = "today"; _scrollLogTop = true; }
+    private bool _scrollLogTop;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_scrollLogTop)
+        {
+            _scrollLogTop = false;
+            try { await JS.InvokeVoidAsync("scrollContentTop"); } catch { }
+        }
+    }
+
     /// <summary>Capture or pick a photo, downscale to JPEG bytes, and delete the temp
     /// file. One-time use: the capture only ever lives in a private temp file (never
     /// the camera roll), and it's removed the moment we've read it. Null if cancelled.</summary>
@@ -1497,6 +1557,7 @@
         };
         _mealEditFactor = 1;
         _mealEditItems = m.Items.ToList();   // per-item breakdown (empty for label/hand-entered meals)
+        _addFoodEdit = ""; _mealEditScanMsg = null;
         _mealEditTagBox.Load(m.TagList);
         _mealEditTagBox.Stars = m.QualityStars;
         _mealEditTime = m.Time;
@@ -1513,18 +1574,110 @@
         }
     }
 
-    private void RecomputeMealEditFromItems()
+    private void RecomputeMealEditFromItems() => RecomputeTotals(_mealEditItems, _mealEdit);
+
+    // ---- Add-an-item to a meal (works for both initial entry and the edit screen) ----
+
+    private bool _showMealExtras;        // tags + fullness + reminder collapsed by default at entry
+    private string _addFoodEntry = "";   // saved-food typeahead on the entry form
+    private string _addFoodEdit = "";    // saved-food typeahead on the edit form
+    private bool _addScanBusy;
+    private string? _mealEditScanMsg;
+
+    // Sum every item's macros × portion into the meal's totals (the tracked source of truth).
+    private static void RecomputeTotals(List<MealItemPortion> items, MealEntry meal)
     {
-        if (_mealEditItems.Count == 0) return;
-        double Sum(Func<MealItemPortion, double?> sel) => _mealEditItems.Sum(it => (sel(it) ?? 0) * it.Portion);
-        _mealEdit.Calories = (int)Math.Round(Sum(x => (double?)x.Calories));
-        _mealEdit.ProteinG = Math.Round(Sum(x => x.ProteinG), 1);
-        _mealEdit.CarbsG = Math.Round(Sum(x => x.CarbsG), 1);
-        _mealEdit.SugarG = Math.Round(Sum(x => x.SugarG), 1);
-        _mealEdit.AddedSugarG = Math.Round(Sum(x => x.AddedSugarG), 1);
-        _mealEdit.FatG = Math.Round(Sum(x => x.FatG), 1);
-        _mealEdit.SodiumMg = (int)Math.Round(Sum(x => (double?)x.SodiumMg));
-        _mealEdit.FiberG = Math.Round(Sum(x => x.FiberG), 1);
+        if (items.Count == 0) return;
+        double Sum(Func<MealItemPortion, double?> sel) => items.Sum(it => (sel(it) ?? 0) * it.Portion);
+        meal.Calories = (int)Math.Round(Sum(x => (double?)x.Calories));
+        meal.ProteinG = Math.Round(Sum(x => x.ProteinG), 1);
+        meal.CarbsG = Math.Round(Sum(x => x.CarbsG), 1);
+        meal.SugarG = Math.Round(Sum(x => x.SugarG), 1);
+        meal.AddedSugarG = Math.Round(Sum(x => x.AddedSugarG), 1);
+        meal.FatG = Math.Round(Sum(x => x.FatG), 1);
+        meal.SodiumMg = (int)Math.Round(Sum(x => (double?)x.SodiumMg));
+        meal.FiberG = Math.Round(Sum(x => x.FiberG), 1);
+    }
+
+    // A meal with no item breakdown yet: fold its current totals into one base item so adding a
+    // new item on top preserves the original macros instead of replacing them.
+    private static void SeedBaseItem(List<MealItemPortion> items, MealEntry meal)
+    {
+        if (items.Count > 0) return;
+        var has = meal.Calories is not null || meal.ProteinG is not null || meal.CarbsG is not null
+            || meal.SugarG is not null || meal.FatG is not null || meal.SodiumMg is not null
+            || meal.FiberG is not null || meal.AddedSugarG is not null;
+        if (!has) return;
+        items.Add(new MealItemPortion
+        {
+            Name = string.IsNullOrWhiteSpace(meal.Description) ? "Meal" : meal.Description.Trim(),
+            Calories = meal.Calories, ProteinG = meal.ProteinG, CarbsG = meal.CarbsG, SugarG = meal.SugarG,
+            AddedSugarG = meal.AddedSugarG, FatG = meal.FatG, SodiumMg = meal.SodiumMg, FiberG = meal.FiberG,
+            Portion = 1,
+        });
+    }
+
+    private static void AppendItem(List<MealItemPortion> items, MealEntry meal, MealItemPortion it)
+    {
+        SeedBaseItem(items, meal);
+        items.Add(it);
+        RecomputeTotals(items, meal);
+    }
+
+    private MealItemPortion ItemFromFood(string name)
+    {
+        var n = name.Trim();
+        var d = _foodDefaults.TryGetValue(n, out var fm) ? fm : null;
+        return new MealItemPortion
+        {
+            Name = n, Calories = d?.Calories, ProteinG = d?.ProteinG, CarbsG = d?.CarbsG,
+            SugarG = d?.SugarG, FatG = d?.FatG, SodiumMg = d?.SodiumMg, FiberG = d?.FiberG, Portion = 1,
+        };
+    }
+
+    private static MealItemPortion ItemFromFacts(NutritionFacts f) => new()
+    {
+        Name = string.IsNullOrWhiteSpace(f.FoodDescription) ? "Item" : f.FoodDescription!.Trim(),
+        Calories = f.Calories, ProteinG = f.ProteinG, CarbsG = f.CarbsG, SugarG = f.SugarG,
+        AddedSugarG = f.AddedSugarG, FatG = f.FatG, SodiumMg = f.SodiumMg, FiberG = f.FiberG, Portion = 1,
+    };
+
+    private void AddFoodItem(bool toEdit)
+    {
+        var name = (toEdit ? _addFoodEdit : _addFoodEntry).Trim();
+        if (name.Length == 0) return;
+        if (toEdit) { AppendItem(_mealEditItems, _mealEdit, ItemFromFood(name)); _addFoodEdit = ""; }
+        else { AppendItem(_pendingMealItems, _meal, ItemFromFood(name)); _mealComponents.Add(name); _addFoodEntry = ""; _scanMsg = $"Added {name} ✓"; }
+    }
+
+    // Scan a single item's label and append it to the meal being built/edited.
+    private async Task AddScannedItem(bool toEdit, bool camera)
+    {
+        void Msg(string? m) { if (toEdit) _mealEditScanMsg = m; else _scanMsg = m; }
+        if (!_hasAiKey) { Msg("Set a Gemini API key in Settings to scan."); return; }
+        _addScanBusy = true;
+        try
+        {
+            var jpeg = await CapturePhotoAsync(camera);
+            if (jpeg is null) { _addScanBusy = false; return; }
+            var facts = (await AiCoach.ReadNutritionLabelAsync(jpeg, _mealTagOptions))?.Facts;
+            if (facts is null || (facts.Calories is null && facts.ProteinG is null && facts.CarbsG is null))
+            {
+                Msg("Couldn't read a label from that photo.");
+            }
+            else if (toEdit)
+            {
+                AppendItem(_mealEditItems, _mealEdit, ItemFromFacts(facts));
+                Msg($"Added {ItemFromFacts(facts).Name} ✓");
+            }
+            else
+            {
+                AppendItem(_pendingMealItems, _meal, ItemFromFacts(facts));
+                Msg($"Added {ItemFromFacts(facts).Name} ✓");
+            }
+        }
+        catch (Exception ex) { Msg($"Scan failed: {ex.Message}"); }
+        _addScanBusy = false;
     }
 
     private void RescaleMealEdit(double factor)
@@ -1666,9 +1819,11 @@
         _mealTagBox.Reset();
         _remindFullness = false;
         _mealComponents = new(); _mealAutoDesc = null;
+        _showMealExtras = false;
         _scan = null; _scanMsg = null; _scanServings = 1; _scanIsEstimate = false;
         _plateJpeg = null; _plateHint = "";
         await LoadToday();
+        _tab = "today"; _scrollLogTop = true;   // land on the log (scrolled to top) so the saved meal is visible + editable
         _ = Toast.Show(remind ? "Meal logged ✓ — I'll remind you to rate it" : "Meal logged ✓");
     }
 
@@ -1685,6 +1840,7 @@
         _drinkTagBox.Reset();
         _drinkScan = null; _drinkScanMsg = null; _drinkScanServingOz = null;
         await LoadToday();
+        _tab = "today"; _scrollLogTop = true;   // land on the log (scrolled to top) so the saved drink is visible + editable
         _ = Toast.Show("Drink logged ✓");
     }
 

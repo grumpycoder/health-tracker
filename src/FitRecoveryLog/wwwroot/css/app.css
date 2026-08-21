@@ -261,6 +261,9 @@ select.field, .field select {
 .meal-items li { padding: 0.2rem 0; }
 .meal-items li + li { border-top: 1px solid var(--border); }
 
+/* Add-an-item control (entry + edit): saved-food typeahead + scan-to-add. */
+.add-item { margin: 0.4rem 0; padding: 0.4rem 0.5rem; border: 1px dashed var(--border); border-radius: 10px; display: flex; flex-direction: column; gap: 0.35rem; }
+
 /* "Building this meal" panel: running list of scanned components + running total. */
 .meal-build { border: 1px dashed var(--border); border-radius: 10px; padding: 0.5rem 0.6rem; margin-bottom: 0.6rem; }
 .meal-build .build-head { margin-bottom: 0.2rem; }
