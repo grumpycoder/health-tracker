@@ -49,6 +49,12 @@
          simulator build omits it so it still runs without provisioning. -->
     <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
         <CodesignEntitlements>Platforms/iOS/HealthKit.entitlements</CodesignEntitlements>
+        <!-- Keep the Mono interpreter on for device builds. A plain Release (full AOT) crashes
+             at launch because this Blazor Hybrid app + EF Core need runtime-generated code iOS
+             can't JIT; the interpreter handles that. Release+interpreter still launches ~40% faster
+             than Debug (drops the debugger runtime / unoptimized codegen). Debug already interprets,
+             so this is a no-op there. DO NOT remove — plain Release/AOT will crash on launch. -->
+        <MtouchInterpreter>all</MtouchInterpreter>
     </PropertyGroup>
 
     <!-- Signing identity + profile live in a local, gitignored file so a personal

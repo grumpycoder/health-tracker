@@ -24,7 +24,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_ID="${BUNDLE_ID:-com.mlawrence.fitrecoverylog}"
 XCODE_SCHEME="${XCODE_SCHEME:-fitrecoverylog}"
 APP_DIR="$REPO_DIR/src/FitRecoveryLog"
-APP_PATH="$APP_DIR/bin/Debug/net9.0-ios/ios-arm64/FitRecoveryLog.app"
+APP_PATH="$APP_DIR/bin/Release/net9.0-ios/ios-arm64/FitRecoveryLog.app"
 PROFILE_DIRS=(
   "$HOME/Library/MobileDevice/Provisioning Profiles"
   "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
@@ -72,8 +72,10 @@ else
 fi
 
 echo "==> Clean rebuild of the app…"
-rm -rf "$APP_DIR/bin/Debug/net9.0-ios" "$APP_DIR/obj/Debug/net9.0-ios"
-if ! ( cd "$APP_DIR" && dotnet build -f net9.0-ios -p:RuntimeIdentifier=ios-arm64 ) ; then
+# Release build: ~40% faster launch than Debug. The interpreter stays on via
+# MtouchInterpreter=all in the csproj (plain Release/AOT crashes this Blazor Hybrid app).
+rm -rf "$APP_DIR/bin/Release/net9.0-ios" "$APP_DIR/obj/Release/net9.0-ios"
+if ! ( cd "$APP_DIR" && dotnet build -f net9.0-ios -p:RuntimeIdentifier=ios-arm64 -c Release ) ; then
   echo "!! Build failed — see output above."
   exit 1
 fi

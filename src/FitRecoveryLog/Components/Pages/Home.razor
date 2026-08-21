@@ -331,16 +331,8 @@
         _hasAiKey = await AiCoach.IsConfiguredAsync();
         await LoadTodayCheckAsync();
         await LoadForToday();
-
-        if (Health.IsAvailable)
-        {
-            try
-            {
-                await Health.RequestAuthorizationAsync();
-                _steps = await Health.ReadStepsAsync(_today);
-            }
-            catch { }
-        }
+        // HealthKit steps are loaded after first paint (see OnAfterRenderAsync) — the native
+        // authorization + query round-trip would otherwise stall the launch.
     }
 
     // Load (or start) the plan for the current calendar day, plus its notes.
@@ -438,6 +430,19 @@
         {
             _selfRef = DotNetObjectReference.Create(this);
             try { await JS.InvokeVoidAsync("appLifecycle.onResume", _selfRef); } catch { }
+
+            // Deferred off the launch path: HealthKit auth + steps is a native round-trip.
+            // The dashboard is already painted; the step count fills in when it returns.
+            if (Health.IsAvailable)
+            {
+                try
+                {
+                    await Health.RequestAuthorizationAsync();
+                    _steps = await Health.ReadStepsAsync(_today);
+                    StateHasChanged();
+                }
+                catch { }
+            }
         }
     }
 
