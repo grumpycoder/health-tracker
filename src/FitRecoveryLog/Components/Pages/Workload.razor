@@ -4,6 +4,7 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject IAiCoach AiCoach
 @inject ToastService Toast
+@inject IJSRuntime JS
 
 <PageTitle>Physical Workload</PageTitle>
 
@@ -13,6 +14,13 @@
         <div class="dash-date-sub">Non-workout activity that taxes the body</div>
     </header>
 
+    <div class="segmented">
+        <button class="seg @(_tab == "entry" ? "active" : "")" @onclick='() => _tab = "entry"'>✍️ Entry</button>
+        <button class="seg @(_tab == "log" ? "active" : "")" @onclick="ShowLog">📋 Log</button>
+    </div>
+
+    @if (_tab == "entry")
+    {
     <section class="card">
         <h2>Log activity</h2>
         <div class="field">
@@ -75,8 +83,12 @@
             <span class="warn-msg">@_warn</span>
         }
     </section>
+    }
 
-    <Collapsible Title="Recent" Subtitle="@($"{_recent.Count} logged")" PersistKey="workload-recent">
+    @if (_tab == "log")
+    {
+    <section class="card">
+        <h2>Recent <span class="muted" style="font-weight:400;font-size:0.85rem">· @_recent.Count logged</span></h2>
         @if (_recent.Count == 0)
         {
             <p class="muted">No activity logged yet.</p>
@@ -127,7 +139,8 @@
                 }
             </ul>
         }
-    </Collapsible>
+    </section>
+    }
 </div>
 
 @code {
@@ -243,7 +256,22 @@
         _entry = new PhysicalWorkloadEntry { Intensity = Intensity.Moderate };
         _areas.Clear();
         await LoadRecent();
+        _tab = "log"; _scrollLogTop = true;   // land on the log (top) so the saved activity is visible + editable
         _ = Toast.Show("Activity saved ✓");
+    }
+
+    // Meals-style tabs: Entry (log activity) vs Log (recent activity).
+    private string _tab = "entry";
+    private bool _scrollLogTop;
+    private void ShowLog() { _tab = "log"; _scrollLogTop = true; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_scrollLogTop)
+        {
+            _scrollLogTop = false;
+            try { await JS.InvokeVoidAsync("scrollContentTop"); } catch { }
+        }
     }
 
     private async Task LoadRecent()
