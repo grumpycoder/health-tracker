@@ -163,9 +163,16 @@ public static class MauiProgram
 
 		// Best-effort silent sync on startup — a no-op if the user isn't signed in
 		// (never pops UI here; interactive sign-in happens from the Settings page).
+		// Bounded so an unreachable/cold cloud (or a paused DB) can't keep a launch-time
+		// attempt churning in the background up to the HttpClient's 180s timeout.
 		_ = Task.Run(async () =>
 		{
-			try { await app.Services.GetRequiredService<FitRecoveryLog.Infrastructure.Sync.CloudSyncService>().SyncAsync(allowInteractive: false); }
+			try
+			{
+				using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+				await app.Services.GetRequiredService<FitRecoveryLog.Infrastructure.Sync.CloudSyncService>()
+					.SyncAsync(allowInteractive: false, cts.Token);
+			}
 			catch { /* surfaced on manual sync in Settings */ }
 		});
 
