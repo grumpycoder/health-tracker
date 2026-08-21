@@ -1,21 +1,23 @@
-@page "/workout-history"
 @using FitRecoveryLog.Application.Workouts
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject WorkoutService WorkoutSvc
 @inject NavigationManager Nav
 @inject FitRecoveryLog.Services.ToastService Toast
 
-<PageTitle>Workout History</PageTitle>
-
-<div class="dashboard">
+@* Workout-history view (session list + tap-into detail). Rendered inline in the Workout page's
+   Log tab (ShowListHeader=false, since the host supplies the header/tabs). ShowListHeader=true
+   is retained for any standalone host that wants its own header. *@
 
 @if (_selected is null)
 {
-    <header class="dash-header">
-        <button class="link-btn" @onclick="@(() => Nav.NavigateTo("workout"))">‹ Workout</button>
-        <div class="dash-date">Workout History</div>
-        <div class="dash-date-sub">@_sessions.Count completed workout(s)</div>
-    </header>
+    @if (ShowListHeader)
+    {
+        <header class="dash-header">
+            <button class="link-btn" @onclick="@(() => Nav.NavigateTo("workout"))">‹ Workout</button>
+            <div class="dash-date">Workout History</div>
+            <div class="dash-date-sub">@_sessions.Count completed workout(s)</div>
+        </header>
+    }
 
     @if (_sessions.Count == 0)
     {
@@ -118,12 +120,11 @@ else
             </section>
         }
     }
-
 }
 
-</div>
-
 @code {
+    [Parameter] public bool ShowListHeader { get; set; } = true;
+
     private List<WorkoutSession> _sessions = new();
     private Dictionary<Guid, ExerciseDefinition> _defs = new();
     private Dictionary<Guid, string> _routineNames = new();

@@ -17,15 +17,19 @@
 @if (_state == WorkoutState.Choosing)
 {
     <header class="dash-header">
-        <div class="dash-date">Start a Workout</div>
-        <div class="dash-date-sub">Pick a routine to begin</div>
+        <div class="dash-date">Workout</div>
+        <div class="dash-date-sub">Start a session or review your log</div>
     </header>
 
+    <div class="segmented">
+        <button class="seg @(_tabChoose == "start" ? "active" : "")" @onclick='() => _tabChoose = "start"'>▶ Start</button>
+        <button class="seg @(_tabChoose == "log" ? "active" : "")" @onclick="ShowLog">📋 Log</button>
+    </div>
+
+    @if (_tabChoose == "start")
+    {
     <section class="card">
-        <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("workout-history"))">
-            <span class="quick-emoji">📋</span> Workout History
-        </button>
-        <button class="quick-btn wide" style="margin-top:0.6rem" @onclick="@(() => Nav.NavigateTo("progression"))">
+        <button class="quick-btn wide" @onclick="@(() => Nav.NavigateTo("progression"))">
             <span class="quick-emoji">💡</span> Progression Suggestions
         </button>
         <button class="quick-btn wide" style="margin-top:0.6rem" @onclick="@(() => Nav.NavigateTo("exercises"))">
@@ -91,6 +95,12 @@
         <section class="card">
             <button class="link-btn" @onclick="@(() => Nav.NavigateTo("routines"))">Manage Routines</button>
         </section>
+    }
+    }
+
+    @if (_tabChoose == "log")
+    {
+        <WorkoutHistoryView ShowListHeader="false" />
     }
 }
 else if (_state == WorkoutState.Active)
@@ -292,6 +302,11 @@ else // Feedback
     private List<WorkoutRoutine> _routines = new();
     private readonly HashSet<Guid> _expandedRoutines = new();
 
+    // Landing (Choosing) state tabs: Start (routine picker) vs Log (inline workout history).
+    private string _tabChoose = "start";
+    private bool _scrollLogTop;
+    private void ShowLog() { _tabChoose = "log"; _scrollLogTop = true; }
+
     private void ToggleExpanded(Guid id)
     {
         if (!_expandedRoutines.Add(id)) _expandedRoutines.Remove(id);
@@ -406,6 +421,15 @@ else // Feedback
 
     // Latest AI per-exercise suggestions (empty until an analysis is run).
     private Dictionary<string, ExerciseAdvice> _advice = new(StringComparer.OrdinalIgnoreCase);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_scrollLogTop)
+        {
+            _scrollLogTop = false;
+            try { await JS.InvokeVoidAsync("scrollContentTop"); } catch { }
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
