@@ -5,6 +5,7 @@
 @inject RecoveryService RecoverySvc
 @inject IHealthService Health
 @inject FitRecoveryLog.Services.ToastService Toast
+@inject IJSRuntime JS
 
 <PageTitle>Sleep & Recovery</PageTitle>
 
@@ -14,6 +15,13 @@
         <div class="dash-date-sub">@DateTime.Now.ToString("dddd, MMM d")</div>
     </header>
 
+    <div class="segmented">
+        <button class="seg @(_tab == "entry" ? "active" : "")" @onclick='() => _tab = "entry"'>✍️ Entry</button>
+        <button class="seg @(_tab == "log" ? "active" : "")" @onclick="ShowLog">📋 Log</button>
+    </div>
+
+    @if (_tab == "entry")
+    {
     @if (Health.IsAvailable)
     {
         <section class="card">
@@ -120,8 +128,12 @@
             <span class="warn-msg">@_recoveryWarn</span>
         }
     </section>
+    }
 
-    <Collapsible Title="Recent sleep" Subtitle="@($"{_recentSleep.Count} night(s)")" PersistKey="sleep-recent">
+    @if (_tab == "log")
+    {
+    <section class="card">
+        <h2>Recent sleep <span class="muted" style="font-weight:400;font-size:0.85rem">· @_recentSleep.Count night(s)</span></h2>
         @if (_recentSleep.Count == 0)
         {
             <p class="muted">No sleep entries yet.</p>
@@ -175,7 +187,8 @@
                 }
             </ul>
         }
-    </Collapsible>
+    </section>
+    }
 </div>
 
 @code {
@@ -293,7 +306,22 @@
 
         _sleep = new SleepEntry();
         await LoadRecent();
+        _tab = "log"; _scrollLogTop = true;   // land on the log (top) so the saved night is visible + editable
         _ = Toast.Show("Sleep logged ✓");
+    }
+
+    // Meals-style tabs: Entry (sleep + recovery forms) vs Log (recent nights).
+    private string _tab = "entry";
+    private bool _scrollLogTop;
+    private void ShowLog() { _tab = "log"; _scrollLogTop = true; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_scrollLogTop)
+        {
+            _scrollLogTop = false;
+            try { await JS.InvokeVoidAsync("scrollContentTop"); } catch { }
+        }
     }
 
     private async Task SaveRecovery()
