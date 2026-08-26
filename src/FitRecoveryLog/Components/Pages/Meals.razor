@@ -237,7 +237,31 @@
         else if (MealHasMacros)
         {
             <div class="meal-build">
-                @if (_mealComponents.Count > 0)
+                @if (_pendingMealItems.Count > 0)
+                {
+                    <div class="build-head">
+                        <span class="muted" style="font-size:0.75rem">Building this meal — drag to set servings of each item</span>
+                    </div>
+                    <div class="item-list">
+                        @for (var i = 0; i < _pendingMealItems.Count; i++)
+                        {
+                            var idx = i;
+                            var it = _pendingMealItems[idx];
+                            <div class="item-adj">
+                                <div class="item-adj-top">
+                                    <span class="entry">@it.Name</span>
+                                    <span class="muted" style="font-size:0.8rem">
+                                        @it.Portion.ToString("0.##")× · @((int)Math.Round((it.Calories ?? 0) * it.Portion)) cal
+                                        <button type="button" class="icon-action danger" title="Remove" aria-label="Remove" @onclick="() => RemovePendingItem(idx)">✕</button>
+                                    </span>
+                                </div>
+                                <input type="range" min="0.25" max="5" step="0.25" value="@it.Portion"
+                                       @oninput="e => SetItemServings(_pendingMealItems, _meal, idx, e.Value)" style="width:100%" />
+                            </div>
+                        }
+                    </div>
+                }
+                else if (_mealComponents.Count > 0)
                 {
                     <div class="build-head">
                         <span class="muted" style="font-size:0.75rem">Building this meal — @_mealComponents.Count item@(_mealComponents.Count == 1 ? "" : "s")</span>
@@ -265,6 +289,11 @@
                             }
                         </div>
                     }
+                    <div class="chip-row">
+                        @if (_captureSupported) { <button type="button" class="chip" disabled="@_addScanBusy" @onclick="() => AddScannedItem(false, true)">📷 Scan label to add</button> }
+                        <button type="button" class="chip" disabled="@_addScanBusy" @onclick="() => AddScannedItem(false, false)">🖼 Label photo</button>
+                        @if (_addScanBusy) { <span class="muted" style="align-self:center;font-size:0.8rem">Reading…</span> }
+                    </div>
                 </div>
                 <div class="chip-row">
                     <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanLabel(_captureSupported)">➕ Scan another label</button>
@@ -498,7 +527,7 @@
                                 <p class="muted" style="margin:0.4rem 0 0.2rem;font-size:0.8rem">Macros</p>
                                 @if (_mealEditItems.Count > 0)
                                 {
-                                    <p class="muted" style="margin:0 0 0.3rem;font-size:0.78rem">Adjust how much of each item you ate — the totals below update live.</p>
+                                    <p class="muted" style="margin:0 0 0.3rem;font-size:0.78rem">Drag to set servings of each item — the totals below update live.</p>
                                     <div class="item-list">
                                         @for (var i = 0; i < _mealEditItems.Count; i++)
                                         {
@@ -507,10 +536,13 @@
                                             <div class="item-adj">
                                                 <div class="item-adj-top">
                                                     <span class="entry">@it.Name</span>
-                                                    <span class="muted" style="font-size:0.8rem">@((int)Math.Round((it.Calories ?? 0) * it.Portion)) cal · @((int)Math.Round(it.Portion * 100))%</span>
+                                                    <span class="muted" style="font-size:0.8rem">
+                                                        @it.Portion.ToString("0.##")× · @((int)Math.Round((it.Calories ?? 0) * it.Portion)) cal
+                                                        <button type="button" class="icon-action danger" title="Remove" aria-label="Remove" @onclick="() => RemoveEditItem(idx)">✕</button>
+                                                    </span>
                                                 </div>
-                                                <input type="range" min="0" max="100" step="5" value="@((int)Math.Round(it.Portion * 100))"
-                                                       @oninput="e => SetMealEditItemPct(idx, e.Value)" style="width:100%" />
+                                                <input type="range" min="0.25" max="5" step="0.25" value="@it.Portion"
+                                                       @oninput="e => SetItemServings(_mealEditItems, _mealEdit, idx, e.Value)" style="width:100%" />
                                             </div>
                                         }
                                     </div>
@@ -609,9 +641,9 @@
                                             {
                                                 <li>
                                                     <span class="entry">@it.Name</span>
-                                                    @if (it.Portion < 0.999)
+                                                    @if (Math.Abs(it.Portion - 1.0) > 0.01)
                                                     {
-                                                        <span class="muted" style="font-size:0.75rem"> · @((int)Math.Round(it.Portion * 100))% eaten</span>
+                                                        <span class="muted" style="font-size:0.75rem"> · @it.Portion.ToString("0.##")× serving</span>
                                                     }
                                                     @if (ItemLine(it) is { Length: > 0 } il)
                                                     {
@@ -1563,15 +1595,33 @@
         _mealEditTime = m.Time;
     }
 
-    // Edit-screen per-item slider → recompute the meal's macro totals from the stored breakdown.
-    private void SetMealEditItemPct(int i, object? value)
+    // Per-item serving slider (entry + edit) → set the item's servings multiplier and recompute
+    // the meal's macro totals. Servings can exceed 1 (e.g. 2 slices of bread = 2×).
+    private void SetItemServings(List<MealItemPortion> items, MealEntry meal, int i, object? value)
     {
-        if (i < 0 || i >= _mealEditItems.Count) return;
-        if (double.TryParse(value?.ToString(), out var p))
+        if (i < 0 || i >= items.Count) return;
+        if (double.TryParse(value?.ToString(), out var v))
         {
-            _mealEditItems[i].Portion = Math.Clamp(p / 100.0, 0, 1);
-            RecomputeMealEditFromItems();
+            items[i].Portion = Math.Clamp(v, 0.25, 5);
+            RecomputeTotals(items, meal);
         }
+    }
+
+    private void RemovePendingItem(int i) => RemoveItemAt(_pendingMealItems, _meal, i, entry: true);
+    private void RemoveEditItem(int i) => RemoveItemAt(_mealEditItems, _mealEdit, i, entry: false);
+
+    private void RemoveItemAt(List<MealItemPortion> items, MealEntry meal, int i, bool entry)
+    {
+        if (i < 0 || i >= items.Count) return;
+        items.RemoveAt(i);
+        if (items.Count == 0)
+        {
+            meal.Calories = null; meal.ProteinG = null; meal.CarbsG = null; meal.SugarG = null;
+            meal.AddedSugarG = null; meal.FatG = null; meal.SodiumMg = null; meal.FiberG = null;
+        }
+        else RecomputeTotals(items, meal);
+        // Keep the entry's auto-name components in step with the remaining items.
+        if (entry) _mealComponents = items.Select(x => x.Name).ToList();
     }
 
     private void RecomputeMealEditFromItems() => RecomputeTotals(_mealEditItems, _mealEdit);
@@ -1647,7 +1697,19 @@
         var name = (toEdit ? _addFoodEdit : _addFoodEntry).Trim();
         if (name.Length == 0) return;
         if (toEdit) { AppendItem(_mealEditItems, _mealEdit, ItemFromFood(name)); _addFoodEdit = ""; }
-        else { AppendItem(_pendingMealItems, _meal, ItemFromFood(name)); _mealComponents.Add(name); _addFoodEntry = ""; _scanMsg = $"Added {name} ✓"; }
+        else { AppendItem(_pendingMealItems, _meal, ItemFromFood(name)); _mealComponents.Add(name); AutoNameFromComponents(); _addFoodEntry = ""; _scanMsg = $"Added {name} ✓"; }
+    }
+
+    // Auto-fill the meal name from its components (until the user types their own).
+    private void AutoNameFromComponents()
+    {
+        if (_mealComponents.Count == 0) return;
+        if (string.IsNullOrWhiteSpace(_meal.Description)
+            || string.Equals(_meal.Description.Trim(), _mealAutoDesc?.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            _meal.Description = string.Join(" + ", _mealComponents);
+            _mealAutoDesc = _meal.Description;
+        }
     }
 
     // Scan a single item's label and append it to the meal being built/edited.
@@ -1665,15 +1727,20 @@
             {
                 Msg("Couldn't read a label from that photo.");
             }
-            else if (toEdit)
-            {
-                AppendItem(_mealEditItems, _mealEdit, ItemFromFacts(facts));
-                Msg($"Added {ItemFromFacts(facts).Name} ✓");
-            }
             else
             {
-                AppendItem(_pendingMealItems, _meal, ItemFromFacts(facts));
-                Msg($"Added {ItemFromFacts(facts).Name} ✓");
+                var item = ItemFromFacts(facts);
+                if (toEdit)
+                {
+                    AppendItem(_mealEditItems, _mealEdit, item);
+                }
+                else
+                {
+                    AppendItem(_pendingMealItems, _meal, item);
+                    _mealComponents.Add(item.Name);
+                    AutoNameFromComponents();
+                }
+                Msg($"Added {item.Name} ✓");
             }
         }
         catch (Exception ex) { Msg($"Scan failed: {ex.Message}"); }
@@ -1910,8 +1977,32 @@
                 return new FoodMemory(f.PortionNote, f.Tags, f.Calories, f.ProteinG,
                     f.CarbsG, f.SugarG, f.FatG, f.SodiumMg, f.FiberG, f.QualityStars);
             }, StringComparer.OrdinalIgnoreCase);
+        // Harvest individual items from past meal breakdowns so a component you added before
+        // (e.g. a scanned peanut butter inside "PB toast") is itself reusable as a saved food —
+        // not just whole meal names. Newest occurrence wins; don't override a whole-meal entry.
+        var itemNames = new List<string>();
+        var itemJson = await db.MealEntries.Where(m => m.ItemsJson != null)
+            .OrderByDescending(m => m.Time).Select(m => m.ItemsJson).ToListAsync();
+        foreach (var json in itemJson)
+        {
+            if (string.IsNullOrWhiteSpace(json)) continue;
+            List<MealItemPortion>? items;
+            try { items = System.Text.Json.JsonSerializer.Deserialize<List<MealItemPortion>>(json); }
+            catch (System.Text.Json.JsonException) { continue; }
+            if (items is null) continue;
+            foreach (var it in items)
+            {
+                var n = it.Name?.Trim();
+                if (string.IsNullOrWhiteSpace(n)) continue;
+                itemNames.Add(n);
+                if (!_foodDefaults.ContainsKey(n))
+                    _foodDefaults[n] = new FoodMemory(null, null, it.Calories, it.ProteinG,
+                        it.CarbsG, it.SugarG, it.FatG, it.SodiumMg, it.FiberG, null);
+            }
+        }
+
         var hiddenFoods = HiddenFoods.Load();
-        _foodLib = CommonFoods.Concat(loggedFoods)
+        _foodLib = CommonFoods.Concat(loggedFoods).Concat(itemNames)
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
             .Where(s => !hiddenFoods.Contains(s))
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();
