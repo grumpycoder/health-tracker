@@ -121,6 +121,8 @@ body { background: var(--bg); color: var(--text); }
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    /* Never let a wide child scroll the whole page sideways (e.g. at larger text sizes). */
+    overflow-x: hidden;
 }
 
 .dash-header { padding: 0.25rem 0.25rem 0; }
@@ -138,7 +140,9 @@ body { background: var(--bg); color: var(--text); }
 
 .daytype-grid, .quick-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    /* minmax(0,1fr) lets columns shrink below their content so long labels wrap
+       instead of overflowing the screen at larger text sizes. */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.6rem;
 }
 
@@ -152,6 +156,8 @@ body { background: var(--bg); color: var(--text); }
     cursor: pointer;
     text-align: center;
     transition: all 0.12s ease;
+    min-width: 0;
+    overflow-wrap: anywhere;   /* break long labels so they wrap within the button */
 }
 .daytype-btn:active, .quick-btn:active { transform: scale(0.97); }
 .daytype-btn.selected {
@@ -160,7 +166,7 @@ body { background: var(--bg); color: var(--text); }
     border-color: var(--accent);
     font-weight: 600;
 }
-.quick-btn { display: flex; align-items: center; justify-content: center; gap: 0.4rem; }
+.quick-btn { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.4rem; }
 .quick-btn.disabled { opacity: 0.55; }
 .quick-emoji { font-size: 1.2rem; }
 
