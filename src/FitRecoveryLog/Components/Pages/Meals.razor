@@ -853,6 +853,15 @@
     private record FoodMemory(string? Portion, string? Tags, int? Calories, double? ProteinG,
         double? CarbsG, double? SugarG, double? FatG, int? SodiumMg, double? FiberG, int? Stars);
     private Dictionary<string, FoodMemory> _foodDefaults = new(StringComparer.OrdinalIgnoreCase);
+    // Most-recent item breakdown per meal name, so reusing a saved meal restores its components.
+    private Dictionary<string, List<MealItemPortion>> _foodItems = new(StringComparer.OrdinalIgnoreCase);
+
+    private static List<MealItemPortion> ParseItems(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new();
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<MealItemPortion>>(json) ?? new(); }
+        catch (System.Text.Json.JsonException) { return new(); }
+    }
 
     private void SelectFood(string name)
     {
@@ -864,8 +873,25 @@
             // Carry macros + star rating forward — a repeat needs no AI call.
             _meal.Calories = d.Calories; _meal.ProteinG = d.ProteinG; _meal.CarbsG = d.CarbsG;
             _meal.SugarG = d.SugarG; _meal.FatG = d.FatG; _meal.SodiumMg = d.SodiumMg; _meal.FiberG = d.FiberG;
-            // Seed the build list so a follow-up scan reads as "<this food> + <scan>".
-            _mealComponents = new() { name };
+            if (_foodItems.TryGetValue(name, out var storedItems) && storedItems.Count > 0)
+            {
+                // Restore the item breakdown so it's adjustable; default each to ONE serving
+                // (the stored macros are per-serving) — drag a slider up if you had more.
+                _pendingMealItems = storedItems.Select(x => new MealItemPortion
+                {
+                    Name = x.Name, Calories = x.Calories, ProteinG = x.ProteinG, CarbsG = x.CarbsG,
+                    SugarG = x.SugarG, AddedSugarG = x.AddedSugarG, FatG = x.FatG, SodiumMg = x.SodiumMg,
+                    FiberG = x.FiberG, Portion = 1,
+                }).ToList();
+                _mealComponents = _pendingMealItems.Select(x => x.Name).ToList();
+                RecomputeTotals(_pendingMealItems, _meal);   // totals now reflect one serving of each
+            }
+            else
+            {
+                _pendingMealItems = new();
+                // Seed the build list so a follow-up scan reads as "<this food> + <scan>".
+                _mealComponents = new() { name };
+            }
             if (d.Stars is not null)
             {
                 _mealTagBox.Stars = d.Stars;
@@ -1977,19 +2003,19 @@
                 return new FoodMemory(f.PortionNote, f.Tags, f.Calories, f.ProteinG,
                     f.CarbsG, f.SugarG, f.FatG, f.SodiumMg, f.FiberG, f.QualityStars);
             }, StringComparer.OrdinalIgnoreCase);
-        // Harvest individual items from past meal breakdowns so a component you added before
-        // (e.g. a scanned peanut butter inside "PB toast") is itself reusable as a saved food —
-        // not just whole meal names. Newest occurrence wins; don't override a whole-meal entry.
+        // Remember each meal's most-recent item breakdown so reusing a saved meal restores its
+        // components (adjustable per serving), and harvest individual item names so a component
+        // added before (e.g. a scanned peanut butter) is reusable as its own saved food.
         var itemNames = new List<string>();
-        var itemJson = await db.MealEntries.Where(m => m.ItemsJson != null)
-            .OrderByDescending(m => m.Time).Select(m => m.ItemsJson).ToListAsync();
-        foreach (var json in itemJson)
+        _foodItems = new(StringComparer.OrdinalIgnoreCase);
+        var breakdownRows = await db.MealEntries.Where(m => m.ItemsJson != null && m.Description != "")
+            .OrderByDescending(m => m.Time).Select(m => new { m.Description, m.ItemsJson }).ToListAsync();
+        foreach (var row in breakdownRows)
         {
-            if (string.IsNullOrWhiteSpace(json)) continue;
-            List<MealItemPortion>? items;
-            try { items = System.Text.Json.JsonSerializer.Deserialize<List<MealItemPortion>>(json); }
-            catch (System.Text.Json.JsonException) { continue; }
-            if (items is null) continue;
+            var items = ParseItems(row.ItemsJson);
+            if (items.Count == 0) continue;
+            var meal = row.Description.Trim();
+            if (meal.Length > 0 && !_foodItems.ContainsKey(meal)) _foodItems[meal] = items;   // newest per meal
             foreach (var it in items)
             {
                 var n = it.Name?.Trim();
