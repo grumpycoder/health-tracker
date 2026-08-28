@@ -81,6 +81,22 @@
         {
             <button class="link-btn danger" style="margin-left:0.6rem" @onclick="ClearKey">Remove Key</button>
         }
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:0.9rem 0" />
+        <p class="muted" style="margin:0 0 0.4rem;font-size:0.85rem">
+            <strong>Fallback: Groq (optional).</strong> When Gemini is overloaded ("model unavailable"),
+            scans/estimates automatically retry on Groq. Get a free key at console.groq.com → API Keys.
+        </p>
+        <div class="field">
+            <label>Groq API Key</label>
+            <input type="password" @bind="_groqKey" placeholder="gsk_…" autocomplete="off" />
+        </div>
+        <button class="save-btn" @onclick="SaveGroqKey">Save Groq Key</button>
+        @if (_groqSaved) { <span class="saved-msg">Saved ✓</span> }
+        @if (_hasGroqKey)
+        {
+            <button class="link-btn danger" style="margin-left:0.6rem" @onclick="ClearGroqKey">Remove</button>
+        }
     </section>
 
     <section class="card">
@@ -110,6 +126,8 @@
 @code {
     private string _key = "";
     private bool _saved, _hasKey;
+    private string _groqKey = "";
+    private bool _groqSaved, _hasGroqKey;
 
     private static readonly (string Label, int Pct)[] TextSizes =
         { ("Normal", 100), ("Large", 120), ("Larger", 140), ("Largest", 160) };
@@ -149,6 +167,9 @@
         var existing = await Keys.GetAsync();
         _hasKey = !string.IsNullOrEmpty(existing);
         if (_hasKey) _key = existing!;
+        var groq = await Keys.GetAsync("groq");
+        _hasGroqKey = !string.IsNullOrEmpty(groq);
+        if (_hasGroqKey) _groqKey = groq!;
         _textScale = Microsoft.Maui.Storage.Preferences.Default.Get("text_scale_pct", 100);
     }
 
@@ -174,5 +195,22 @@
         _key = "";
         _hasKey = false;
         _saved = false;
+    }
+
+    private async Task SaveGroqKey()
+    {
+        var k = _groqKey.Trim();
+        if (k.Length == 0) return;
+        await Keys.SetAsync(k, "groq");
+        _groqSaved = true;
+        _hasGroqKey = true;
+    }
+
+    private async Task ClearGroqKey()
+    {
+        await Keys.SetAsync("", "groq");
+        _groqKey = "";
+        _hasGroqKey = false;
+        _groqSaved = false;
     }
 }

@@ -7,9 +7,10 @@ namespace FitRecoveryLog.Application.Ai;
 /// </summary>
 public interface ILlmKeyStore
 {
-    /// <summary>The stored key, or null/empty when none is set.</summary>
-    Task<string?> GetAsync();
+    /// <summary>The stored key for a provider ("gemini" default, "groq" for the fallback), or
+    /// null/empty when none is set.</summary>
+    Task<string?> GetAsync(string provider = "gemini");
 
-    /// <summary>Store the key. An empty value clears it.</summary>
-    Task SetAsync(string value);
+    /// <summary>Store a provider's key. An empty value clears it.</summary>
+    Task SetAsync(string value, string provider = "gemini");
 }
