@@ -4,15 +4,15 @@ namespace FitRecoveryLog.Infrastructure.Ai;
 
 /// <summary>
 /// Tries the primary LLM (Gemini) and, if it errors (e.g. Google returns 503 "overloaded") and a
-/// fallback key is configured (Groq), retries the same prompt on the fallback. Gemini stays primary
-/// for label/plate accuracy; the fallback only prevents "AI unavailable" when the primary is down.
+/// fallback key is configured (GitHub Models), retries the same prompt on the fallback. Gemini stays
+/// primary for label/plate accuracy; the fallback only prevents "AI unavailable" when it's down.
 /// </summary>
 public sealed class FallbackLlmClient : ILlmClient
 {
     private readonly GeminiLlmClient _primary;
-    private readonly GroqLlmClient _fallback;
+    private readonly GitHubModelsLlmClient _fallback;
 
-    public FallbackLlmClient(GeminiLlmClient primary, GroqLlmClient fallback)
+    public FallbackLlmClient(GeminiLlmClient primary, GitHubModelsLlmClient fallback)
     {
         _primary = primary;
         _fallback = fallback;

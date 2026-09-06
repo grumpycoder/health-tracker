@@ -5,28 +5,28 @@ using FitRecoveryLog.Application.Ai;
 namespace FitRecoveryLog.Infrastructure.Ai;
 
 /// <summary>
-/// Groq implementation of <see cref="ILlmClient"/> (OpenAI-compatible chat/completions). Used as an
-/// automatic fallback when Gemini is overloaded. Vision-capable, JSON-response mode. The Groq key is
-/// stored separately (<c>ILlmKeyStore.GetAsync("groq")</c>).
+/// GitHub Models implementation of <see cref="ILlmClient"/> (Azure AI inference, OpenAI-compatible
+/// chat/completions). Free, rate-limited, vision-capable — used as an automatic fallback when Gemini
+/// is overloaded. Auth is a GitHub personal-access-token with <c>models:read</c>, stored separately
+/// (<c>ILlmKeyStore.GetAsync("github")</c>).
 /// </summary>
-public sealed class GroqLlmClient : ILlmClient
+public sealed class GitHubModelsLlmClient : ILlmClient
 {
-    // Groq's free multimodal (vision) model. If Groq deprecates it, update here — see the model
-    // list at https://console.groq.com/docs/models.
-    private const string Model = "meta-llama/llama-4-scout-17b-16e-instruct";
+    // GPT-4o-mini does vision + JSON mode. Namespaced model id for the GitHub Models GA endpoint.
+    private const string Model = "openai/gpt-4o-mini";
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
 
     private readonly ILlmKeyStore _keys;
-    public GroqLlmClient(ILlmKeyStore keys) => _keys = keys;
+    public GitHubModelsLlmClient(ILlmKeyStore keys) => _keys = keys;
 
     public async Task<bool> IsConfiguredAsync(CancellationToken ct = default) =>
-        !string.IsNullOrWhiteSpace(await _keys.GetAsync("groq"));
+        !string.IsNullOrWhiteSpace(await _keys.GetAsync("github"));
 
     public async Task<string?> GenerateJsonAsync(string prompt, byte[]? imageJpeg = null, CancellationToken ct = default)
     {
-        var apiKey = await _keys.GetAsync("groq");
-        if (string.IsNullOrWhiteSpace(apiKey))
-            throw new InvalidOperationException("No Groq API key set (Settings).");
+        var token = await _keys.GetAsync("github");
+        if (string.IsNullOrWhiteSpace(token))
+            throw new InvalidOperationException("No GitHub token set (Settings).");
 
         // OpenAI content: a plain string for text-only, or a parts array when an image is attached.
         object content = imageJpeg is null
@@ -44,8 +44,8 @@ public sealed class GroqLlmClient : ILlmClient
             temperature = 0.2
         });
 
-        using var req = new HttpRequestMessage(HttpMethod.Post, "https://api.groq.com/openai/v1/chat/completions");
-        req.Headers.Add("Authorization", $"Bearer {apiKey}");
+        using var req = new HttpRequestMessage(HttpMethod.Post, "https://models.github.ai/inference/chat/completions");
+        req.Headers.Add("Authorization", $"Bearer {token}");
         req.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
         using var resp = await Http.SendAsync(req, ct);
@@ -61,7 +61,7 @@ public sealed class GroqLlmClient : ILlmClient
             }
             catch (KeyNotFoundException) { }
             catch (JsonException) { }
-            throw new InvalidOperationException($"Groq returned {(int)resp.StatusCode}");
+            throw new InvalidOperationException($"GitHub Models returned {(int)resp.StatusCode}");
         }
 
         using var doc = JsonDocument.Parse(body);

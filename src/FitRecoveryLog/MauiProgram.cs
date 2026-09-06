@@ -62,10 +62,10 @@ public static class MauiProgram
 		// AI: provider-agnostic LLM transport (swap Gemini -> another LLM = swap this adapter)
 		// + the Keychain-backed key store. The key lives behind the port; callers never pass it.
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.ILlmKeyStore, FitRecoveryLog.Services.SecureLlmKeyStore>();
-		// Gemini primary + Groq fallback: FallbackLlmClient uses Gemini and, when it's overloaded
-		// and a Groq key is set, retries the same prompt on Groq.
+		// Gemini primary + GitHub Models fallback: FallbackLlmClient uses Gemini and, when it's
+		// overloaded and a GitHub token is set, retries the same prompt on GitHub Models (GPT-4o-mini).
 		builder.Services.AddSingleton<FitRecoveryLog.Infrastructure.Ai.GeminiLlmClient>();
-		builder.Services.AddSingleton<FitRecoveryLog.Infrastructure.Ai.GroqLlmClient>();
+		builder.Services.AddSingleton<FitRecoveryLog.Infrastructure.Ai.GitHubModelsLlmClient>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.ILlmClient, FitRecoveryLog.Infrastructure.Ai.FallbackLlmClient>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.IAiSettings, FitRecoveryLog.Services.MauiAiSettings>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.IAiDataProvider, FitRecoveryLog.Infrastructure.Ai.EfAiDataProvider>();
