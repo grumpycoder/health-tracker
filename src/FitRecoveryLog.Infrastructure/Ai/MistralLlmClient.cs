@@ -65,7 +65,17 @@ public sealed class MistralLlmClient : ILlmClient
         }
 
         using var doc = JsonDocument.Parse(body);
-        return doc.RootElement.GetProperty("choices")[0]
+        var content2 = doc.RootElement.GetProperty("choices")[0]
             .GetProperty("message").GetProperty("content").GetString();
+        return ExtractJsonObject(content2);
+    }
+
+    // Pixtral may wrap the JSON in ```json fences or add stray prose — return just the JSON object.
+    private static string? ExtractJsonObject(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return s;
+        var start = s.IndexOf('{');
+        var end = s.LastIndexOf('}');
+        return start >= 0 && end > start ? s.Substring(start, end - start + 1) : s;
     }
 }

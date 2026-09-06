@@ -472,10 +472,18 @@ public sealed class AiCoach : IAiCoach
         return facts;
     }
 
-    private static int? IOf(JsonElement e, string k) =>
-        e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : null;
-    private static double? DOf(JsonElement e, string k) =>
-        e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
+    // Tolerant number parsing: models vary — some return numbers as JSON strings ("150") or as
+    // floats where an int field is expected (150.0). Accept all of those.
+    private static int? IOf(JsonElement e, string k) => DOf(e, k) is double d ? (int)Math.Round(d) : null;
+    private static double? DOf(JsonElement e, string k)
+    {
+        if (!e.TryGetProperty(k, out var v)) return null;
+        if (v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var n)) return n;
+        if (v.ValueKind == JsonValueKind.String
+            && double.TryParse(v.GetString(), System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var s)) return s;
+        return null;
+    }
     private static string? SOf(JsonElement e, string k) =>
         e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 }

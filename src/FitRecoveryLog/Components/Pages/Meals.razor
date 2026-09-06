@@ -1508,6 +1508,9 @@
             {
                 _drinkScan = facts;
                 _drinkScanServingOz = ParseServingOunces(facts.ServingSize);
+                // Fill the drink name from the label's product name (e.g. "Coke Zero") when blank.
+                if (string.IsNullOrWhiteSpace(_drink.Description) && !string.IsNullOrWhiteSpace(facts.FoodDescription))
+                    _drink.Description = facts.FoodDescription.Trim();
                 ApplySuggestionToBox(_drinkTagBox, _drinkTagOptions, result!.Tags); // tags in the same call
             }
         }
