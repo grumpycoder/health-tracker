@@ -40,8 +40,9 @@ public sealed class GeminiLlmClient : ILlmClient
             generationConfig = new { response_mime_type = "application/json" }
         });
 
-        // Gemini's free tier returns 429/500/503 when overloaded — retry a couple times with
-        // backoff before giving up (the FallbackLlmClient then tries the secondary provider).
+        // Retry ONLY transient server overload (500/503) once. Do NOT retry 429 (RESOURCE_EXHAUSTED):
+        // that means the rate/daily quota is spent, so retrying can't succeed — it just burns more of
+        // the free-tier request cap and delays falling over to the secondary provider.
         HttpResponseMessage resp = null!;
         string body = "";
         for (var attempt = 0; ; attempt++)
@@ -51,10 +52,10 @@ public sealed class GeminiLlmClient : ILlmClient
             attemptReq.Content = new StringContent(payload, Encoding.UTF8, "application/json");
             resp = await Http.SendAsync(attemptReq, ct);
             body = await resp.Content.ReadAsStringAsync(ct);
-            if (resp.IsSuccessStatusCode || attempt >= 2 || (int)resp.StatusCode is not (429 or 500 or 503))
+            if (resp.IsSuccessStatusCode || attempt >= 1 || (int)resp.StatusCode is not (500 or 503))
                 break;
             resp.Dispose();
-            await Task.Delay(TimeSpan.FromMilliseconds(700 * (attempt + 1)), ct);
+            await Task.Delay(TimeSpan.FromMilliseconds(600), ct);
         }
         using var _ = resp;
         if (!resp.IsSuccessStatusCode)

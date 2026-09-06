@@ -62,7 +62,7 @@ public static class MauiProgram
 		// AI: provider-agnostic LLM transport (swap Gemini -> another LLM = swap this adapter)
 		// + the Keychain-backed key store. The key lives behind the port; callers never pass it.
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Ai.ILlmKeyStore, FitRecoveryLog.Services.SecureLlmKeyStore>();
-		// Gemini primary + Mistral fallback: FallbackLlmClient uses Gemini and, when it's
+		// Mistral primary + Gemini fallback (Gemini free tier is overloaded most of the time).
 		// overloaded and a Mistral key is set, retries the same prompt on Mistral (Pixtral vision).
 		builder.Services.AddSingleton<FitRecoveryLog.Infrastructure.Ai.GeminiLlmClient>();
 		builder.Services.AddSingleton<FitRecoveryLog.Infrastructure.Ai.MistralLlmClient>();

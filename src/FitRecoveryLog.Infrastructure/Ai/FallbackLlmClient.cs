@@ -3,22 +3,23 @@ using FitRecoveryLog.Application.Ai;
 namespace FitRecoveryLog.Infrastructure.Ai;
 
 /// <summary>
-/// Tries the primary LLM (Gemini) and, if it errors (e.g. Google returns 503 "overloaded") and a
-/// fallback key is configured (Mistral), retries the same prompt on the fallback. Gemini stays
-/// primary for label/plate accuracy; the fallback only prevents "AI unavailable" when it's down.
+/// Tries the primary LLM and, if it errors, retries the same prompt on the fallback. Mistral is
+/// primary here (Gemini's free tier is overloaded most of the time for this user); Gemini is the
+/// fallback (better label accuracy when it's actually available). The fallback only kicks in when
+/// the primary is down or its key isn't set.
 /// </summary>
 public sealed class FallbackLlmClient : ILlmClient
 {
-    private readonly GeminiLlmClient _primary;
-    private readonly MistralLlmClient _fallback;
+    private readonly MistralLlmClient _primary;
+    private readonly GeminiLlmClient _fallback;
 
-    public FallbackLlmClient(GeminiLlmClient primary, MistralLlmClient fallback)
+    public FallbackLlmClient(MistralLlmClient primary, GeminiLlmClient fallback)
     {
         _primary = primary;
         _fallback = fallback;
     }
 
-    // AI is offered whenever EITHER provider has a key (so a fallback-only setup still works).
+    // AI is offered whenever EITHER provider has a key (so a single-provider setup still works).
     public async Task<bool> IsConfiguredAsync(CancellationToken ct = default) =>
         await _primary.IsConfiguredAsync(ct) || await _fallback.IsConfiguredAsync(ct);
 
@@ -34,8 +35,7 @@ public sealed class FallbackLlmClient : ILlmClient
         }
         catch (Exception) when (!ct.IsCancellationRequested)
         {
-            // Primary failed (overloaded / quota / transient) — fall back if a Groq key is set,
-            // otherwise surface the original error.
+            // Primary failed — fall back to the other provider if its key is set, else rethrow.
             if (await _fallback.IsConfiguredAsync(ct))
                 return await _fallback.GenerateJsonAsync(prompt, imageJpeg, ct);
             throw;

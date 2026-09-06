@@ -378,6 +378,7 @@
                 <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanDrinkLabel(true)">📷 Scan label</button>
             }
             <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanDrinkLabel(false)">🖼 Label photo</button>
+            <button type="button" class="chip" disabled="@(_scanBusy || string.IsNullOrWhiteSpace(_drink.Description))" @onclick="EstimateDrinkFromName">🔎 Estimate by name</button>
             @if (_scanBusy) { <span class="muted" style="align-self:center;font-size:0.8rem">Reading…</span> }
         </div>
         @if (_drinkScanMsg is not null)
@@ -1491,6 +1492,31 @@
     }
 
     /// <summary>Scan a drink's Nutrition Facts label → per-serving macros + tags for review.</summary>
+    // Estimate a drink's macros from just its name (e.g. a fountain "Mexican Coke" with no label).
+    private async Task EstimateDrinkFromName()
+    {
+        _drinkScanMsg = null;
+        var name = _drink.Description?.Trim();
+        if (string.IsNullOrWhiteSpace(name)) { _drinkScanMsg = "Type a drink name first."; return; }
+        if (!_hasAiKey) { _drinkScanMsg = "Set an AI key in Settings to estimate macros."; return; }
+        _scanBusy = true;
+        try
+        {
+            var result = await AiCoach.EstimateMealFromTextAsync("Drink", name, DrinkPortion(_drink), _drinkTagOptions);
+            var facts = result?.Facts;
+            if (facts is null || (facts.Calories is null && facts.SugarG is null && facts.ProteinG is null))
+                _drinkScanMsg = "Couldn't estimate that drink — try a more specific name or enter by hand.";
+            else
+            {
+                _drinkScan = facts;
+                _drinkScanServingOz = ParseServingOunces(facts.ServingSize);
+                ApplySuggestionToBox(_drinkTagBox, _drinkTagOptions, result!.Tags);
+            }
+        }
+        catch (Exception ex) { _drinkScanMsg = $"Estimate failed: {ex.Message}"; }
+        _scanBusy = false;
+    }
+
     private async Task ScanDrinkLabel(bool camera)
     {
         _drinkScanMsg = null;
