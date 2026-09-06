@@ -84,16 +84,15 @@
 
         <hr style="border:none;border-top:1px solid var(--border);margin:0.9rem 0" />
         <p class="muted" style="margin:0 0 0.4rem;font-size:0.85rem">
-            <strong>Fallback: GitHub Models (optional).</strong> When Gemini is overloaded ("model
-            unavailable"), scans/estimates automatically retry on GitHub Models (GPT-4o-mini, free).
-            Create a token at github.com → Settings → Developer settings → Personal access tokens
-            (fine-grained) with the <em>Models</em> permission, and paste it here.
+            <strong>Fallback: Mistral (optional).</strong> When Gemini is overloaded ("model
+            unavailable"), scans/estimates automatically retry on Mistral's Pixtral vision model.
+            Create a free API key at console.mistral.ai → API Keys, and paste it here.
         </p>
         <div class="field">
-            <label>GitHub Token</label>
-            <input type="password" @bind="_groqKey" placeholder="github_pat_…" autocomplete="off" />
+            <label>Mistral API Key</label>
+            <input type="password" @bind="_groqKey" placeholder="paste key…" autocomplete="off" />
         </div>
-        <button class="save-btn" @onclick="SaveGroqKey">Save Token</button>
+        <button class="save-btn" @onclick="SaveGroqKey">Save Key</button>
         @if (_groqSaved) { <span class="saved-msg">Saved ✓</span> }
         @if (_hasGroqKey)
         {
@@ -169,7 +168,7 @@
         var existing = await Keys.GetAsync();
         _hasKey = !string.IsNullOrEmpty(existing);
         if (_hasKey) _key = existing!;
-        var groq = await Keys.GetAsync("github");
+        var groq = await Keys.GetAsync("mistral");
         _hasGroqKey = !string.IsNullOrEmpty(groq);
         if (_hasGroqKey) _groqKey = groq!;
         _textScale = Microsoft.Maui.Storage.Preferences.Default.Get("text_scale_pct", 100);
@@ -203,14 +202,14 @@
     {
         var k = _groqKey.Trim();
         if (k.Length == 0) return;
-        await Keys.SetAsync(k, "github");
+        await Keys.SetAsync(k, "mistral");
         _groqSaved = true;
         _hasGroqKey = true;
     }
 
     private async Task ClearGroqKey()
     {
-        await Keys.SetAsync("", "github");
+        await Keys.SetAsync("", "mistral");
         _groqKey = "";
         _hasGroqKey = false;
         _groqSaved = false;

@@ -4,21 +4,21 @@ namespace FitRecoveryLog.Infrastructure.Ai;
 
 /// <summary>
 /// Tries the primary LLM (Gemini) and, if it errors (e.g. Google returns 503 "overloaded") and a
-/// fallback key is configured (GitHub Models), retries the same prompt on the fallback. Gemini stays
+/// fallback key is configured (Mistral), retries the same prompt on the fallback. Gemini stays
 /// primary for label/plate accuracy; the fallback only prevents "AI unavailable" when it's down.
 /// </summary>
 public sealed class FallbackLlmClient : ILlmClient
 {
     private readonly GeminiLlmClient _primary;
-    private readonly GitHubModelsLlmClient _fallback;
+    private readonly MistralLlmClient _fallback;
 
-    public FallbackLlmClient(GeminiLlmClient primary, GitHubModelsLlmClient fallback)
+    public FallbackLlmClient(GeminiLlmClient primary, MistralLlmClient fallback)
     {
         _primary = primary;
         _fallback = fallback;
     }
 
-    // AI is offered whenever EITHER provider has a key (so a Groq-only setup still works).
+    // AI is offered whenever EITHER provider has a key (so a fallback-only setup still works).
     public async Task<bool> IsConfiguredAsync(CancellationToken ct = default) =>
         await _primary.IsConfiguredAsync(ct) || await _fallback.IsConfiguredAsync(ct);
 
