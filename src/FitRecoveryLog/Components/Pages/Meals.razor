@@ -141,6 +141,7 @@
             }
             <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => ScanLabel(false)">🖼 Label photo</button>
             <button type="button" class="chip" disabled="@_scanBusy" @onclick="() => EstimatePlate(false)">🖼 Plate photo</button>
+            <button type="button" class="chip" disabled="@(_scanBusy || string.IsNullOrWhiteSpace(_meal.Description))" @onclick="EstimateMealFromName">🔎 Estimate by name</button>
             @if (_scanBusy) { <span class="muted" style="align-self:center;font-size:0.8rem">Reading…</span> }
         </div>
         @if (_scanMsg is not null)
@@ -1236,6 +1237,32 @@
         f.FatG = Math.Round(Sum(x => x.FatG), 1);
         f.SodiumMg = (int)Math.Round(Sum(x => (double?)x.SodiumMg));
         f.FiberG = Math.Round(Sum(x => x.FiberG), 1);
+    }
+
+    // Estimate a meal's macros from just its name/description (no photo).
+    private async Task EstimateMealFromName()
+    {
+        _scanMsg = null;
+        var name = _meal.Description?.Trim();
+        if (string.IsNullOrWhiteSpace(name)) { _scanMsg = "Type a food name first."; return; }
+        if (!_hasAiKey) { _scanMsg = "Set an AI key in Settings to estimate macros."; return; }
+        _scanBusy = true;
+        try
+        {
+            var result = await AiCoach.EstimateMealFromTextAsync(_meal.MealType.ToString(), name, _meal.PortionNote, _mealTagOptions);
+            var facts = result?.Facts;
+            if (facts is null || (facts.Calories is null && facts.ProteinG is null && facts.CarbsG is null))
+                _scanMsg = "Couldn't estimate that — try a more specific name or enter by hand.";
+            else
+            {
+                _scan = facts; _scanServings = 1; _scanIsEstimate = true; _plateJpeg = null; _plateHint = "";
+                _itemPct = Enumerable.Repeat(1.0, facts.Items.Count).ToList();
+                _plateAdvice = result!.Advice;
+                ApplySuggestionToBox(_mealTagBox, _mealTagOptions, result.Tags);
+            }
+        }
+        catch (Exception ex) { _scanMsg = $"Estimate failed: {ex.Message}"; }
+        _scanBusy = false;
     }
 
     private async Task RunPlateEstimate(byte[] jpeg)
