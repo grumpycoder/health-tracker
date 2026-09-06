@@ -8,6 +8,7 @@
 @inject CloudSyncService Sync
 @inject IAccessTokenProvider Auth
 @inject ILlmKeyStore Keys
+@inject FitRecoveryLog.Infrastructure.Ai.MistralLlmClient Mistral
 @implements IDisposable
 
 <PageTitle>Settings</PageTitle>
@@ -96,7 +97,14 @@
         @if (_groqSaved) { <span class="saved-msg">Saved ✓</span> }
         @if (_hasGroqKey)
         {
+            <button class="link-btn" style="margin-left:0.6rem" @onclick="TestMistral" disabled="@_mistralTesting">
+                @(_mistralTesting ? "Testing…" : "Test")
+            </button>
             <button class="link-btn danger" style="margin-left:0.6rem" @onclick="ClearGroqKey">Remove</button>
+        }
+        @if (_mistralTestMsg is not null)
+        {
+            <p class="muted" style="margin:0.5rem 0 0;font-size:0.85rem">@_mistralTestMsg</p>
         }
     </section>
 
@@ -129,6 +137,12 @@
     private bool _saved, _hasKey;
     private string _groqKey = "";
     private bool _groqSaved, _hasGroqKey;
+    private bool _mistralTesting;
+    private string? _mistralTestMsg;
+
+    // A real 1×1 JPEG so the test exercises the vision path (auth + endpoint + model + image format).
+    private const string TinyJpegBase64 =
+        "/9j/4AAQSkZJRgABAQAASABIAAD/4QBMRXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAAaADAAQAAAABAAAAAQAAAAD/7QA4UGhvdG9zaG9wIDMuMAA4QklNBAQAAAAAAAA4QklNBCUAAAAAABDUHYzZjwCyBOmACZjs+EJ+/8AAEQgAAQABAwEiAAIRAQMRAf/EAB8AAAEFAQEBAQEBAAAAAAAAAAABAgMEBQYHCAkKC//EALUQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+v/EAB8BAAMBAQEBAQEBAQEAAAAAAAABAgMEBQYHCAkKC//EALURAAIBAgQEAwQHBQQEAAECdwABAgMRBAUhMQYSQVEHYXETIjKBCBRCkaGxwQkjM1LwFWJy0QoWJDThJfEXGBkaJicoKSo1Njc4OTpDREVGR0hJSlNUVVZXWFlaY2RlZmdoaWpzdHV2d3h5eoKDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uLj5OXm5+jp6vLz9PX29/j5+v/bAEMAAgICAgICAwICAwUDAwMFBgUFBQUGCAYGBgYGCAoICAgICAgKCgoKCgoKCgwMDAwMDA4ODg4ODw8PDw8PDw8PD//bAEMBAgICBAQEBwQEBxALCQsQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEP/dAAQAAf/aAAwDAQACEQMRAD8A+5KKKK/QD1D/2Q==";
 
     private static readonly (string Label, int Pct)[] TextSizes =
         { ("Normal", 100), ("Large", 120), ("Larger", 140), ("Largest", 160) };
@@ -213,5 +227,27 @@
         _groqKey = "";
         _hasGroqKey = false;
         _groqSaved = false;
+    }
+
+    // Ping Mistral directly (a tiny image + JSON prompt) to confirm the key/endpoint/model work,
+    // without touching the Gemini key.
+    private async Task TestMistral()
+    {
+        _mistralTesting = true;
+        _mistralTestMsg = null;
+        try
+        {
+            var jpeg = Convert.FromBase64String(TinyJpegBase64);
+            var json = await Mistral.GenerateJsonAsync(
+                "Reply with ONLY this JSON object: {\"ok\": true}", jpeg);
+            _mistralTestMsg = string.IsNullOrWhiteSpace(json)
+                ? "Mistral responded but returned nothing — check the model name."
+                : "✓ Mistral is working — fallback is ready.";
+        }
+        catch (Exception ex)
+        {
+            _mistralTestMsg = $"Mistral test failed: {ex.Message}";
+        }
+        _mistralTesting = false;
     }
 }
