@@ -38,7 +38,7 @@
 
     @if (_goalFitAvg is { } gf)
     {
-        <section class="card steps-today" style="cursor:pointer" @onclick="@(() => Nav.NavigateTo("meals"))"
+        <section class="card steps-today" style="cursor:pointer" @onclick="@(() => Nav.NavigateTo("meals?tab=log"))"
                  title="Average 'fit with your goals' across today's rated meals">
             <span class="quick-emoji">✨</span>
             <span>
@@ -57,7 +57,7 @@
         </div>
         <NutritionGoalsCard Meals="_todayMeals" Drinks="_todayDrinks"
                             ActiveDay="@(_log.DayType is DayType.Workout or DayType.HighWorkload)" OnAddWater="AddWater" />
-        <button class="link-btn" style="padding:0;margin-top:0.3rem" @onclick="@(() => Nav.NavigateTo("meals"))">Open full log →</button>
+        <button class="link-btn" style="padding:0;margin-top:0.3rem" @onclick="@(() => Nav.NavigateTo("meals?tab=log"))">Open full log →</button>
     </section>
 
     <section class="card">
