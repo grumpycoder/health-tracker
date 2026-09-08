@@ -188,6 +188,74 @@
             </ul>
         }
     </section>
+
+    <section class="card">
+        <h2>Recent recovery <span class="muted" style="font-weight:400;font-size:0.85rem">· @_recentRecovery.Count entr@(_recentRecovery.Count == 1 ? "y" : "ies")</span></h2>
+        @if (_recentRecovery.Count == 0)
+        {
+            <p class="muted">No recovery entries yet.</p>
+        }
+        else
+        {
+            <ul class="timeline">
+                @foreach (var r in _recentRecovery)
+                {
+                    <li>
+                        @if (_recEditId == r.Id)
+                        {
+                            <div class="edit-exercise" style="width:100%">
+                                <div class="field"><label>Date</label><input type="date" @bind="_recEditDate" /></div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Recovery (1-10)</label><input type="number" inputmode="decimal" min="1" max="10" @bind="_recEdit.RecoveryRating" /></div>
+                                    <div class="field"><label>Fatigue (1-10)</label><input type="number" inputmode="decimal" min="1" max="10" @bind="_recEdit.FatigueRating" /></div>
+                                </div>
+                                <div class="field">
+                                    <label>Soreness locations</label>
+                                    <div class="chip-row">
+                                        @foreach (var loc in SorenessLocations)
+                                        {
+                                            <button type="button" class="chip @(_recEditLocs.Contains(loc) ? "selected" : "")" @onclick="() => ToggleRecEditLoc(loc)">@loc</button>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label>Soreness severity</label>
+                                    <select @bind="_recEdit.SorenessSeverity">
+                                        @foreach (var s in Enum.GetValues<SorenessSeverity>())
+                                        {
+                                            <option value="@s">@s</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="field"><label>Notes</label><textarea rows="2" @bind="_recEdit.Notes"></textarea></div>
+                                <div class="routine-actions">
+                                    <button class="save-btn" @onclick="SaveRecEdit">Save</button>
+                                    <button class="link-btn" @onclick="() => _recEditId = null">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="ex-row" style="width:100%">
+                                <div>
+                                    <span class="time">@r.Date.ToString("MMM d")</span>
+                                    <span class="entry">@RecoveryLine(r)</span>
+                                    @if (!string.IsNullOrWhiteSpace(r.Notes))
+                                    {
+                                        <span class="muted" style="display:block;font-size:0.8rem">@r.Notes</span>
+                                    }
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="icon-action" title="Edit" aria-label="Edit" @onclick="() => StartRecEdit(r)">✏️</button>
+                                    <button class="icon-action danger" title="Delete" aria-label="Delete" @onclick="() => DeleteRecovery(r)">🗑</button>
+                                </div>
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+    </section>
     }
 </div>
 
@@ -207,6 +275,12 @@
     private SleepEntry _edit = new();
     private DateTime _editDate = DateTime.Now.Date;
     private string? _pullMsg;
+
+    private List<RecoveryEntry> _recentRecovery = new();
+    private Guid? _recEditId;
+    private RecoveryEntry _recEdit = new();
+    private DateTime _recEditDate = DateTime.Now.Date;
+    private readonly HashSet<string> _recEditLocs = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -344,7 +418,65 @@
 
         _recovery = new RecoveryEntry();
         _soreLocs.Clear();
+        await LoadRecent();
+        _tab = "log"; _scrollLogTop = true;   // land on the log (top) so the saved entry is visible + editable
         _ = Toast.Show("Recovery logged ✓");
+    }
+
+    private void StartRecEdit(RecoveryEntry r)
+    {
+        _recEditId = r.Id;
+        _recEdit = new RecoveryEntry
+        {
+            RecoveryRating = r.RecoveryRating, FatigueRating = r.FatigueRating,
+            SorenessSeverity = r.SorenessSeverity, Notes = r.Notes,
+        };
+        _recEditDate = r.Date.ToDateTime(TimeOnly.MinValue);
+        _recEditLocs.Clear();
+        foreach (var loc in r.SorenessLocationList) _recEditLocs.Add(loc);
+    }
+
+    private void ToggleRecEditLoc(string loc)
+    {
+        if (!_recEditLocs.Add(loc)) _recEditLocs.Remove(loc);
+    }
+
+    private async Task SaveRecEdit()
+    {
+        if (_recEditId is not { } id) return;
+        var data = new RecoveryData(
+            DateOnly.FromDateTime(_recEditDate),
+            _recEdit.RecoveryRating,
+            _recEdit.FatigueRating,
+            FitRecoveryLog.Domain.Common.Tags.FromCsv(CsvField.Join(_recEditLocs)),
+            (FitRecoveryLog.Domain.Recovery.SorenessSeverity)(int)_recEdit.SorenessSeverity,
+            _recEdit.Notes);
+        var result = await RecoverySvc.UpdateAsync(id, data);
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
+        _recEditId = null;
+        await LoadRecent();
+    }
+
+    private async Task DeleteRecovery(RecoveryEntry r)
+    {
+        var result = await RecoverySvc.DeleteAsync(r.Id);
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
+        if (_recEditId == r.Id) _recEditId = null;
+        await LoadRecent();
+    }
+
+    // Compact one-line summary of a recovery entry for the log list.
+    private static string RecoveryLine(RecoveryEntry r)
+    {
+        var parts = new List<string>();
+        if (r.RecoveryRating is { } rec) parts.Add($"recovery {rec}/10");
+        if (r.FatigueRating is { } fat) parts.Add($"fatigue {fat}/10");
+        if (r.SorenessSeverity != SorenessSeverity.None)
+        {
+            var locs = r.SorenessLocationList;
+            parts.Add(locs.Count > 0 ? $"{r.SorenessSeverity} soreness ({string.Join(", ", locs)})" : $"{r.SorenessSeverity} soreness");
+        }
+        return parts.Count > 0 ? string.Join(" · ", parts) : "note only";
     }
 
     private async Task LoadRecent()
@@ -352,5 +484,7 @@
         await using var db = await DbFactory.CreateDbContextAsync();
         _recentSleep = await db.SleepEntries
             .OrderByDescending(s => s.Date).Take(10).ToListAsync();
+        _recentRecovery = await db.RecoveryEntries
+            .OrderByDescending(r => r.Date).Take(10).ToListAsync();
     }
 }
