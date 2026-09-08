@@ -62,37 +62,6 @@
         </Collapsible>
     }
 
-    @if (_lunchIdeas.Count > 0 && _meal.MealType == MealType.Lunch)
-    {
-        <section class="card">
-            <h2>🍱 Leftover lunch ideas</h2>
-            <p class="muted" style="margin:0 0 0.5rem;font-size:0.8rem">
-                From the last 5 days' dinners — these fit today's @(_viewDayActive ? "active" : "rest")-day budget and still leave room for dinner.
-            </p>
-            <ul class="timeline">
-                @foreach (var idea in _lunchIdeas)
-                {
-                    var d = idea;
-                    <li>
-                        <div class="meas-item">
-                            <div class="ex-row">
-                                <div>
-                                    <span class="entry"><strong>@d.Description</strong></span>
-                                    @if (MacroLine(d) is { Length: > 0 } ml)
-                                    {
-                                        <span class="muted" style="display:block;font-size:0.75rem">@ml</span>
-                                    }
-                                </div>
-                                <div class="routine-actions">
-                                    <button class="save-btn" @onclick="() => LogLeftoverAsLunch(d)">Log as lunch</button>
-                                </div>
-                            </div>
-                        </div>
-                    </li>
-                }
-            </ul>
-        </section>
-    }
 
     <section class="card">
         <h2>Log meal / snack</h2>
@@ -1390,94 +1359,6 @@
         return $"Item {_mealComponents.Count + 1}";
     }
 
-    // Leftover-dinner → lunch suggestions for today (deterministic; recomputed on each load).
-    private List<MealEntry> _lunchIdeas = new();
-
-    /// <summary>Rank recent dinners that fit today's lunch: within the day-type calorie/carb
-    /// ceiling AFTER what's already logged AND after reserving a typical dinner, so lunch doesn't
-    /// front-load the day. Ranks by how well each closes the protein gap. Today-only.</summary>
-    private void ComputeLunchIdeas(List<MealEntry> recentDinners)
-    {
-        _lunchIdeas = new();
-        if (_viewDate != DateTime.Now.Date) return;                          // leftovers are for *today*
-        if (_todayMeals.Any(m => m.MealType == MealType.Lunch)) return;      // lunch already logged
-
-        var calCeil = NutritionGoals.GetDay(NutritionGoals.Calories, _viewDayActive).Max;
-        var carbCeil = NutritionGoals.GetDay(NutritionGoals.Carbs, _viewDayActive).Max;
-        if (calCeil <= 0 && carbCeil <= 0) return;                           // no ceiling to reason about
-        var protein = NutritionGoals.Get(NutritionGoals.Protein);
-        var fatMax = NutritionGoals.Get(NutritionGoals.Fat).Max;
-
-        double loggedCal = NutritionMath.Calories(_todayMeals, _todayDrinks);
-        double loggedCarb = NutritionMath.Carbs(_todayMeals, _todayDrinks);
-        double loggedProtein = NutritionMath.Protein(_todayMeals, _todayDrinks);
-        double loggedFat = NutritionMath.Fat(_todayMeals, _todayDrinks);
-
-        var dinners = recentDinners
-            .Where(m => !string.IsNullOrWhiteSpace(m.Description))
-            .GroupBy(m => m.Description.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.OrderByDescending(x => x.Time).First())
-            .ToList();
-        if (dinners.Count == 0) return;
-
-        // Reserve a typical dinner for tonight = average of recent dinners (fallback ~35% of ceiling).
-        double reserveCal = Avg(dinners, d => d.Calories) ?? (calCeil > 0 ? calCeil * 0.35 : 0);
-        double reserveCarb = Avg(dinners, d => d.CarbsG) ?? (carbCeil > 0 ? carbCeil * 0.35 : 0);
-        double lunchCalBudget = calCeil > 0 ? calCeil - loggedCal - reserveCal : double.MaxValue;
-        double lunchCarbBudget = carbCeil > 0 ? carbCeil - loggedCarb - reserveCarb : double.MaxValue;
-        double proteinGap = protein.Max > 0 ? Math.Max(0, protein.Min - loggedProtein) : 0;
-
-        var fits = new List<(MealEntry Meal, double Score)>();
-        foreach (var d in dinners)
-        {
-            if (d.Calories is null && d.CarbsG is null) continue;            // nothing to judge
-            double cal = d.Calories ?? 0, carb = d.CarbsG ?? 0, pro = d.ProteinG ?? 0, fat = d.FatG ?? 0;
-            if (calCeil > 0 && cal > lunchCalBudget) continue;              // leaves room for dinner
-            if (carbCeil > 0 && carb > lunchCarbBudget) continue;
-            if (protein.Max > 0 && loggedProtein + pro > protein.Max) continue;
-            if (fatMax > 0 && loggedFat + fat > fatMax) continue;
-            fits.Add((d, proteinGap > 0 ? Math.Min(pro, proteinGap) : pro));
-        }
-        // Recency-first: last night's leftover is the most relevant; protein-fit breaks ties.
-        _lunchIdeas = fits
-            .OrderByDescending(x => x.Meal.Time).ThenByDescending(x => x.Score)
-            .Take(3).Select(x => x.Meal).ToList();
-
-        static double? Avg(List<MealEntry> ds, Func<MealEntry, double?> sel)
-        {
-            var vals = ds.Select(sel).Where(v => v is not null).Select(v => v!.Value).ToList();
-            return vals.Count == 0 ? null : vals.Average();
-        }
-    }
-
-    /// <summary>One-tap: clone a recent dinner into a Lunch entry for today (macros + breakdown).</summary>
-    private async Task LogLeftoverAsLunch(MealEntry source)
-    {
-        var lunch = new MealEntry
-        {
-            Time = DateTime.Now,
-            MealType = MealType.Lunch,
-            Description = source.Description,
-            PortionNote = source.PortionNote,
-            Tags = source.Tags,
-            QualityStars = source.QualityStars,
-            Calories = source.Calories, ProteinG = source.ProteinG, CarbsG = source.CarbsG,
-            SugarG = source.SugarG, FatG = source.FatG, SodiumMg = source.SodiumMg,
-            FiberG = source.FiberG, AddedSugarG = source.AddedSugarG,
-            Satiety = Satiety.Satisfied,
-        };
-        var result = await MealSvc.CreateAsync(MealToData(lunch));
-        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
-        if (!string.IsNullOrWhiteSpace(source.ItemsJson))
-        {
-            await using var db = await DbFactory.CreateDbContextAsync();
-            var row = await db.MealEntries.FindAsync(result.Value);
-            if (row is not null) { row.ItemsJson = source.ItemsJson; await db.SaveChangesAsync(); }
-        }
-        await LoadToday();
-        _ = Toast.Show("Logged as lunch ✓");
-    }
-
     /// <summary>Reset the multi-scan build (macros + component list). Keeps the meal type and a
     /// name the user typed themselves; clears an auto-generated name.</summary>
     private void ClearMealBuild()
@@ -2035,13 +1916,6 @@
             .SumAsync(w => w.TotalSeconds!.Value);
         var dayType = (await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == viewDate))?.DayType ?? DayType.Unset;
         _viewDayActive = dayType is DayType.Workout or DayType.HighWorkload;
-
-        // Leftover-lunch ideas: recent dinners that fit today's remaining budget with room for dinner.
-        var since = start.AddDays(-5);
-        var recentDinners = await db.MealEntries
-            .Where(m => m.MealType == MealType.Dinner && m.Time >= since && m.Time < start)
-            .ToListAsync();
-        ComputeLunchIdeas(recentDinners);
 
         // Build typeahead libraries: seed list + every distinct food/drink logged.
         var mealRows = await db.MealEntries.OrderByDescending(m => m.Time)
