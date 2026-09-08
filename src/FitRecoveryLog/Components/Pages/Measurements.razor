@@ -60,6 +60,7 @@
     <div class="segmented">
         <button class="seg @(_tab == "entry" ? "active" : "")" @onclick='() => _tab = "entry"'>✍️ Entry</button>
         <button class="seg @(_tab == "log" ? "active" : "")" @onclick="ShowLog">📋 Log</button>
+        <button class="seg @(_tab == "compare" ? "active" : "")" @onclick="ShowCompare">🔀 Compare</button>
     </div>
 
     @if (_tab == "entry")
@@ -301,6 +302,91 @@
                     </li>
                 }
             </ul>
+        }
+    </section>
+    }
+
+    @if (_tab == "compare")
+    {
+    <section class="card">
+        <h2>Compare progress photos</h2>
+        @{ var posesWithPhotos = Enum.GetValues<PhotoPose>().Where(p => DatesForPose(p).Count > 0).ToList(); }
+        @if (posesWithPhotos.Count == 0)
+        {
+            <p class="muted">No progress photos yet. Add photos with a measurement, then come back to compare week over week.</p>
+        }
+        else
+        {
+            <div class="field">
+                <label>Pose</label>
+                <div class="chip-row">
+                    @foreach (var pose in posesWithPhotos)
+                    {
+                        <button type="button" class="chip @(_cmpPose == pose ? "selected" : "")" @onclick="() => SelectComparePose(pose)">@pose</button>
+                    }
+                </div>
+            </div>
+
+            <div class="inline-fields">
+                <div class="field">
+                    <label>Earlier</label>
+                    <select value="@_cmpEarlier?.ToString("yyyy-MM-dd")" @onchange="e => _cmpEarlier = ParseDate(e.Value)">
+                        @foreach (var d in DatesForPose(_cmpPose))
+                        {
+                            <option value="@d.ToString("yyyy-MM-dd")">@d.ToString("MMM d, yyyy")</option>
+                        }
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Later</label>
+                    <select value="@_cmpLater?.ToString("yyyy-MM-dd")" @onchange="e => _cmpLater = ParseDate(e.Value)">
+                        @foreach (var d in DatesForPose(_cmpPose))
+                        {
+                            <option value="@d.ToString("yyyy-MM-dd")">@d.ToString("MMM d, yyyy")</option>
+                        }
+                    </select>
+                </div>
+            </div>
+
+            @if (DaysApart() is { } gap)
+            {
+                <p class="muted" style="font-size:0.8rem;margin:0.2rem 0 0.6rem">@gap day@(gap == 1 ? "" : "s") apart · ~@(Math.Round(gap / 7.0, 1)) wk</p>
+            }
+            <div class="compare-pair">
+                <figure class="compare-fig">
+                    @if (PhotoDataUrl(_cmpEarlier is { } ed ? PhotoFor(_cmpPose, ed) : null) is { } eu) { <img src="@eu" alt="Earlier @_cmpPose photo" /> }
+                    else { <div class="slot-empty" style="aspect-ratio:3/4">no photo</div> }
+                    <figcaption>@(_cmpEarlier?.ToString("MMM d") ?? "—")</figcaption>
+                </figure>
+                <figure class="compare-fig">
+                    @if (PhotoDataUrl(_cmpLater is { } ld ? PhotoFor(_cmpPose, ld) : null) is { } lu) { <img src="@lu" alt="Later @_cmpPose photo" /> }
+                    else { <div class="slot-empty" style="aspect-ratio:3/4">no photo</div> }
+                    <figcaption>@(_cmpLater?.ToString("MMM d") ?? "—")</figcaption>
+                </figure>
+            </div>
+
+            @if (CompareDeltas(_cmpEarlier, _cmpLater) is { Count: > 0 } deltas)
+            {
+                <h2 style="margin-top:1rem">Change over this span</h2>
+                <ul class="timeline">
+                    @foreach (var d in deltas)
+                    {
+                        <li>
+                            <div class="ex-row" style="width:100%">
+                                <div><span class="entry">@d.Label</span></div>
+                                <div class="goal-vals">
+                                    <span class="muted">@d.From.ToString("0.0#") → @d.To.ToString("0.0#") @d.Unit</span>
+                                    <strong style="margin-left:0.5rem">@(d.Change >= 0 ? "+" : "")@d.Change.ToString("0.0#")</strong>
+                                </div>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+            else if (DaysApart() is not null)
+            {
+                <p class="muted" style="font-size:0.8rem">No overlapping measurement values to compare between these two dates.</p>
+            }
         }
     </section>
     }
@@ -577,6 +663,9 @@
         var goals = await db.GoalSettings.Where(g => !g.IsDeleted).OrderByDescending(g => g.UpdatedAt).FirstOrDefaultAsync();
         var allAsc = await db.BodyMeasurements.OrderBy(m => m.Date).ToListAsync();
         _overview = GoalProgress.Overview(goals, allAsc.Select(GoalProgress.From).ToList());
+        // Keep a date→measurement lookup so the Compare tab can read values on any photo's date
+        // (photos can be older than the 20-row _history window). Last write per date wins.
+        _byDate = allAsc.GroupBy(m => m.Date).ToDictionary(g => g.Key, g => g.Last());
         // Import legacy per-day photos (BodyMeasurement.PhotoPath) as Front, once — idempotent by
         // filename, so re-running is safe. The file is shared; we only add the ProgressPhoto row.
         var legacy = await db.BodyMeasurements.Where(m => m.PhotoPath != null).ToListAsync();
@@ -658,6 +747,73 @@
     private string _tab = "entry";
     private bool _scrollLogTop;
     private void ShowLog() { _tab = "log"; _scrollLogTop = true; }
+
+    // ---- Compare tab: side-by-side pose-matched photos + measurement deltas over the span ----
+    private Dictionary<DateOnly, BodyMeasurement> _byDate = new();
+    private PhotoPose _cmpPose = PhotoPose.Front;
+    private DateOnly? _cmpEarlier, _cmpLater;
+
+    private void ShowCompare()
+    {
+        _tab = "compare"; _scrollLogTop = true;
+        // Default to the first pose that has photos if the current one has none.
+        if (DatesForPose(_cmpPose).Count == 0)
+            _cmpPose = Enum.GetValues<PhotoPose>().FirstOrDefault(p => DatesForPose(p).Count > 0);
+        InitCompareDates();
+    }
+
+    private void SelectComparePose(PhotoPose pose) { _cmpPose = pose; InitCompareDates(); }
+
+    // Dates (newest first) that have a photo for the given pose.
+    private List<DateOnly> DatesForPose(PhotoPose pose) =>
+        _photos.Where(p => p.Pose == pose).Select(p => p.Date).Distinct().OrderByDescending(d => d).ToList();
+
+    // Default the pickers to a ~1-week span: Later = newest, Earlier = the newest date at least a
+    // week before it (falls back to the next-oldest, then to Later itself if only one exists).
+    private void InitCompareDates()
+    {
+        var dates = DatesForPose(_cmpPose);
+        if (dates.Count == 0) { _cmpEarlier = _cmpLater = null; return; }
+        _cmpLater = dates[0];
+        var weekBefore = dates.FirstOrDefault(d => (_cmpLater.Value.DayNumber - d.DayNumber) >= 7);
+        _cmpEarlier = weekBefore != default ? weekBefore
+            : (dates.Count > 1 ? dates[^1] : dates[0]);
+    }
+
+    private string? PhotoFor(PhotoPose pose, DateOnly date) =>
+        _photos.FirstOrDefault(p => p.Pose == pose && p.Date == date)?.FileName;
+
+    private int? DaysApart() =>
+        _cmpEarlier is { } e && _cmpLater is { } l ? Math.Abs(l.DayNumber - e.DayNumber) : null;
+
+    private static DateOnly? ParseDate(object? value) =>
+        DateOnly.TryParse(value?.ToString(), out var d) ? d : null;
+
+    private sealed record Delta(string Label, string Unit, double From, double To)
+    {
+        public double Change => Math.Round(To - From, 2);
+    }
+
+    // Every numeric metric present on BOTH chosen dates, with its start→end change.
+    private List<Delta> CompareDeltas(DateOnly? earlier, DateOnly? later)
+    {
+        var result = new List<Delta>();
+        if (earlier is not { } e || later is not { } l) return result;
+        if (!_byDate.TryGetValue(e, out var a) || !_byDate.TryGetValue(l, out var b)) return result;
+        var metrics = new (string Label, string Unit, Func<BodyMeasurement, double?> Sel)[]
+        {
+            ("Weight", "lbs", m => m.WeightLbs), ("Waist", "in", m => m.WaistInches),
+            ("Chest", "in", m => m.ChestInches), ("Hips", "in", m => m.HipsInches),
+            ("Arms", "in", m => m.ArmsInches), ("Forearms", "in", m => m.ForearmsInches),
+            ("Thighs", "in", m => m.ThighsInches), ("Shoulders", "in", m => m.ShouldersInches),
+            ("Calves", "in", m => m.CalvesInches), ("Body fat", "%", m => m.BodyFatPercent),
+            ("Muscle", "lbs", m => m.MuscleMassLbs),
+        };
+        foreach (var (label, unit, sel) in metrics)
+            if (sel(a) is { } from && sel(b) is { } to)
+                result.Add(new Delta(label, unit, from, to));
+        return result;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
