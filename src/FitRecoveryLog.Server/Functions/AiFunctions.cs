@@ -10,15 +10,17 @@ namespace FitRecoveryLog.Server.Functions;
 public sealed record AiGenerateRequest(string? Prompt, string? ImageJpegBase64);
 
 /// <summary>
-/// Server-side LLM proxy (<c>/api/v1/ai/generate</c>) so the browser never holds the provider
-/// key. Auth is enforced up front by <see cref="Auth.AuthMiddleware"/>; the Gemini key comes from
-/// the <c>GeminiApiKey</c> app setting. Sends the prompt in JSON-response mode and returns the
-/// model's raw text as <c>{ "text": ... }</c> (the caller parses it into its own DTO). Swapping
-/// providers is a change to this one function — the client's <c>ILlmClient</c> is unaffected.
+/// Server-side LLM proxy (<c>/api/v1/ai/generate</c>) so the browser never holds a provider key.
+/// Auth is enforced up front by <see cref="Auth.AuthMiddleware"/>. Mirrors the phone: tries
+/// <b>Mistral (Pixtral) first, then falls back to Gemini</b> — keys come from the
+/// <c>MistralApiKey</c> and <c>GeminiApiKey</c> app settings (either alone is enough). Sends the
+/// prompt in JSON-response mode and returns the model's raw text as <c>{ "text": ... }</c> (the
+/// caller parses it into its own DTO).
 /// </summary>
 public sealed class AiFunctions
 {
-    private const string Model = "gemini-2.5-flash";
+    private const string GeminiModel = "gemini-2.5-flash";
+    private const string MistralModel = "pixtral-12b-2409";
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -26,8 +28,9 @@ public sealed class AiFunctions
     public async Task<IActionResult> Generate(
         [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "v1/ai/generate")] HttpRequest req)
     {
-        var apiKey = Environment.GetEnvironmentVariable("GeminiApiKey");
-        if (string.IsNullOrWhiteSpace(apiKey))
+        var mistralKey = Environment.GetEnvironmentVariable("MistralApiKey");
+        var geminiKey = Environment.GetEnvironmentVariable("GeminiApiKey");
+        if (string.IsNullOrWhiteSpace(mistralKey) && string.IsNullOrWhiteSpace(geminiKey))
             return new ObjectResult(new { error = "AI is not configured on the server." })
             { StatusCode = StatusCodes.Status503ServiceUnavailable };
 
@@ -47,16 +50,33 @@ public sealed class AiFunctions
             catch (FormatException) { return new BadRequestObjectResult(new { error = "imageJpegBase64 is not valid base64" }); }
         }
 
-        try
+        var ct = req.HttpContext.RequestAborted;
+        // Provider order mirrors the phone: Mistral primary, Gemini fallback. Try each configured
+        // provider in turn; only the last failure surfaces if they all fail.
+        InvalidOperationException? lastError = null;
+        foreach (var provider in Providers(mistralKey, geminiKey))
         {
-            var text = await CallGeminiAsync(apiKey, body.Prompt!, image, req.HttpContext.RequestAborted);
-            return new OkObjectResult(new { text });
+            try
+            {
+                var text = await provider(body.Prompt!, image, ct);
+                return new OkObjectResult(new { text });
+            }
+            catch (OperationCanceledException) { throw; }        // client hung up — don't fall over
+            catch (InvalidOperationException ex) { lastError = ex; } // bad key / quota / load → next provider
         }
-        catch (InvalidOperationException ex)
-        {
-            // Surface the provider's message (bad key, quota) as a bad-gateway, not a 500.
-            return new ObjectResult(new { error = ex.Message }) { StatusCode = StatusCodes.Status502BadGateway };
-        }
+        // Surface the provider's message (bad key, quota) as a bad-gateway, not a 500.
+        return new ObjectResult(new { error = lastError?.Message ?? "All AI providers failed." })
+        { StatusCode = StatusCodes.Status502BadGateway };
+    }
+
+    private delegate Task<string?> ProviderCall(string prompt, byte[]? imageJpeg, CancellationToken ct);
+
+    private static IEnumerable<ProviderCall> Providers(string? mistralKey, string? geminiKey)
+    {
+        if (!string.IsNullOrWhiteSpace(mistralKey))
+            yield return (p, img, ct) => CallMistralAsync(mistralKey!, p, img, ct);
+        if (!string.IsNullOrWhiteSpace(geminiKey))
+            yield return (p, img, ct) => CallGeminiAsync(geminiKey!, p, img, ct);
     }
 
     // Answers the browser's CORS preflight (sets headers itself + returns a body — a bodyless
@@ -69,9 +89,39 @@ public sealed class AiFunctions
         return new OkObjectResult(new { ok = true });
     }
 
+    // OpenAI-compatible chat/completions. Image goes in as a data-URI image_url part; json_object
+    // response format keeps the reply parseable. Matches the phone's MistralLlmClient.
+    private static async Task<string?> CallMistralAsync(string apiKey, string prompt, byte[]? imageJpeg, CancellationToken ct)
+    {
+        object content = imageJpeg is null
+            ? prompt
+            : new object[]
+            {
+                new { type = "text", text = prompt },
+                new { type = "image_url", image_url = new { url = $"data:image/jpeg;base64,{Convert.ToBase64String(imageJpeg)}" } }
+            };
+        using var req = new HttpRequestMessage(HttpMethod.Post, "https://api.mistral.ai/v1/chat/completions");
+        req.Headers.Add("Authorization", $"Bearer {apiKey}");
+        req.Content = new StringContent(JsonSerializer.Serialize(new
+        {
+            model = MistralModel,
+            messages = new[] { new { role = "user", content } },
+            response_format = new { type = "json_object" }
+        }), Encoding.UTF8, "application/json");
+
+        using var resp = await Http.SendAsync(req, ct);
+        var respBody = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException(ExtractError(respBody) ?? $"Mistral returned {(int)resp.StatusCode}");
+
+        using var doc = JsonDocument.Parse(respBody);
+        var text = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+        return ExtractJsonObject(text);
+    }
+
     private static async Task<string?> CallGeminiAsync(string apiKey, string prompt, byte[]? imageJpeg, CancellationToken ct)
     {
-        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{Model}:generateContent";
+        var url = $"https://generativelanguage.googleapis.com/v1beta/models/{GeminiModel}:generateContent";
         using var req = new HttpRequestMessage(HttpMethod.Post, url);
         req.Headers.Add("x-goog-api-key", apiKey);
         object parts = imageJpeg is null
@@ -90,20 +140,36 @@ public sealed class AiFunctions
         using var resp = await Http.SendAsync(req, ct);
         var respBody = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode)
-        {
-            try
-            {
-                using var err = JsonDocument.Parse(respBody);
-                var message = err.RootElement.GetProperty("error").GetProperty("message").GetString();
-                if (!string.IsNullOrWhiteSpace(message)) throw new InvalidOperationException(message);
-            }
-            catch (KeyNotFoundException) { }
-            catch (JsonException) { }
-            throw new InvalidOperationException($"Gemini returned {(int)resp.StatusCode}");
-        }
+            throw new InvalidOperationException(ExtractError(respBody) ?? $"Gemini returned {(int)resp.StatusCode}");
 
         using var doc = JsonDocument.Parse(respBody);
         return doc.RootElement.GetProperty("candidates")[0]
             .GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString();
+    }
+
+    // Pull a provider's error.message out of its JSON error body, if present.
+    private static string? ExtractError(string respBody)
+    {
+        try
+        {
+            using var err = JsonDocument.Parse(respBody);
+            if (err.RootElement.TryGetProperty("error", out var e))
+            {
+                if (e.ValueKind == JsonValueKind.Object && e.TryGetProperty("message", out var m))
+                    return m.GetString();
+                if (e.ValueKind == JsonValueKind.String) return e.GetString();
+            }
+        }
+        catch (JsonException) { }
+        return null;
+    }
+
+    // Pixtral can wrap the JSON in prose or fences; keep only the outermost { … } object.
+    private static string? ExtractJsonObject(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+        var start = text.IndexOf('{');
+        var end = text.LastIndexOf('}');
+        return start >= 0 && end > start ? text.Substring(start, end - start + 1) : text;
     }
 }
