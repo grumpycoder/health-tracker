@@ -337,10 +337,6 @@
             <label>Ounces</label>
             <input type="number" inputmode="decimal" step="1" @bind="_drink.Ounces" placeholder="e.g. 16" />
         </div>
-        <div class="field">
-            <label>Sugar (cubes / tsp)</label>
-            <input type="number" inputmode="decimal" step="1" @bind="_drink.SugarCount" placeholder="e.g. 2" />
-        </div>
 
         <div class="chip-row" style="margin-bottom:0.4rem">
             @if (_captureSupported)
@@ -645,10 +641,7 @@
                             <div class="edit-exercise" style="width:100%">
                                 <div class="field"><label>Drink</label><input @bind="_drinkEdit.Description" /></div>
                                 <div class="field"><label>Time</label><input type="datetime-local" @bind="_drinkEditTime" /></div>
-                                <div class="inline-fields">
-                                    <div class="field"><label>Ounces</label><input type="number" inputmode="decimal" @bind="_drinkEdit.Ounces" /></div>
-                                    <div class="field"><label>Sugar</label><input type="number" inputmode="decimal" @bind="_drinkEdit.SugarCount" /></div>
-                                </div>
+                                <div class="field"><label>Ounces</label><input type="number" inputmode="decimal" @bind="_drinkEdit.Ounces" /></div>
                                 @TagField(_drinkEditTagBox, _drinkTagOptions, () => SuggestTagsAsync(_drinkEditTagBox, _drinkTagOptions, "Drink", _drinkEdit.Description, DrinkPortion(_drinkEdit)))
                                 <p class="muted" style="margin:0.4rem 0 0.2rem;font-size:0.8rem">Macros</p>
                                 <div class="inline-fields">
@@ -885,7 +878,6 @@
             // Prefill the MOST COMMON amount for this drink (not the last one) so a
             // one-off outlier can't stick as the default — always visible/editable.
             _drink.Ounces = d.Oz;
-            _drink.SugarCount = d.Sugar;
             _drinkTagBox.Load(CsvField.Split(d.Tags));
             // Carry macros from the last time — a repeat needs no scan/AI call.
             _drink.Calories = d.Calories; _drink.ProteinG = d.ProteinG; _drink.CarbsG = d.CarbsG;
