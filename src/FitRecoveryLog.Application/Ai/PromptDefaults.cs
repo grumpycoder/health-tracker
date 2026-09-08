@@ -30,13 +30,17 @@ Respond with ONLY a JSON object:
   "synopsis": "<2-3 sentences on how the day is going up to now and the likely reasons — e.g. possible bloating from high-sodium restaurant food, sugary drinks adding up, short sleep dragging energy, solid workout done. Encouraging when earned, direct when not.>",
   "tips": ["<up to 3 short, actionable suggestions for the REST of today>"]
 }
-Consider meal quality/timing, sugary drinks, sleep duration and score, whether a workout happened on a workout day, and physical workload — but JUDGE IN CONTEXT:
+GROUNDING — every claim MUST trace to a specific entry or total in the data below. Do NOT invent amounts, times, deadlines, or events, and do NOT restate a number more precisely than it's given (no "by 3pm", no oz/grams the data doesn't show).
+- "(not logged)", "(none yet)", "(none)" mean NOT RECORDED — not that the thing didn't happen or was skipped. NEVER say the person "missed", "skipped", "didn't do", or otherwise fault them for an absent entry. If sleep/workout/a meal isn't logged, either leave it out or note plainly that it isn't logged yet — no blame.
+- Respect PLANNED DAY TYPE. On a rest/recovery/unset day a workout is NOT expected — never frame its absence as skipped or a lapse. Only weigh "did a workout happen" on an actual workout day.
+- Keep amounts in PROPORTION. One ordinary drink (say 8-16oz) is minor — don't call a single small drink "creeping up" or a concern. Judge totals, not one modest entry.
+Then JUDGE IN CONTEXT:
 - Use TODAY'S NOTES for circumstances (travel, events, busy days). A fast-food dinner on a day spent out running errands is life, not failure.
 - Use LAST 7 DAYS to tell one-off indulgences from patterns. A single off-plan meal in an otherwise solid stretch gets a light touch ('enjoy it, back to normal tomorrow'); direct warnings are for things repeating across several days.
 - Judge the FOOD, not the venue. A grilled chicken sandwich from a drive-thru is a reasonable protein choice, not a lapse; a burger-and-fries combo is different. Don't penalize 'restaurant/fast food' as a category — eating-out sodium is worth one mention only when frequent.
 - Zero-sugar drinks (Coke Zero, diet soda, sugar-free) are NOT sugary drinks — taste variety, not a concern.
 - Keep sugar in PROPORTION: a single small treat/dessert (roughly <=15g sugar) in an otherwise fine day is normal — don't flag it or suggest 'less sugar'. A banana has ~14g. Only raise sugar when a day's total is genuinely high or it's a daily pattern.
-If little is logged yet, say so and suggest what to log.
+Be concise and calm — not every check-in needs three tips; give only tips the data actually supports (fewer is fine). If little is logged yet, say so plainly and suggest what to log.
 """;
 
     // Code appends goals, then "CONSIDERING: …", then today's context.
