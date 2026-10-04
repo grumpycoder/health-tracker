@@ -311,27 +311,20 @@ else
             if (!create.IsSuccess) { _msg = create.Error; return; }
             var routineId = create.Value;
 
+            var library = await FreshLibraryAsync();
             var resolved = new Dictionary<string, (Guid Id, ExerciseMeasure Measure)>(StringComparer.OrdinalIgnoreCase);
-            var createdAny = false;
             foreach (var ex in _aiExercises)
             {
                 if (!resolved.TryGetValue(ex.Name, out var def))
                 {
-                    var existing = _exercises.FirstOrDefault(e => string.Equals(e.Name, ex.Name, StringComparison.OrdinalIgnoreCase));
-                    if (existing is null)
+                    var entity = await PickOrCreateExerciseAsync(library, new ExDef
                     {
-                        var entity = new ExDef
-                        {
-                            Name = ex.Name,
-                            Measure = ex.Measure == "duration" ? ExerciseMeasure.Duration : ExerciseMeasure.Reps,
-                            // Seed muscle groups from the suggestion so volume tracking works without manual tagging.
-                            MuscleGroups = string.IsNullOrWhiteSpace(ex.Muscles) ? null : ex.Muscles
-                        };
-                        await Sync.PushAsync(entity);   // exercise library isn't a domain aggregate yet
-                        createdAny = true;
-                        def = (entity.Id, entity.Measure);
-                    }
-                    else def = (existing.Id, existing.Measure);
+                        Name = ex.Name.Trim(),
+                        Measure = ex.Measure == "duration" ? ExerciseMeasure.Duration : ExerciseMeasure.Reps,
+                        // Seed muscle groups from the suggestion so volume tracking works without manual tagging.
+                        MuscleGroups = string.IsNullOrWhiteSpace(ex.Muscles) ? null : ex.Muscles
+                    });
+                    def = (entity.Id, entity.Measure);
                     resolved[ex.Name] = def;
                 }
 
@@ -344,7 +337,6 @@ else
                 if (!add.IsSuccess) { _msg = add.Error; return; }
             }
 
-            if (createdAny) State.Invalidate();
             DiscardAiDraft();
             _aiHint = "";
             await LoadAll();
@@ -458,17 +450,36 @@ else
     {
         var name = _newEx.Name?.Trim();
         if (string.IsNullOrWhiteSpace(name)) return;
-        var existing = _exercises.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase));
-        if (existing is null)
+        _busy = true; _msg = null;
+        try
         {
             _newEx.Name = name;
-            await Sync.PushAsync(_newEx);   // exercise library not yet migrated into the domain
-            State.Invalidate();
-            _addExId = _newEx.Id;
+            var def = await PickOrCreateExerciseAsync(await FreshLibraryAsync(), _newEx);
+            _addExId = def.Id;
             _newEx = new();
+            _newExOpen = false;
         }
-        else _addExId = existing.Id;
-        _newExOpen = false;
+        catch (Exception ex) { _msg = ex.Message; return; }
+        finally { _busy = false; }
         await AddExercise();
+    }
+
+    // The whole library, re-pulled so rows synced from the phone since page load count, and
+    // including retired exercises — the server's name index is unique across both.
+    private async Task<List<ExDef>> FreshLibraryAsync() =>
+        WebSyncClient.Rows<ExDef>(await State.DataAsync(refresh: true));
+
+    // Reuse a same-named exercise (case-insensitive, un-retiring it if needed) instead of
+    // pushing a duplicate the unique Name index would reject; otherwise create it.
+    private async Task<ExDef> PickOrCreateExerciseAsync(List<ExDef> library, ExDef candidate)
+    {
+        var existing = library.FirstOrDefault(e => string.Equals(e.Name.Trim(), candidate.Name, StringComparison.OrdinalIgnoreCase));
+        if (existing is { Retired: false }) return existing;
+        if (existing is not null) existing.Retired = false;
+        var toSave = existing ?? candidate;
+        await Sync.PushAsync(toSave);   // exercise library not yet migrated into the domain
+        if (existing is null) library.Add(candidate);
+        State.Invalidate();
+        return toSave;
     }
 }
