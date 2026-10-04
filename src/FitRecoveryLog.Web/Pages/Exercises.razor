@@ -41,6 +41,7 @@
                 <div class="field"><label>Equipment notes</label><input @bind="_edit.EquipmentNotes" placeholder="e.g. dumbbells, band" /></div>
                 <div class="field"><label>How-to video URL</label><input @bind="_edit.VideoUrl" /></div>
                 <label class="chip-row" style="align-items:center;gap:0.5rem"><input type="checkbox" @bind="_edit.Retired" /> <span>Retired (hidden from routine pickers)</span></label>
+                @if (_saveMsg is not null) { <p class="warn-msg">@_saveMsg</p> }
                 <div class="routine-actions">
                     <button class="save-btn" @onclick="Save" disabled="@_busy">@(_busy ? "Saving…" : "Save")</button>
                     <button class="link-btn" @onclick="() => _edit = null" disabled="@_busy">Cancel</button>
@@ -69,7 +70,7 @@
 
 @code {
     private bool _loading = true, _busy;
-    private string? _error;
+    private string? _error, _saveMsg;
     private List<ExerciseDefinition> _items = new();
     private ExerciseDefinition? _edit;
 
@@ -83,22 +84,32 @@
         finally { _loading = false; }
     }
 
-    private void AddNew() { _edit = new ExerciseDefinition(); }
-    private void Edit(ExerciseDefinition e) { _edit = WebSyncClient.Clone(e); }
+    private void AddNew() { _edit = new ExerciseDefinition(); _saveMsg = null; }
+    private void Edit(ExerciseDefinition e) { _edit = WebSyncClient.Clone(e); _saveMsg = null; }
 
     private async Task Save()
     {
         if (_edit is null || string.IsNullOrWhiteSpace(_edit.Name)) return;
-        _busy = true;
+        _busy = true; _saveMsg = null;
         try
         {
             _edit.Name = _edit.Name.Trim();
+            // Re-pull first: the server's Name index is unique, and the cached list can miss
+            // exercises synced from the phone since this page loaded.
+            _items = WebSyncClient.Rows<ExerciseDefinition>(await State.DataAsync(refresh: true));
+            var clash = _items.FirstOrDefault(x => x.Id != _edit.Id &&
+                string.Equals(x.Name.Trim(), _edit.Name, StringComparison.OrdinalIgnoreCase));
+            if (clash is not null)
+            {
+                _saveMsg = $"An exercise named \"{clash.Name}\" already exists{(clash.Retired ? " (retired — edit it to restore)" : "")}.";
+                return;
+            }
             await Sync.PushAsync(_edit);
             State.Invalidate();
             _edit = null;
             await Load();
         }
-        catch (Exception ex) { _error = ex.Message; }
+        catch (Exception ex) { _saveMsg = ex.Message; }
         finally { _busy = false; }
     }
 }
