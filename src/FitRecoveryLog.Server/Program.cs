@@ -16,7 +16,9 @@ var host = new HostBuilder()
         var connectionString = Environment.GetEnvironmentVariable("SqlConnectionString")
             ?? throw new InvalidOperationException("SqlConnectionString app setting is not configured.");
 
-        services.AddDbContext<CloudDbContext>(options => options.UseSqlServer(connectionString));
+        // Serverless SQL auto-pauses when idle; retry rides out the resume instead of 500ing.
+        services.AddDbContext<CloudDbContext>(options => options.UseSqlServer(connectionString,
+            sql => sql.EnableRetryOnFailure(maxRetryCount: 6, maxRetryDelay: TimeSpan.FromSeconds(30), errorNumbersToAdd: null)));
         services.AddSingleton<TokenValidator>();
     })
     .Build();
