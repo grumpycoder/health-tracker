@@ -85,7 +85,7 @@ Open Terminal and run:
 
 ```bash
 cd /path/to/health-tracker/src/FitRecoveryLog
-dotnet build -f net9.0-ios -p:RuntimeIdentifier=ios-arm64
+dotnet build -f net10.0-ios -p:RuntimeIdentifier=ios-arm64
 ```
 
 Confirm the output shows **`Build succeeded`** and a line like
@@ -97,7 +97,7 @@ Then install (this retry loop handles the common transient
 ```bash
 for i in 1 2 3 4 5; do
   out=$(xcrun devicectl device install app --device <YOUR_DEVICE_UDID> \
-    bin/Debug/net9.0-ios/ios-arm64/FitRecoveryLog.app 2>&1)
+    bin/Debug/net10.0-ios/ios-arm64/FitRecoveryLog.app 2>&1)
   echo "$out" | grep -q "launchServicesIdentifier" && { echo "INSTALLED"; break; }
   echo "attempt $i failed, retrying…"; sleep 5
 done
@@ -147,8 +147,8 @@ Use this if the profile directory is empty or install fails with
 
 ```bash
 cd /path/to/health-tracker/src/FitRecoveryLog
-rm -rf bin/Debug/net9.0-ios obj/Debug/net9.0-ios
-dotnet build -f net9.0-ios -p:RuntimeIdentifier=ios-arm64
+rm -rf bin/Debug/net10.0-ios obj/Debug/net10.0-ios
+dotnet build -f net10.0-ios -p:RuntimeIdentifier=ios-arm64
 ```
 
 Confirm the build says **`7 entitlements`** and shows **no `MT7140`** warning,

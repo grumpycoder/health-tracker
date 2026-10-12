@@ -36,7 +36,7 @@ design, and [`healthtracker.md`](./healthtracker.md) for the full feature spec.
 
 - **.NET 9 MAUI Blazor Hybrid** — UI in Razor/HTML/CSS, native iOS shell (C# throughout)
 - **EF Core + SQLite** — local-first storage on-device (`fitrecoverylog.db3`)
-- Targets: `net9.0-ios` (phone/simulator) and `net9.0-maccatalyst` (fast dev on the Mac)
+- Targets: `net10.0-ios` (phone/simulator) and `net10.0-maccatalyst` (fast dev on the Mac)
 
 ## Requirements
 
@@ -49,11 +49,11 @@ design, and [`healthtracker.md`](./healthtracker.md) for the full feature spec.
 cd src/FitRecoveryLog
 
 # Fast iteration on the Mac (no simulator needed):
-dotnet build -f net9.0-maccatalyst
-open bin/Debug/net9.0-maccatalyst/maccatalyst-arm64/FitRecoveryLog.app
+dotnet build -f net10.0-maccatalyst
+open bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/FitRecoveryLog.app
 
 # iOS Simulator (requires an installed iOS simulator runtime):
-dotnet build -t:Run -f net9.0-ios
+dotnet build -t:Run -f net10.0-ios
 ```
 
 Easiest day-to-day: open `FitRecoveryLog.sln` in **Rider** and pick a run target.
