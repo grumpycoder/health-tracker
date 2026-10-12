@@ -242,19 +242,25 @@
         switch (category)
         {
             case "Body measurements":
-                sb.AppendLine("Date,Weight,Waist,Chest,Arms,Thighs,Notes");
+                sb.AppendLine("Date,Weight (lbs),Waist,Chest,Hips,Arms,Forearms,Thighs,Shoulders,Calves," +
+                              "Body fat %,Muscle mass (lbs),Visceral fat,Body water %,BMR,Metabolic age,Notes");
                 foreach (var m in await db.BodyMeasurements.OrderBy(x => x.Date).ToListAsync())
-                    sb.AppendLine(Row(m.Date.ToString("yyyy-MM-dd"), m.WeightLbs, m.WaistInches, m.ChestInches, m.ArmsInches, m.ThighsInches, m.ClothingFitNotes));
+                    sb.AppendLine(Row(m.Date.ToString("yyyy-MM-dd"), m.WeightLbs, m.WaistInches, m.ChestInches, m.HipsInches,
+                        m.ArmsInches, m.ForearmsInches, m.ThighsInches, m.ShouldersInches, m.CalvesInches,
+                        m.BodyFatPercent, m.MuscleMassLbs, m.VisceralFat, m.BodyWaterPercent, m.BasalMetabolicRate,
+                        m.MetabolicAge, m.ClothingFitNotes));
                 break;
             case "Meals":
-                sb.AppendLine("Time,Type,Description,Portion,Tags,Satiety");
+                sb.AppendLine("Time,Type,Description,Portion,Tags,Satiety," + MacroHeader);
                 foreach (var m in await db.MealEntries.OrderBy(x => x.Time).ToListAsync())
-                    sb.AppendLine(Row(m.Time.ToString("yyyy-MM-dd HH:mm"), m.MealType, m.Description, m.PortionNote, m.Tags, m.Satiety));
+                    sb.AppendLine(Row(m.Time.ToString("yyyy-MM-dd HH:mm"), m.MealType, m.Description, m.PortionNote, m.Tags, m.Satiety,
+                        m.Calories, m.ProteinG, m.CarbsG, m.FatG, m.FiberG, m.SugarG, m.AddedSugarG, m.SodiumMg));
                 break;
             case "Drinks":
-                sb.AppendLine("Time,Description,Ounces,Sugar");
+                sb.AppendLine("Time,Description,Ounces,Sugar," + MacroHeader);
                 foreach (var d in await db.DrinkEntries.OrderBy(x => x.Time).ToListAsync())
-                    sb.AppendLine(Row(d.Time.ToString("yyyy-MM-dd HH:mm"), d.Description, d.Ounces, d.SugarCount));
+                    sb.AppendLine(Row(d.Time.ToString("yyyy-MM-dd HH:mm"), d.Description, d.Ounces, d.SugarCount,
+                        d.Calories, d.ProteinG, d.CarbsG, d.FatG, d.FiberG, d.SugarG, d.AddedSugarG, d.SodiumMg));
                 break;
             case "Workouts":
                 sb.AppendLine("Date,Minutes,Notes");
@@ -289,6 +295,9 @@
         }
         return sb.ToString();
     }
+
+    // Shared macro columns for meals and drinks, in the same order as the row values.
+    private const string MacroHeader = "Calories,Protein (g),Carbs (g),Fat (g),Fiber (g),Sugar (g),Added sugar (g),Sodium (mg)";
 
     private static string Row(params object?[] cells) =>
         string.Join(",", cells.Select(Csv));
