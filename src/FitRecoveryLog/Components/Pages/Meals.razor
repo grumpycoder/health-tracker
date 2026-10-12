@@ -5,6 +5,7 @@
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject MealService MealSvc
 @inject DrinkService DrinkSvc
+@inject SavedFoodService SavedFoodSvc
 @inject IAiCoach AiCoach
 @inject NavigationManager Nav
 @inject ToastService Toast
@@ -222,11 +223,13 @@
                                     <span class="entry">@it.Name</span>
                                     <span class="muted" style="font-size:0.8rem">
                                         @it.Portion.ToString("0.##")× · @((int)Math.Round((it.Calories ?? 0) * it.Portion)) cal
+                                        <button type="button" class="icon-action" title="Edit macros" aria-label="Edit macros" @onclick="() => StartItemEdit(_pendingMealItems, _meal, idx)">✏️</button>
                                         <button type="button" class="icon-action danger" title="Remove" aria-label="Remove" @onclick="() => RemovePendingItem(idx)">✕</button>
                                     </span>
                                 </div>
                                 <input type="range" min="0.25" max="5" step="0.25" value="@it.Portion"
                                        @oninput="e => SetItemServings(_pendingMealItems, _meal, idx, e.Value)" style="width:100%" />
+                                @if (IsEditingItem(_pendingMealItems, idx)) { @ItemMacroEditor() }
                             </div>
                         }
                     </div>
@@ -505,11 +508,13 @@
                                                     <span class="entry">@it.Name</span>
                                                     <span class="muted" style="font-size:0.8rem">
                                                         @it.Portion.ToString("0.##")× · @((int)Math.Round((it.Calories ?? 0) * it.Portion)) cal
+                                                        <button type="button" class="icon-action" title="Edit macros" aria-label="Edit macros" @onclick="() => StartItemEdit(_mealEditItems, _mealEdit, idx)">✏️</button>
                                                         <button type="button" class="icon-action danger" title="Remove" aria-label="Remove" @onclick="() => RemoveEditItem(idx)">✕</button>
                                                     </span>
                                                 </div>
                                                 <input type="range" min="0.25" max="5" step="0.25" value="@it.Portion"
                                                        @oninput="e => SetItemServings(_mealEditItems, _mealEdit, idx, e.Value)" style="width:100%" />
+                                                @if (IsEditingItem(_mealEditItems, idx)) { @ItemMacroEditor() }
                                             </div>
                                         }
                                     </div>
@@ -815,7 +820,8 @@
     /// <summary>The last-logged details of a food, so a repeat reuses them without
     /// re-scanning or a fresh AI call.</summary>
     private record FoodMemory(string? Portion, string? Tags, int? Calories, double? ProteinG,
-        double? CarbsG, double? SugarG, double? FatG, int? SodiumMg, double? FiberG, int? Stars);
+        double? CarbsG, double? SugarG, double? FatG, int? SodiumMg, double? FiberG, int? Stars,
+        double? AddedSugarG = null);
     private Dictionary<string, FoodMemory> _foodDefaults = new(StringComparer.OrdinalIgnoreCase);
     // Most-recent item breakdown per meal name, so reusing a saved meal restores its components.
     private Dictionary<string, List<MealItemPortion>> _foodItems = new(StringComparer.OrdinalIgnoreCase);
@@ -837,16 +843,20 @@
             // Carry macros + star rating forward — a repeat needs no AI call.
             _meal.Calories = d.Calories; _meal.ProteinG = d.ProteinG; _meal.CarbsG = d.CarbsG;
             _meal.SugarG = d.SugarG; _meal.FatG = d.FatG; _meal.SodiumMg = d.SodiumMg; _meal.FiberG = d.FiberG;
+            _meal.AddedSugarG = d.AddedSugarG;
             if (_foodItems.TryGetValue(name, out var storedItems) && storedItems.Count > 0)
             {
                 // Restore the item breakdown so it's adjustable; default each to ONE serving
                 // (the stored macros are per-serving) — drag a slider up if you had more.
-                _pendingMealItems = storedItems.Select(x => new MealItemPortion
-                {
-                    Name = x.Name, Calories = x.Calories, ProteinG = x.ProteinG, CarbsG = x.CarbsG,
-                    SugarG = x.SugarG, AddedSugarG = x.AddedSugarG, FatG = x.FatG, SodiumMg = x.SodiumMg,
-                    FiberG = x.FiberG, Portion = 1,
-                }).ToList();
+                // An item with curated saved-food macros uses those instead of last time's.
+                _pendingMealItems = storedItems.Select(x => _savedFoods.ContainsKey(x.Name.Trim())
+                    ? ItemFromFood(x.Name)
+                    : new MealItemPortion
+                    {
+                        Name = x.Name, Calories = x.Calories, ProteinG = x.ProteinG, CarbsG = x.CarbsG,
+                        SugarG = x.SugarG, AddedSugarG = x.AddedSugarG, FatG = x.FatG, SodiumMg = x.SodiumMg,
+                        FiberG = x.FiberG, Portion = 1,
+                    }).ToList();
                 _mealComponents = _pendingMealItems.Select(x => x.Name).ToList();
                 RecomputeTotals(_pendingMealItems, _meal);   // totals now reflect one serving of each
             }
@@ -1568,6 +1578,7 @@
     private void RemoveItemAt(List<MealItemPortion> items, MealEntry meal, int i, bool entry)
     {
         if (i < 0 || i >= items.Count) return;
+        if (ReferenceEquals(_itemEditList, items)) CancelItemEdit();   // indices shift under an open editor
         items.RemoveAt(i);
         if (items.Count == 0)
         {
@@ -1636,7 +1647,8 @@
         return new MealItemPortion
         {
             Name = n, Calories = d?.Calories, ProteinG = d?.ProteinG, CarbsG = d?.CarbsG,
-            SugarG = d?.SugarG, FatG = d?.FatG, SodiumMg = d?.SodiumMg, FiberG = d?.FiberG, Portion = 1,
+            SugarG = d?.SugarG, AddedSugarG = d?.AddedSugarG, FatG = d?.FatG, SodiumMg = d?.SodiumMg,
+            FiberG = d?.FiberG, Portion = 1,
         };
     }
 
@@ -1646,6 +1658,102 @@
         Calories = f.Calories, ProteinG = f.ProteinG, CarbsG = f.CarbsG, SugarG = f.SugarG,
         AddedSugarG = f.AddedSugarG, FatG = f.FatG, SodiumMg = f.SodiumMg, FiberG = f.FiberG, Portion = 1,
     };
+
+    // Curated saved foods by name (per-serving macros the user has edited).
+    private Dictionary<string, FitRecoveryLog.Domain.Nutrition.SavedFood> _savedFoods = new(StringComparer.OrdinalIgnoreCase);
+
+    // Overlay a saved food's macros onto the typeahead defaults, keeping last log's tags/stars.
+    private void ApplySavedFood(FitRecoveryLog.Domain.Nutrition.SavedFood sf)
+    {
+        _foodDefaults.TryGetValue(sf.Name, out var prev);
+        var m = sf.Macros;
+        _foodDefaults[sf.Name] = new FoodMemory(sf.ServingNote ?? prev?.Portion, prev?.Tags, m.Calories, m.ProteinG,
+            m.CarbsG, m.SugarG, m.FatG, m.SodiumMg, m.FiberG, prev?.Stars, m.AddedSugarG);
+    }
+
+    // ---- Per-item macro editor (entry + edit screens) ----
+
+    private List<MealItemPortion>? _itemEditList;   // the list holding the item being edited
+    private MealEntry? _itemEditMeal;                // the meal whose totals it feeds
+    private int _itemEditIdx = -1;
+    private MealItemPortion _itemDraft = new();      // per-serving values being edited
+    private bool _itemEditUpdateSaved = true;        // also write the macros to the saved-foods library
+
+    private bool IsEditingItem(List<MealItemPortion> items, int idx) =>
+        ReferenceEquals(_itemEditList, items) && _itemEditIdx == idx;
+
+    private void StartItemEdit(List<MealItemPortion> items, MealEntry meal, int idx)
+    {
+        if (IsEditingItem(items, idx)) { CancelItemEdit(); return; }   // ✏️ again toggles closed
+        var it = items[idx];
+        _itemEditList = items; _itemEditMeal = meal; _itemEditIdx = idx;
+        _itemDraft = new MealItemPortion
+        {
+            Name = it.Name, Calories = it.Calories, ProteinG = it.ProteinG, CarbsG = it.CarbsG,
+            SugarG = it.SugarG, AddedSugarG = it.AddedSugarG, FatG = it.FatG, SodiumMg = it.SodiumMg,
+            FiberG = it.FiberG, Portion = it.Portion,
+        };
+        _itemEditUpdateSaved = true;
+    }
+
+    private void CancelItemEdit() { _itemEditList = null; _itemEditMeal = null; _itemEditIdx = -1; }
+
+    private async Task ApplyItemEdit()
+    {
+        if (_itemEditList is not { } items || _itemEditMeal is not { } meal
+            || _itemEditIdx < 0 || _itemEditIdx >= items.Count) { CancelItemEdit(); return; }
+        var d = _itemDraft;
+        FitRecoveryLog.Domain.Nutrition.Macros macros;
+        try { macros = new(d.Calories, d.ProteinG, d.CarbsG, d.FatG, d.FiberG, d.SugarG, d.AddedSugarG, d.SodiumMg); }
+        catch (ArgumentOutOfRangeException ex) { _ = Toast.Show(ex.Message); return; }
+
+        var it = items[_itemEditIdx];
+        it.Calories = d.Calories; it.ProteinG = d.ProteinG; it.CarbsG = d.CarbsG; it.SugarG = d.SugarG;
+        it.AddedSugarG = d.AddedSugarG; it.FatG = d.FatG; it.SodiumMg = d.SodiumMg; it.FiberG = d.FiberG;
+        RecomputeTotals(items, meal);
+
+        if (_itemEditUpdateSaved && !string.IsNullOrWhiteSpace(it.Name))
+        {
+            var name = it.Name.Trim();
+            var note = _savedFoods.TryGetValue(name, out var cur) ? cur.ServingNote : null;
+            var result = await SavedFoodSvc.SaveAsync(name, macros, note);
+            if (!result.IsSuccess) { _ = Toast.Show(result.Error!); }
+            else
+            {
+                var sf = FitRecoveryLog.Domain.Nutrition.SavedFood.Rehydrate(result.Value, cur?.Name ?? name, note, macros);
+                _savedFoods[sf.Name] = sf;
+                ApplySavedFood(sf);
+                _ = Toast.Show($"Saved “{sf.Name}” macros");
+            }
+        }
+        CancelItemEdit();
+    }
+
+    private RenderFragment ItemMacroEditor() =>
+        @<div class="edit-exercise" style="margin-top:0.3rem">
+            <p class="muted" style="margin:0 0 0.2rem;font-size:0.78rem">Per serving — the slider sets how many servings.</p>
+            <div class="inline-fields">
+                <div class="field"><label>Calories</label><input type="number" inputmode="numeric" @bind="_itemDraft.Calories" /></div>
+                <div class="field"><label>Protein (g)</label><input type="number" inputmode="decimal" @bind="_itemDraft.ProteinG" /></div>
+                <div class="field"><label>Carbs (g)</label><input type="number" inputmode="decimal" @bind="_itemDraft.CarbsG" /></div>
+            </div>
+            <div class="inline-fields">
+                <div class="field"><label>Sugar (g)</label><input type="number" inputmode="decimal" @bind="_itemDraft.SugarG" /></div>
+                <div class="field"><label>Added sugar (g)</label><input type="number" inputmode="decimal" @bind="_itemDraft.AddedSugarG" /></div>
+                <div class="field"><label>Fat (g)</label><input type="number" inputmode="decimal" @bind="_itemDraft.FatG" /></div>
+            </div>
+            <div class="inline-fields">
+                <div class="field"><label>Sodium (mg)</label><input type="number" inputmode="numeric" @bind="_itemDraft.SodiumMg" /></div>
+                <div class="field"><label>Fiber (g)</label><input type="number" inputmode="decimal" @bind="_itemDraft.FiberG" /></div>
+            </div>
+            <label style="display:flex;gap:0.4rem;align-items:center;font-size:0.8rem">
+                <input type="checkbox" @bind="_itemEditUpdateSaved" /> Also update saved food “@_itemDraft.Name”
+            </label>
+            <div class="routine-actions">
+                <button type="button" class="save-btn" @onclick="ApplyItemEdit">Apply</button>
+                <button type="button" class="link-btn" @onclick="CancelItemEdit">Cancel</button>
+            </div>
+        </div>;
 
     private void AddFoodItem(bool toEdit)
     {
@@ -1912,7 +2020,7 @@
         // Build typeahead libraries: seed list + every distinct food/drink logged.
         var mealRows = await db.MealEntries.OrderByDescending(m => m.Time)
             .Select(m => new { m.Description, m.PortionNote, m.Tags, m.Calories, m.ProteinG,
-                m.CarbsG, m.SugarG, m.FatG, m.SodiumMg, m.FiberG, m.QualityStars }).ToListAsync();
+                m.CarbsG, m.SugarG, m.FatG, m.SodiumMg, m.FiberG, m.AddedSugarG, m.QualityStars }).ToListAsync();
         var loggedFoods = mealRows.Select(m => m.Description).Distinct().ToList();
         // Most recent details per food name (rows are newest-first) — portion, tags,
         // macros, and star rating, so a repeat reuses them without a fresh AI call.
@@ -1923,7 +2031,7 @@
             {
                 var f = g.First();
                 return new FoodMemory(f.PortionNote, f.Tags, f.Calories, f.ProteinG,
-                    f.CarbsG, f.SugarG, f.FatG, f.SodiumMg, f.FiberG, f.QualityStars);
+                    f.CarbsG, f.SugarG, f.FatG, f.SodiumMg, f.FiberG, f.QualityStars, f.AddedSugarG);
             }, StringComparer.OrdinalIgnoreCase);
         // Remember each meal's most-recent item breakdown so reusing a saved meal restores its
         // components (adjustable per serving), and harvest individual item names so a component
@@ -1945,12 +2053,18 @@
                 itemNames.Add(n);
                 if (!_foodDefaults.ContainsKey(n))
                     _foodDefaults[n] = new FoodMemory(null, null, it.Calories, it.ProteinG,
-                        it.CarbsG, it.SugarG, it.FatG, it.SodiumMg, it.FiberG, null);
+                        it.CarbsG, it.SugarG, it.FatG, it.SodiumMg, it.FiberG, null, it.AddedSugarG);
             }
         }
 
+        // Curated saved foods are the source of truth for macros — they override whatever the
+        // most recent log carried (which may have been a scaled portion).
+        _savedFoods = (await SavedFoodSvc.ListAsync())
+            .ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
+        foreach (var sf in _savedFoods.Values) ApplySavedFood(sf);
+
         var hiddenFoods = HiddenFoods.Load();
-        _foodLib = CommonFoods.Concat(loggedFoods).Concat(itemNames)
+        _foodLib = CommonFoods.Concat(loggedFoods).Concat(itemNames).Concat(_savedFoods.Keys)
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim())
             .Where(s => !hiddenFoods.Contains(s))
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToList();

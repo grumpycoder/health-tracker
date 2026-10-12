@@ -20,6 +20,7 @@ public class AppDbContext : DbContext
     public DbSet<ExerciseFeedback> ExerciseFeedback => Set<ExerciseFeedback>();
     public DbSet<MealEntry> MealEntries => Set<MealEntry>();
     public DbSet<DrinkEntry> DrinkEntries => Set<DrinkEntry>();
+    public DbSet<SavedFoodEntry> SavedFoods => Set<SavedFoodEntry>();
     public DbSet<BodyMeasurement> BodyMeasurements => Set<BodyMeasurement>();
     public DbSet<SleepEntry> SleepEntries => Set<SleepEntry>();
     public DbSet<RecoveryEntry> RecoveryEntries => Set<RecoveryEntry>();

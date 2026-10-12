@@ -1117,6 +1117,60 @@ namespace FitRecoveryLog.Server.Migrations
                     b.ToTable("RoutineExercises");
                 });
 
+            modelBuilder.Entity("FitRecoveryLog.Data.SavedFoodEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<double?>("AddedSugarG")
+                        .HasColumnType("float");
+
+                    b.Property<int?>("Calories")
+                        .HasColumnType("int");
+
+                    b.Property<double?>("CarbsG")
+                        .HasColumnType("float");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<double?>("FatG")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("FiberG")
+                        .HasColumnType("float");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<double?>("ProteinG")
+                        .HasColumnType("float");
+
+                    b.Property<string>("ServingNote")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("SodiumMg")
+                        .HasColumnType("int");
+
+                    b.Property<double?>("SugarG")
+                        .HasColumnType("float");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SavedFoods");
+                });
+
             modelBuilder.Entity("FitRecoveryLog.Data.SleepEntry", b =>
                 {
                     b.Property<Guid>("Id")

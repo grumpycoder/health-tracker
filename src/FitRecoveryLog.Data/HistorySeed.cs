@@ -289,6 +289,7 @@ public static class HistorySeed
         db.ExerciseDefinitions.IgnoreQueryFilters().ExecuteDelete();
         db.MealEntries.IgnoreQueryFilters().ExecuteDelete();
         db.DrinkEntries.IgnoreQueryFilters().ExecuteDelete();
+        db.SavedFoods.IgnoreQueryFilters().ExecuteDelete();
         db.BodyMeasurements.IgnoreQueryFilters().ExecuteDelete();
         db.SleepEntries.IgnoreQueryFilters().ExecuteDelete();
         db.RecoveryEntries.IgnoreQueryFilters().ExecuteDelete();

@@ -33,6 +33,7 @@ public static class BackupRestore
         public List<BodyMeasurement>? BodyMeasurements { get; set; }
         public List<MealEntry>? Meals { get; set; }
         public List<DrinkEntry>? Drinks { get; set; }
+        public List<SavedFoodEntry>? SavedFoods { get; set; }
         public List<SleepEntry>? Sleep { get; set; }
         public List<RecoveryEntry>? Recovery { get; set; }
         public List<PhysicalWorkloadEntry>? PhysicalWorkload { get; set; }
@@ -64,6 +65,7 @@ public static class BackupRestore
             BodyMeasurements = await db.BodyMeasurements.ToListAsync(),
             Meals = await db.MealEntries.ToListAsync(),
             Drinks = await db.DrinkEntries.ToListAsync(),
+            SavedFoods = await db.SavedFoods.ToListAsync(),
             Sleep = await db.SleepEntries.ToListAsync(),
             Recovery = await db.RecoveryEntries.ToListAsync(),
             PhysicalWorkload = await db.PhysicalWorkloadEntries.ToListAsync(),
@@ -90,6 +92,7 @@ public static class BackupRestore
         Add("measurements", b.BodyMeasurements?.Count);
         Add("meals", b.Meals?.Count);
         Add("drinks", b.Drinks?.Count);
+        Add("saved foods", b.SavedFoods?.Count);
         Add("workouts", b.WorkoutSessions?.Count);
         Add("routines", b.Routines?.Count);
         Add("sleep entries", b.Sleep?.Count);
@@ -122,6 +125,7 @@ public static class BackupRestore
         db.BodyMeasurements.AddRange(b.BodyMeasurements ?? []);
         db.MealEntries.AddRange(b.Meals ?? []);
         db.DrinkEntries.AddRange(b.Drinks ?? []);
+        db.SavedFoods.AddRange(b.SavedFoods ?? []);
         db.SleepEntries.AddRange(b.Sleep ?? []);
         db.RecoveryEntries.AddRange(b.Recovery ?? []);
         db.PhysicalWorkloadEntries.AddRange(b.PhysicalWorkload ?? []);

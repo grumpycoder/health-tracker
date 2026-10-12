@@ -1,7 +1,9 @@
 @page "/saved-foods"
 @using FitRecoveryLog.Services
+@using FitRecoveryLog.Application.Nutrition
 @using Microsoft.EntityFrameworkCore
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject SavedFoodService SavedFoodSvc
 @inject ToastService Toast
 
 <PageTitle>Saved foods</PageTitle>
@@ -9,7 +11,7 @@
 <div class="dashboard">
     <header class="dash-header">
         <div class="dash-date">Saved foods</div>
-        <div class="dash-date-sub">Rename to merge duplicates · hide to declutter suggestions</div>
+        <div class="dash-date-sub">Edit per-serving macros · rename to merge duplicates · hide to declutter suggestions</div>
     </header>
 
     <section class="card">
@@ -46,22 +48,69 @@
                                     </div>
                                 </div>
                             }
+                            else if (_editing == name)
+                            {
+                                <div class="edit-exercise" style="width:100%">
+                                    <p style="margin:0 0 0.3rem"><strong>@name</strong> <span class="muted" style="font-size:0.8rem">— per serving</span></p>
+                                    <div class="field"><label>Serving</label><input @bind="_draftServing" placeholder="e.g. 1 large egg, 2 tbsp" /></div>
+                                    <div class="inline-fields">
+                                        <div class="field"><label>Calories</label><input type="number" inputmode="numeric" @bind="_draft.Calories" /></div>
+                                        <div class="field"><label>Protein (g)</label><input type="number" inputmode="decimal" @bind="_draft.ProteinG" /></div>
+                                        <div class="field"><label>Carbs (g)</label><input type="number" inputmode="decimal" @bind="_draft.CarbsG" /></div>
+                                    </div>
+                                    <div class="inline-fields">
+                                        <div class="field"><label>Sugar (g)</label><input type="number" inputmode="decimal" @bind="_draft.SugarG" /></div>
+                                        <div class="field"><label>Added sugar (g)</label><input type="number" inputmode="decimal" @bind="_draft.AddedSugarG" /></div>
+                                        <div class="field"><label>Fat (g)</label><input type="number" inputmode="decimal" @bind="_draft.FatG" /></div>
+                                    </div>
+                                    <div class="inline-fields">
+                                        <div class="field"><label>Sodium (mg)</label><input type="number" inputmode="numeric" @bind="_draft.SodiumMg" /></div>
+                                        <div class="field"><label>Fiber (g)</label><input type="number" inputmode="decimal" @bind="_draft.FiberG" /></div>
+                                    </div>
+                                    <p class="muted" style="font-size:0.75rem;margin:0.2rem 0">Used next time you log this food or add it to a meal. Past logs aren't changed.</p>
+                                    <div class="routine-actions">
+                                        <button class="save-btn" @onclick="() => CommitMacros(name)">Save</button>
+                                        @if (f.Saved)
+                                        {
+                                            <button class="link-btn" @onclick="() => ResetMacros(name)">Reset to last log</button>
+                                        }
+                                        <button class="link-btn" @onclick="() => _editing = null">Cancel</button>
+                                    </div>
+                                </div>
+                            }
                             else
                             {
                                 <div class="ex-row">
                                     <div>
                                         <span class="entry">
                                             <strong>@name</strong>
+                                            @if (f.Saved)
+                                            {
+                                                <span class="muted" style="font-size:0.72rem"> · saved macros</span>
+                                            }
                                             @if (_hidden.Contains(name))
                                             {
                                                 <span class="muted" style="font-size:0.72rem"> · hidden</span>
                                             }
                                         </span>
                                         <span class="muted" style="display:block;font-size:0.75rem">
-                                            @f.Count log@(f.Count == 1 ? "" : "s") · last @f.LastUsed.ToString("MMM d, yyyy")
+                                            @if (f.Count > 0)
+                                            {
+                                                @($"{f.Count} log{(f.Count == 1 ? "" : "s")} · last {f.LastUsed:MMM d, yyyy}")
+                                            }
+                                            else
+                                            {
+                                                @("not logged yet")
+                                            }
                                         </span>
+                                        @if (MacroLine(f.Macros) is { Length: > 0 } ml)
+                                        {
+                                            <span class="muted" style="display:block;font-size:0.75rem">@ml@(f.Saved ? "" : " (from last log)")</span>
+                                        }
                                     </div>
                                     <div class="routine-actions">
+                                        <button class="icon-action" title="Edit macros" aria-label="Edit macros"
+                                                @onclick="() => StartEdit(f)">🧮</button>
                                         <button class="icon-action" title="Rename" aria-label="Rename"
                                                 @onclick="() => StartRename(name)">✏️</button>
                                         @if (_hidden.Contains(name))
@@ -86,13 +135,18 @@
 </div>
 
 @code {
-    private sealed record Food(string Name, int Count, DateTime LastUsed);
+    /// <summary>A library food: how often it's been logged (as a meal or a meal item), and its
+    /// per-serving macros — the curated saved food if there is one, else the newest log.</summary>
+    private sealed record Food(string Name, int Count, DateTime LastUsed, MealItemPortion Macros, bool Saved, string? ServingNote);
 
     private List<Food> _foods = new();
     private HashSet<string> _hidden = new(StringComparer.OrdinalIgnoreCase);
     private string _filter = "";
     private string? _renaming;
     private string _renameTo = "";
+    private string? _editing;
+    private MealItemPortion _draft = new();
+    private string? _draftServing;
     private bool _loading = true;
 
     private List<Food> Filtered =>
@@ -111,19 +165,99 @@
         _loading = true;
         await using var db = await DbFactory.CreateDbContextAsync();
         var rows = await db.MealEntries
-            .Select(m => new { m.Description, m.Time })
+            .Select(m => new { m.Description, m.Time, m.ItemsJson, m.Calories, m.ProteinG, m.CarbsG,
+                m.SugarG, m.AddedSugarG, m.FatG, m.SodiumMg, m.FiberG })
             .ToListAsync();
-        _foods = rows
-            .Where(r => !string.IsNullOrWhiteSpace(r.Description))
-            .GroupBy(r => r.Description.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Select(g => new Food(g.Key, g.Count(), g.Max(x => x.Time)))
-            .OrderByDescending(f => f.LastUsed)
+
+        // Every use of a food name: whole meals by description, plus each item in a meal breakdown
+        // (item macros are already per serving).
+        var uses = new List<(string Name, DateTime Time, MealItemPortion Macros)>();
+        foreach (var r in rows)
+        {
+            if (!string.IsNullOrWhiteSpace(r.Description))
+                uses.Add((r.Description.Trim(), r.Time, new MealItemPortion
+                {
+                    Calories = r.Calories, ProteinG = r.ProteinG, CarbsG = r.CarbsG, SugarG = r.SugarG,
+                    AddedSugarG = r.AddedSugarG, FatG = r.FatG, SodiumMg = r.SodiumMg, FiberG = r.FiberG,
+                }));
+            foreach (var it in new MealEntry { ItemsJson = r.ItemsJson }.Items)
+                if (!string.IsNullOrWhiteSpace(it.Name)) uses.Add((it.Name.Trim(), r.Time, it));
+        }
+
+        var saved = (await SavedFoodSvc.ListAsync()).ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
+        var foods = uses
+            .GroupBy(u => u.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var newest = g.MaxBy(u => u.Time);
+                return saved.TryGetValue(g.Key, out var sf)
+                    ? new Food(g.Key, g.Count(), newest.Time, FromMacros(sf.Macros), true, sf.ServingNote)
+                    : new Food(g.Key, g.Count(), newest.Time, newest.Macros, false, null);
+            })
             .ToList();
+        // Saved foods with no logs yet (e.g. renamed) still belong in the library.
+        foods.AddRange(saved.Values
+            .Where(sf => !foods.Any(f => string.Equals(f.Name, sf.Name, StringComparison.OrdinalIgnoreCase)))
+            .Select(sf => new Food(sf.Name, 0, DateTime.MinValue, FromMacros(sf.Macros), true, sf.ServingNote)));
+        _foods = foods.OrderByDescending(f => f.LastUsed).ThenBy(f => f.Name).ToList();
         _loading = false;
+    }
+
+    private static MealItemPortion FromMacros(FitRecoveryLog.Domain.Nutrition.Macros m) => new()
+    {
+        Calories = m.Calories, ProteinG = m.ProteinG, CarbsG = m.CarbsG, SugarG = m.SugarG,
+        AddedSugarG = m.AddedSugarG, FatG = m.FatG, SodiumMg = m.SodiumMg, FiberG = m.FiberG,
+    };
+
+    private static string MacroLine(MealItemPortion m)
+    {
+        var parts = new List<string>();
+        if (m.Calories is { } c) parts.Add($"{c} cal");
+        if (m.ProteinG is { } p) parts.Add($"{p:0.#}g protein");
+        if (m.CarbsG is { } cb) parts.Add($"{cb:0.#}g carbs");
+        if (m.FatG is { } ft) parts.Add($"{ft:0.#}g fat");
+        return string.Join(" · ", parts);
+    }
+
+    private void StartEdit(Food f)
+    {
+        _renaming = null;
+        _editing = f.Name;
+        var m = f.Macros;
+        _draft = new MealItemPortion
+        {
+            Calories = m.Calories, ProteinG = m.ProteinG, CarbsG = m.CarbsG, SugarG = m.SugarG,
+            AddedSugarG = m.AddedSugarG, FatG = m.FatG, SodiumMg = m.SodiumMg, FiberG = m.FiberG,
+        };
+        _draftServing = f.ServingNote;
+    }
+
+    private async Task CommitMacros(string name)
+    {
+        var d = _draft;
+        FitRecoveryLog.Domain.Nutrition.Macros macros;
+        try { macros = new(d.Calories, d.ProteinG, d.CarbsG, d.FatG, d.FiberG, d.SugarG, d.AddedSugarG, d.SodiumMg); }
+        catch (ArgumentOutOfRangeException ex) { _ = Toast.Show(ex.Message); return; }
+
+        var result = await SavedFoodSvc.SaveAsync(name, macros, _draftServing);
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
+        _editing = null;
+        _ = Toast.Show($"Saved “{name}” macros");
+        await Load();
+    }
+
+    private async Task ResetMacros(string name)
+    {
+        var result = await SavedFoodSvc.ResetAsync(name);
+        if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
+        _editing = null;
+        _ = Toast.Show($"“{name}” now uses its last log");
+        await Load();
     }
 
     private void StartRename(string name)
     {
+        _editing = null;
         _renaming = name;
         _renameTo = name;
     }
@@ -136,18 +270,36 @@
             return;
 
         await using var db = await DbFactory.CreateDbContextAsync();
-        // Match trim/case-insensitively so casing or whitespace variants merge too.
+        // Match trim/case-insensitively so casing or whitespace variants merge too — both whole
+        // meals and items inside a meal's breakdown.
         var all = await db.MealEntries.ToListAsync();
-        var matches = all
-            .Where(m => string.Equals(m.Description?.Trim(), oldName, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        foreach (var m in matches) m.Description = target;
+        var changed = 0;
+        foreach (var m in all)
+        {
+            var hit = false;
+            if (string.Equals(m.Description?.Trim(), oldName, StringComparison.OrdinalIgnoreCase))
+            {
+                m.Description = target;
+                hit = true;
+            }
+            var items = m.Items;
+            if (items.Any(it => string.Equals(it.Name?.Trim(), oldName, StringComparison.OrdinalIgnoreCase)))
+            {
+                foreach (var it in items.Where(it => string.Equals(it.Name?.Trim(), oldName, StringComparison.OrdinalIgnoreCase)))
+                    it.Name = target;
+                m.Items = items;
+                hit = true;
+            }
+            if (hit) changed++;
+        }
         await db.SaveChangesAsync();   // stamps UpdatedAt so the rename syncs when the cloud is available
+        var renamed = await SavedFoodSvc.RenameAsync(oldName, target);
+        if (!renamed.IsSuccess) _ = Toast.Show(renamed.Error!);
 
         // Carry a hide flag over to the new name so a merge doesn't un-hide it.
         if (_hidden.Remove(oldName)) { _hidden.Add(target); HiddenFoods.Save(_hidden); }
 
-        _ = Toast.Show($"Renamed {matches.Count} log(s) → “{target}”");
+        _ = Toast.Show($"Renamed {changed} log(s) → “{target}”");
         await Load();
     }
 

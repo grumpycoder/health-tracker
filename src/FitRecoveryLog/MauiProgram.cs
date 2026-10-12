@@ -103,6 +103,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.MealService>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.IDrinkRepository, FitRecoveryLog.Infrastructure.Nutrition.EfDrinkRepository>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.DrinkService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.ISavedFoodRepository, FitRecoveryLog.Infrastructure.Nutrition.EfSavedFoodRepository>();
+		builder.Services.AddSingleton<FitRecoveryLog.Application.Nutrition.SavedFoodService>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Recovery.ISleepRepository, FitRecoveryLog.Infrastructure.Recovery.EfSleepRepository>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Recovery.SleepService>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Recovery.IRecoveryRepository, FitRecoveryLog.Infrastructure.Recovery.EfRecoveryRepository>();

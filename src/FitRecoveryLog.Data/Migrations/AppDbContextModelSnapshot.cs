@@ -1113,6 +1113,60 @@ namespace FitRecoveryLog.Data.Migrations
                     b.ToTable("RoutineExercises");
                 });
 
+            modelBuilder.Entity("FitRecoveryLog.Data.SavedFoodEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("AddedSugarG")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("Calories")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("CarbsG")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("FatG")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("FiberG")
+                        .HasColumnType("REAL");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("ProteinG")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("ServingNote")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("SodiumMg")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("SugarG")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SavedFoods");
+                });
+
             modelBuilder.Entity("FitRecoveryLog.Data.SleepEntry", b =>
                 {
                     b.Property<Guid>("Id")
