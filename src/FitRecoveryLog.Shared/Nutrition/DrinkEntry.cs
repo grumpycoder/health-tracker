@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace FitRecoveryLog.Data;
 
 /// <summary>Drinks tracked separately so we can total tea/coffee/soda intake easily.</summary>
-public class DrinkEntry : EntityBase
+public class DrinkEntry : EntityBase, IMacroTotals
 {
     public DateTime Time { get; set; } = DateTime.Now;
     public string Description { get; set; } = "";
@@ -24,6 +24,17 @@ public class DrinkEntry : EntityBase
     public double? FiberG { get; set; }
     /// <summary>Added sugars (label line); coffee's SugarCount also counts as added sugar.</summary>
     public double? AddedSugarG { get; set; }
+
+    /// <summary>JSON of the drink's per-item breakdown (e.g. coffee + creamer + sugar cube), each
+    /// item's per-serving macros plus servings. The totals above stay the tracked source of truth.</summary>
+    public string? ItemsJson { get; set; }
+
+    [NotMapped]
+    public List<MealItemPortion> Items
+    {
+        get => MealItemPortion.Parse(ItemsJson);
+        set => ItemsJson = MealItemPortion.Serialize(value);
+    }
 
     [NotMapped]
     public IReadOnlyList<string> TagList => CsvField.Split(Tags);

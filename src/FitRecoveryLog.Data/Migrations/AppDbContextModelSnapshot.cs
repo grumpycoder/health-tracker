@@ -348,6 +348,9 @@ namespace FitRecoveryLog.Data.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("ItemsJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<double?>("Ounces")
                         .HasColumnType("REAL");
 

@@ -50,6 +50,7 @@ public sealed class ApiDrinkRepository : IDrinkRepository
             SodiumMg = drink.Macros.SodiumMg,
             FiberG = drink.Macros.FiberG,
             AddedSugarG = drink.Macros.AddedSugarG,
+            ItemsJson = existing?.ItemsJson,   // out-of-aggregate breakdown — preserve across edits
             CreatedAt = existing?.CreatedAt ?? DateTime.UtcNow,
         });
         _state.Invalidate();

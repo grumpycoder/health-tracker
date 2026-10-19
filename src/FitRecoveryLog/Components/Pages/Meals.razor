@@ -213,26 +213,7 @@
                     <div class="build-head">
                         <span class="muted" style="font-size:0.75rem">Building this meal — drag to set servings of each item</span>
                     </div>
-                    <div class="item-list">
-                        @for (var i = 0; i < _pendingMealItems.Count; i++)
-                        {
-                            var idx = i;
-                            var it = _pendingMealItems[idx];
-                            <div class="item-adj">
-                                <div class="item-adj-top">
-                                    <span class="entry">@it.Name</span>
-                                    <span class="muted" style="font-size:0.8rem">
-                                        @it.Portion.ToString("0.##")× · @((int)Math.Round((it.Calories ?? 0) * it.Portion)) cal
-                                        <button type="button" class="icon-action" title="Edit macros" aria-label="Edit macros" @onclick="() => StartItemEdit(_pendingMealItems, _meal, idx)">✏️</button>
-                                        <button type="button" class="icon-action danger" title="Remove" aria-label="Remove" @onclick="() => RemovePendingItem(idx)">✕</button>
-                                    </span>
-                                </div>
-                                <input type="range" min="0.25" max="5" step="0.25" value="@it.Portion"
-                                       @oninput="e => SetItemServings(_pendingMealItems, _meal, idx, e.Value)" style="width:100%" />
-                                @if (IsEditingItem(_pendingMealItems, idx)) { @ItemMacroEditor() }
-                            </div>
-                        }
-                    </div>
+                    @ItemRows(_pendingMealItems, _meal, RemovePendingItem)
                 }
                 else if (_mealComponents.Count > 0)
                 {
@@ -402,9 +383,22 @@
                 </div>
             </div>
         }
-        else if (_drink.Calories is not null || _drink.ProteinG is not null)
+        else
         {
-            <p class="muted" style="font-size:0.8rem">@DrinkMacroLine(_drink)</p>
+            <div class="meal-build">
+                @if (_pendingDrinkItems.Count > 0)
+                {
+                    <div class="build-head">
+                        <span class="muted" style="font-size:0.75rem">Building this drink — drag to set servings of each item</span>
+                    </div>
+                    @ItemRows(_pendingDrinkItems, _drink, RemovePendingDrinkItem)
+                }
+                @if (DrinkHasMacros)
+                {
+                    <p class="muted" style="font-size:0.8rem;margin:0.2rem 0">@DrinkMacroLine(_drink)</p>
+                }
+                @DrinkAddItemBox(false)
+            </div>
         }
 
         @TagField(_drinkTagBox, _drinkTagOptions, () => SuggestTagsAsync(_drinkTagBox, _drinkTagOptions, "Drink", _drink.Description, DrinkPortion(_drink)))
@@ -498,26 +492,7 @@
                                 @if (_mealEditItems.Count > 0)
                                 {
                                     <p class="muted" style="margin:0 0 0.3rem;font-size:0.78rem">Drag to set servings of each item — the totals below update live.</p>
-                                    <div class="item-list">
-                                        @for (var i = 0; i < _mealEditItems.Count; i++)
-                                        {
-                                            var idx = i;
-                                            var it = _mealEditItems[idx];
-                                            <div class="item-adj">
-                                                <div class="item-adj-top">
-                                                    <span class="entry">@it.Name</span>
-                                                    <span class="muted" style="font-size:0.8rem">
-                                                        @it.Portion.ToString("0.##")× · @((int)Math.Round((it.Calories ?? 0) * it.Portion)) cal
-                                                        <button type="button" class="icon-action" title="Edit macros" aria-label="Edit macros" @onclick="() => StartItemEdit(_mealEditItems, _mealEdit, idx)">✏️</button>
-                                                        <button type="button" class="icon-action danger" title="Remove" aria-label="Remove" @onclick="() => RemoveEditItem(idx)">✕</button>
-                                                    </span>
-                                                </div>
-                                                <input type="range" min="0.25" max="5" step="0.25" value="@it.Portion"
-                                                       @oninput="e => SetItemServings(_mealEditItems, _mealEdit, idx, e.Value)" style="width:100%" />
-                                                @if (IsEditingItem(_mealEditItems, idx)) { @ItemMacroEditor() }
-                                            </div>
-                                        }
-                                    </div>
+                                    @ItemRows(_mealEditItems, _mealEdit, RemoveEditItem)
                                 }
                                 else
                                 {
@@ -649,6 +624,12 @@
                                 <div class="field"><label>Ounces</label><input type="number" inputmode="decimal" @bind="_drinkEdit.Ounces" /></div>
                                 @TagField(_drinkEditTagBox, _drinkTagOptions, () => SuggestTagsAsync(_drinkEditTagBox, _drinkTagOptions, "Drink", _drinkEdit.Description, DrinkPortion(_drinkEdit)))
                                 <p class="muted" style="margin:0.4rem 0 0.2rem;font-size:0.8rem">Macros</p>
+                                @if (_drinkEditItems.Count > 0)
+                                {
+                                    <p class="muted" style="margin:0 0 0.3rem;font-size:0.78rem">Drag to set servings of each item — the totals below update live.</p>
+                                    @ItemRows(_drinkEditItems, _drinkEdit, RemoveEditDrinkItem)
+                                }
+                                @DrinkAddItemBox(true)
                                 <div class="inline-fields">
                                     <div class="field"><label>Calories</label><input type="number" inputmode="numeric" @bind="_drinkEdit.Calories" /></div>
                                     <div class="field"><label>Protein (g)</label><input type="number" inputmode="decimal" @bind="_drinkEdit.ProteinG" /></div>
@@ -671,7 +652,8 @@
                         }
                         else
                         {
-                            <div class="ex-row" style="width:100%">
+                            <div style="width:100%">
+                            <div class="ex-row">
                                 <div>
                                     <span class="time">@d.Time.ToString("h:mm tt")</span>
                                     <span class="entry">🥤 @d.Description
@@ -689,6 +671,33 @@
                                     <button class="icon-action" title="Edit" aria-label="Edit" @onclick="() => StartEditDrink(d)">✏️</button>
                                     <button class="icon-action danger" title="Delete" aria-label="Delete" @onclick="() => DeleteDrink(d)">🗑</button>
                                 </div>
+                            </div>
+                            @if (d.Items is { Count: > 0 } ditems)
+                            {
+                                <button class="link-btn" style="padding:0;margin-top:0.3rem;font-size:0.8rem"
+                                        @onclick="() => ToggleMealDetails(d.Id)">
+                                    @(_detailMeals.Contains(d.Id) ? "▾" : "▸") @ditems.Count item@(ditems.Count == 1 ? "" : "s")
+                                </button>
+                                @if (_detailMeals.Contains(d.Id))
+                                {
+                                    <ul class="meal-items">
+                                        @foreach (var it in ditems)
+                                        {
+                                            <li>
+                                                <span class="entry">@it.Name</span>
+                                                @if (Math.Abs(it.Portion - 1.0) > 0.01)
+                                                {
+                                                    <span class="muted" style="font-size:0.75rem"> · @it.Portion.ToString("0.##")× serving</span>
+                                                }
+                                                @if (ItemLine(it) is { Length: > 0 } dil)
+                                                {
+                                                    <span class="muted" style="display:block;font-size:0.72rem">@dil</span>
+                                                }
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                            }
                             </div>
                         }
                     }
@@ -894,7 +903,19 @@
             _drink.SugarG = d.SugarG; _drink.FatG = d.FatG; _drink.SodiumMg = d.SodiumMg;
             _drink.FiberG = d.FiberG; _drink.AddedSugarG = d.AddedSugarG;
         }
+        // Restore the add-ins (one serving each; curated saved-food macros win over last time's).
+        _pendingDrinkItems = _drinkItems.TryGetValue(name, out var stored)
+            ? stored.Select(x => _savedFoods.ContainsKey(x.Name.Trim()) ? ItemFromFood(x.Name) : CopyItem(x)).ToList()
+            : new();
+        RecomputeTotals(_pendingDrinkItems, _drink);
     }
+
+    private static MealItemPortion CopyItem(MealItemPortion x) => new()
+    {
+        Name = x.Name, Calories = x.Calories, ProteinG = x.ProteinG, CarbsG = x.CarbsG,
+        SugarG = x.SugarG, AddedSugarG = x.AddedSugarG, FatG = x.FatG, SodiumMg = x.SodiumMg,
+        FiberG = x.FiberG, Portion = 1,
+    };
 
     private static List<string> Suggest(List<string> lib, string? query)
     {
@@ -1475,6 +1496,17 @@
         var n = _drink.Ounces is { } drank and > 0 && _drinkScanServingOz is { } serv and > 0
             ? drank / serv
             : 1.0;
+        if (add)
+        {
+            var item = ItemFromFacts(f);
+            if (item.Name == "Item" && !string.IsNullOrWhiteSpace(_drink.Description)) item.Name = _drink.Description.Trim();
+            item.Portion = Math.Round(n, 2);
+            AppendItem(_pendingDrinkItems, _drink, item);
+            _drinkScan = null;
+            _drinkScanMsg = "Added to drink ✓";
+            return;
+        }
+        _pendingDrinkItems = new();
         _drink.Calories = CombineInt(_drink.Calories, f.Calories, n, add);
         _drink.ProteinG = CombineDbl(_drink.ProteinG, f.ProteinG, n, add);
         _drink.CarbsG = CombineDbl(_drink.CarbsG, f.CarbsG, n, add);
@@ -1562,7 +1594,7 @@
 
     // Per-item serving slider (entry + edit) → set the item's servings multiplier and recompute
     // the meal's macro totals. Servings can exceed 1 (e.g. 2 slices of bread = 2×).
-    private void SetItemServings(List<MealItemPortion> items, MealEntry meal, int i, object? value)
+    private void SetItemServings(List<MealItemPortion> items, IMacroTotals meal, int i, object? value)
     {
         if (i < 0 || i >= items.Count) return;
         if (double.TryParse(value?.ToString(), out var v))
@@ -1575,7 +1607,7 @@
     private void RemovePendingItem(int i) => RemoveItemAt(_pendingMealItems, _meal, i, entry: true);
     private void RemoveEditItem(int i) => RemoveItemAt(_mealEditItems, _mealEdit, i, entry: false);
 
-    private void RemoveItemAt(List<MealItemPortion> items, MealEntry meal, int i, bool entry)
+    private void RemoveItemAt(List<MealItemPortion> items, IMacroTotals meal, int i, bool entry)
     {
         if (i < 0 || i >= items.Count) return;
         if (ReferenceEquals(_itemEditList, items)) CancelItemEdit();   // indices shift under an open editor
@@ -1601,7 +1633,7 @@
     private string? _mealEditScanMsg;
 
     // Sum every item's macros × portion into the meal's totals (the tracked source of truth).
-    private static void RecomputeTotals(List<MealItemPortion> items, MealEntry meal)
+    private static void RecomputeTotals(List<MealItemPortion> items, IMacroTotals meal)
     {
         if (items.Count == 0) return;
         double Sum(Func<MealItemPortion, double?> sel) => items.Sum(it => (sel(it) ?? 0) * it.Portion);
@@ -1617,7 +1649,7 @@
 
     // A meal with no item breakdown yet: fold its current totals into one base item so adding a
     // new item on top preserves the original macros instead of replacing them.
-    private static void SeedBaseItem(List<MealItemPortion> items, MealEntry meal)
+    private static void SeedBaseItem(List<MealItemPortion> items, IMacroTotals meal)
     {
         if (items.Count > 0) return;
         var has = meal.Calories is not null || meal.ProteinG is not null || meal.CarbsG is not null
@@ -1633,7 +1665,7 @@
         });
     }
 
-    private static void AppendItem(List<MealItemPortion> items, MealEntry meal, MealItemPortion it)
+    private static void AppendItem(List<MealItemPortion> items, IMacroTotals meal, MealItemPortion it)
     {
         SeedBaseItem(items, meal);
         items.Add(it);
@@ -1674,7 +1706,7 @@
     // ---- Per-item macro editor (entry + edit screens) ----
 
     private List<MealItemPortion>? _itemEditList;   // the list holding the item being edited
-    private MealEntry? _itemEditMeal;                // the meal whose totals it feeds
+    private IMacroTotals? _itemEditMeal;             // the meal/drink whose totals it feeds
     private int _itemEditIdx = -1;
     private MealItemPortion _itemDraft = new();      // per-serving values being edited
     private bool _itemEditUpdateSaved = true;        // also write the macros to the saved-foods library
@@ -1682,7 +1714,7 @@
     private bool IsEditingItem(List<MealItemPortion> items, int idx) =>
         ReferenceEquals(_itemEditList, items) && _itemEditIdx == idx;
 
-    private void StartItemEdit(List<MealItemPortion> items, MealEntry meal, int idx)
+    private void StartItemEdit(List<MealItemPortion> items, IMacroTotals meal, int idx)
     {
         if (IsEditingItem(items, idx)) { CancelItemEdit(); return; }   // ✏️ again toggles closed
         var it = items[idx];
@@ -1753,6 +1785,104 @@
                 <button type="button" class="save-btn" @onclick="ApplyItemEdit">Apply</button>
                 <button type="button" class="link-btn" @onclick="CancelItemEdit">Cancel</button>
             </div>
+        </div>;
+
+    // Item rows with a servings slider, ✏️ macro editor and ✕ remove (meals and drinks share it).
+    private RenderFragment ItemRows(List<MealItemPortion> items, IMacroTotals totals, Action<int> remove) =>
+        @<div class="item-list">
+            @for (var i = 0; i < items.Count; i++)
+            {
+                var idx = i;
+                var it = items[idx];
+                <div class="item-adj">
+                    <div class="item-adj-top">
+                        <span class="entry">@it.Name</span>
+                        <span class="muted" style="font-size:0.8rem">
+                            @it.Portion.ToString("0.##")× · @((int)Math.Round((it.Calories ?? 0) * it.Portion)) cal
+                            <button type="button" class="icon-action" title="Edit macros" aria-label="Edit macros" @onclick="() => StartItemEdit(items, totals, idx)">✏️</button>
+                            <button type="button" class="icon-action danger" title="Remove" aria-label="Remove" @onclick="() => remove(idx)">✕</button>
+                        </span>
+                    </div>
+                    <input type="range" min="0.25" max="5" step="0.25" value="@it.Portion"
+                           @oninput="e => SetItemServings(items, totals, idx, e.Value)" style="width:100%" />
+                    @if (IsEditingItem(items, idx)) { @ItemMacroEditor() }
+                </div>
+            }
+        </div>;
+
+    // ---- Drink items (e.g. coffee + creamer + sugar cube) — same breakdown model as meals ----
+
+    private List<MealItemPortion> _pendingDrinkItems = new();   // breakdown for the drink being logged
+    private List<MealItemPortion> _drinkEditItems = new();      // the editing drink's breakdown
+    // Most-recent item breakdown per drink name, so re-logging "Coffee" restores its add-ins.
+    private Dictionary<string, List<MealItemPortion>> _drinkItems = new(StringComparer.OrdinalIgnoreCase);
+    private string _addDrinkItemEntry = "";
+    private string _addDrinkItemEdit = "";
+    private string? _drinkEditScanMsg;
+
+    private void RemovePendingDrinkItem(int i) => RemoveItemAt(_pendingDrinkItems, _drink, i, entry: false);
+    private void RemoveEditDrinkItem(int i) => RemoveItemAt(_drinkEditItems, _drinkEdit, i, entry: false);
+
+    private void AddDrinkItem(bool toEdit)
+    {
+        var name = (toEdit ? _addDrinkItemEdit : _addDrinkItemEntry).Trim();
+        if (name.Length == 0) return;
+        if (toEdit) { AppendItem(_drinkEditItems, _drinkEdit, ItemFromFood(name)); _addDrinkItemEdit = ""; }
+        else { AppendItem(_pendingDrinkItems, _drink, ItemFromFood(name)); _addDrinkItemEntry = ""; _drinkScanMsg = $"Added {name} ✓"; }
+    }
+
+    private async Task AddScannedDrinkItem(bool toEdit, bool camera)
+    {
+        void Msg(string? m) { if (toEdit) _drinkEditScanMsg = m; else _drinkScanMsg = m; }
+        if (!_hasAiKey) { Msg("Set a Gemini API key in Settings to scan."); return; }
+        _addScanBusy = true;
+        try
+        {
+            var jpeg = await CapturePhotoAsync(camera);
+            if (jpeg is null) { _addScanBusy = false; return; }
+            var facts = (await AiCoach.ReadNutritionLabelAsync(jpeg, _drinkTagOptions))?.Facts;
+            if (facts is null || (facts.Calories is null && facts.ProteinG is null && facts.CarbsG is null))
+            {
+                Msg("Couldn't read a label from that photo.");
+            }
+            else
+            {
+                var item = ItemFromFacts(facts);
+                if (toEdit) AppendItem(_drinkEditItems, _drinkEdit, item);
+                else AppendItem(_pendingDrinkItems, _drink, item);
+                Msg($"Added {item.Name} ✓");
+            }
+        }
+        catch (Exception ex) { Msg($"Scan failed: {ex.Message}"); }
+        _addScanBusy = false;
+    }
+
+    // Typeahead + label scan for adding an item to a drink (entry and edit forms).
+    private RenderFragment DrinkAddItemBox(bool toEdit) =>
+        @<div class="add-item">
+            <label class="muted" style="font-size:0.78rem">➕ Add to this drink (creamer, sugar, syrup…)</label>
+            <div class="chip-row">
+                <input value="@(toEdit ? _addDrinkItemEdit : _addDrinkItemEntry)"
+                       @oninput="e => { var v = e.Value?.ToString() ?? string.Empty; if (toEdit) _addDrinkItemEdit = v; else _addDrinkItemEntry = v; }"
+                       placeholder="type a saved food" style="flex:1;min-width:0" />
+                <button type="button" class="chip" disabled="@string.IsNullOrWhiteSpace(toEdit ? _addDrinkItemEdit : _addDrinkItemEntry)" @onclick="() => AddDrinkItem(toEdit)">Add</button>
+            </div>
+            @if (Suggest(_foodLib, toEdit ? _addDrinkItemEdit : _addDrinkItemEntry) is { Count: > 0 } dsug
+                 && !string.IsNullOrWhiteSpace(toEdit ? _addDrinkItemEdit : _addDrinkItemEntry))
+            {
+                <div class="chip-row">
+                    @foreach (var f in dsug)
+                    {
+                        <button type="button" class="chip" @onclick="() => { if (toEdit) _addDrinkItemEdit = f; else _addDrinkItemEntry = f; AddDrinkItem(toEdit); }">@f</button>
+                    }
+                </div>
+            }
+            <div class="chip-row">
+                @if (_captureSupported) { <button type="button" class="chip" disabled="@_addScanBusy" @onclick="() => AddScannedDrinkItem(toEdit, true)">📷 Scan label to add</button> }
+                <button type="button" class="chip" disabled="@_addScanBusy" @onclick="() => AddScannedDrinkItem(toEdit, false)">🖼 Label photo</button>
+                @if (_addScanBusy) { <span class="muted" style="align-self:center;font-size:0.8rem">Reading…</span> }
+            </div>
+            @if (toEdit && _drinkEditScanMsg is not null) { <span class="muted" style="font-size:0.75rem">@_drinkEditScanMsg</span> }
         </div>;
 
     private void AddFoodItem(bool toEdit)
@@ -1834,12 +1964,16 @@
         _mealEdit.QualityStars = _mealEditTagBox.Stars;
         var result = await MealSvc.UpdateAsync(id, MealToData(_mealEdit));
         if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
-        // Persist adjusted item portions (out-of-aggregate) after the macro update.
-        if (_mealEditItems.Count > 0)
+        // Persist adjusted item portions (out-of-aggregate) after the macro update. The list was
+        // loaded from this row, so removing every item clears the stored breakdown too.
+        await using (var db = await DbFactory.CreateDbContextAsync())
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
             var row = await db.MealEntries.FindAsync(id);
-            if (row is not null) { row.Items = _mealEditItems; await db.SaveChangesAsync(); }
+            if (row is not null && row.ItemsJson != MealItemPortion.Serialize(_mealEditItems))
+            {
+                row.Items = _mealEditItems;
+                await db.SaveChangesAsync();
+            }
         }
         if (_mealEdit.Satiety != Satiety.Unset)
             ReminderNotifier.Cancel(ReminderNotifier.MealRatingNotificationId);
@@ -1865,6 +1999,8 @@
             Calories = d.Calories, ProteinG = d.ProteinG, CarbsG = d.CarbsG, SugarG = d.SugarG,
             FatG = d.FatG, SodiumMg = d.SodiumMg, FiberG = d.FiberG, AddedSugarG = d.AddedSugarG
         };
+        _drinkEditItems = d.Items.ToList();
+        _addDrinkItemEdit = ""; _drinkEditScanMsg = null;
         _drinkEditTagBox.Load(d.TagList);
         _drinkEditTime = d.Time;
     }
@@ -1876,6 +2012,16 @@
         _drinkEdit.Tags = CsvField.Join(_drinkEditTagBox.Selected);
         var result = await DrinkSvc.UpdateAsync(id, DrinkToData(_drinkEdit));
         if (!result.IsSuccess) { _ = Toast.Show(result.Error!); return; }
+        // Persist the breakdown (loaded from this row, so an emptied list clears it).
+        await using (var db = await DbFactory.CreateDbContextAsync())
+        {
+            var row = await db.DrinkEntries.FindAsync(id);
+            if (row is not null && row.ItemsJson != MealItemPortion.Serialize(_drinkEditItems))
+            {
+                row.Items = _drinkEditItems;
+                await db.SaveChangesAsync();
+            }
+        }
         _editDrinkId = null;
         await LoadToday();
     }
@@ -1966,6 +2112,15 @@
         var result = await DrinkSvc.CreateAsync(DrinkToData(_drink));
         if (!result.IsSuccess) { _drinkWarn = result.Error; return; }
 
+        // Persist the add-in breakdown (out-of-aggregate) so it can be re-adjusted on edit.
+        if (_pendingDrinkItems.Count > 0)
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var row = await db.DrinkEntries.FindAsync(result.Value);
+            if (row is not null) { row.Items = _pendingDrinkItems; await db.SaveChangesAsync(); }
+        }
+        _pendingDrinkItems = new(); _addDrinkItemEntry = "";
+
         _drink = new DrinkEntry();
         _drinkTagBox.Reset();
         _drinkScan = null; _drinkScanMsg = null; _drinkScanServingOz = null;
@@ -2046,6 +2201,26 @@
             if (items.Count == 0) continue;
             var meal = row.Description.Trim();
             if (meal.Length > 0 && !_foodItems.ContainsKey(meal)) _foodItems[meal] = items;   // newest per meal
+            foreach (var it in items)
+            {
+                var n = it.Name?.Trim();
+                if (string.IsNullOrWhiteSpace(n)) continue;
+                itemNames.Add(n);
+                if (!_foodDefaults.ContainsKey(n))
+                    _foodDefaults[n] = new FoodMemory(null, null, it.Calories, it.ProteinG,
+                        it.CarbsG, it.SugarG, it.FatG, it.SodiumMg, it.FiberG, null, it.AddedSugarG);
+            }
+        }
+
+        _drinkItems = new(StringComparer.OrdinalIgnoreCase);
+        var drinkBreakdowns = await db.DrinkEntries.Where(d => d.ItemsJson != null && d.Description != "")
+            .OrderByDescending(d => d.Time).Select(d => new { d.Description, d.ItemsJson }).ToListAsync();
+        foreach (var row in drinkBreakdowns)
+        {
+            var items = ParseItems(row.ItemsJson);
+            if (items.Count == 0) continue;
+            var drink = row.Description.Trim();
+            if (drink.Length > 0 && !_drinkItems.ContainsKey(drink)) _drinkItems[drink] = items;   // newest per drink
             foreach (var it in items)
             {
                 var n = it.Name?.Trim();

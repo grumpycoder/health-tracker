@@ -180,9 +180,15 @@
                     Calories = r.Calories, ProteinG = r.ProteinG, CarbsG = r.CarbsG, SugarG = r.SugarG,
                     AddedSugarG = r.AddedSugarG, FatG = r.FatG, SodiumMg = r.SodiumMg, FiberG = r.FiberG,
                 }));
-            foreach (var it in new MealEntry { ItemsJson = r.ItemsJson }.Items)
+            foreach (var it in MealItemPortion.Parse(r.ItemsJson))
                 if (!string.IsNullOrWhiteSpace(it.Name)) uses.Add((it.Name.Trim(), r.Time, it));
         }
+        // Drink add-ins (creamer, sugar cube…) are foods too.
+        var drinkItems = await db.DrinkEntries.Where(d => d.ItemsJson != null)
+            .Select(d => new { d.Time, d.ItemsJson }).ToListAsync();
+        foreach (var r in drinkItems)
+            foreach (var it in MealItemPortion.Parse(r.ItemsJson))
+                if (!string.IsNullOrWhiteSpace(it.Name)) uses.Add((it.Name.Trim(), r.Time, it));
 
         var saved = (await SavedFoodSvc.ListAsync()).ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
         var foods = uses
@@ -291,6 +297,15 @@
                 hit = true;
             }
             if (hit) changed++;
+        }
+        foreach (var d in await db.DrinkEntries.Where(d => d.ItemsJson != null).ToListAsync())
+        {
+            var items = d.Items;
+            if (!items.Any(it => string.Equals(it.Name?.Trim(), oldName, StringComparison.OrdinalIgnoreCase))) continue;
+            foreach (var it in items.Where(it => string.Equals(it.Name?.Trim(), oldName, StringComparison.OrdinalIgnoreCase)))
+                it.Name = target;
+            d.Items = items;
+            changed++;
         }
         await db.SaveChangesAsync();   // stamps UpdatedAt so the rename syncs when the cloud is available
         var renamed = await SavedFoodSvc.RenameAsync(oldName, target);

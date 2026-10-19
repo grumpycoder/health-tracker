@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace FitRecoveryLog.Data;
 
-public class MealEntry : EntityBase
+public class MealEntry : EntityBase, IMacroTotals
 {
     public DateTime Time { get; set; } = DateTime.Now;
     public MealType MealType { get; set; } = MealType.Snack;
@@ -39,13 +39,8 @@ public class MealEntry : EntityBase
     [NotMapped]
     public List<MealItemPortion> Items
     {
-        get
-        {
-            if (string.IsNullOrWhiteSpace(ItemsJson)) return new();
-            try { return JsonSerializer.Deserialize<List<MealItemPortion>>(ItemsJson) ?? new(); }
-            catch (JsonException) { return new(); }
-        }
-        set => ItemsJson = value is { Count: > 0 } ? JsonSerializer.Serialize(value) : null;
+        get => MealItemPortion.Parse(ItemsJson);
+        set => ItemsJson = MealItemPortion.Serialize(value);
     }
 
     /// <summary>Compact per-item macro breakdown for AI prompts (each item's macros × portion eaten),
@@ -85,4 +80,28 @@ public sealed class MealItemPortion
     public int? SodiumMg { get; set; }
     public double? FiberG { get; set; }
     public double Portion { get; set; } = 1;
+
+    public static List<MealItemPortion> Parse(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new();
+        try { return JsonSerializer.Deserialize<List<MealItemPortion>>(json) ?? new(); }
+        catch (JsonException) { return new(); }
+    }
+
+    public static string? Serialize(List<MealItemPortion>? items) =>
+        items is { Count: > 0 } ? JsonSerializer.Serialize(items) : null;
+}
+
+/// <summary>The macro totals shared by meals and drinks, so item breakdowns can roll up into either.</summary>
+public interface IMacroTotals
+{
+    string Description { get; set; }
+    int? Calories { get; set; }
+    double? ProteinG { get; set; }
+    double? CarbsG { get; set; }
+    double? SugarG { get; set; }
+    double? FatG { get; set; }
+    int? SodiumMg { get; set; }
+    double? FiberG { get; set; }
+    double? AddedSugarG { get; set; }
 }
