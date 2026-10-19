@@ -20,10 +20,13 @@ mkdir -p "$(dirname "$LOG")"
 
 # Notify only when it matters (routine daily heals stay silent):
 #   10 = weekly renewal succeeded · 2 = urgent (cert expired, can't reach phone)
-#    1 = build/sign error · 0,3 = routine/non-urgent → silent
+#    4 = Xcode signed out of Apple ID · 5 = held back for a server migration · 1 = build/sign error · 0,3 = routine/non-urgent → silent
 case "${rc:-1}" in
   10) osascript -e 'display notification "Signing profile refreshed for the week ✓" with title "Fit Log"' >/dev/null 2>&1 ;;
   2)  osascript -e 'display notification "Cert expired and the iPhone is unreachable — unlock & connect it (it will retry), or run refresh-cert.sh." with title "Fit Log ⚠️" sound name "Basso"' >/dev/null 2>&1 ;;
+  4)  exp="$(grep -o 'expires .*' "$LOG" | tail -1)"
+      osascript -e "display notification \"Xcode is signed out — open Xcode → Settings → Accounts and sign in. App ${exp:-expires soon}.\" with title \"Fit Log ⚠️\" sound name \"Basso\"" >/dev/null 2>&1 ;;
+  5)  osascript -e 'display notification "New build needs a server migration first — reinstalled the previous build. Run dotnet ef database update, then refresh-cert.sh." with title "Fit Log ⚠️" sound name "Basso"' >/dev/null 2>&1 ;;
   1)  osascript -e 'display notification "Cert refresh failed to build/sign — check Xcode → Settings → Accounts, then run refresh-cert.sh." with title "Fit Log ⚠️" sound name "Basso"' >/dev/null 2>&1 ;;
 esac
 exit "${rc:-1}"
