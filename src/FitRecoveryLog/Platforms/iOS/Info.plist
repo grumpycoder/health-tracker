@@ -26,6 +26,25 @@
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
+    <!-- iOS 27 requires UIScene adoption for apps built against the iOS 26+ SDK;
+         the configuration name is the one MauiUIApplicationDelegate looks for. -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+        <key>UISceneConfigurations</key>
+        <dict>
+            <key>UIWindowSceneSessionRoleApplication</key>
+            <array>
+                <dict>
+                    <key>UISceneConfigurationName</key>
+                    <string>__MAUI_DEFAULT_SCENE_CONFIGURATION__</string>
+                    <key>UISceneDelegateClassName</key>
+                    <string>SceneDelegate</string>
+                </dict>
+            </array>
+        </dict>
+    </dict>
     <key>XSAppIconAssets</key>
     <string>Assets.xcassets/appicon.appiconset</string>
     <key>NSCameraUsageDescription</key>
