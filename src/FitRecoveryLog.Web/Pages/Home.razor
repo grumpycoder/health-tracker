@@ -226,6 +226,10 @@
                                     {
                                         <div class="dl-meta">@e.Meta</div>
                                     }
+                                    @if (e.Items is { Length: > 0 })
+                                    {
+                                        <div class="dl-meta">@string.Join(" · ", e.Items)</div>
+                                    }
                                     @if (e.Macros.Length > 0)
                                     {
                                         <span class="dl-macros">
@@ -306,7 +310,8 @@
     private string _ratingPolyline = "";
 
     // today's log
-    private record LogItem(DateTime Time, string Icon, string Title, string? Meta, string[] Macros, bool Highlight)
+    private record LogItem(DateTime Time, string Icon, string Title, string? Meta, string[] Macros, bool Highlight,
+        string[]? Items = null)
     {
         public string TimeText => Time.ToString("h:mm tt");
         public string LiClass => Highlight ? "hi" : "";
@@ -547,18 +552,13 @@
         var items = new List<LogItem>();
         foreach (var m in _todayMeals)
         {
-            var macros = new List<string>();
-            if (m.Calories is int c) macros.Add($"{c:0} kcal");
-            if (m.ProteinG is double p) macros.Add($"{p:0} P");
-            if (m.CarbsG is double cb) macros.Add($"{cb:0} C");
-            if (m.FatG is double f) macros.Add($"{f:0} F");
             items.Add(new LogItem(m.Time, "meal", string.IsNullOrWhiteSpace(m.Description) ? "Meal" : m.Description,
-                m.MealType.ToString(), macros.ToArray(), true));
+                m.MealType.ToString(), MacroChips(m), true, ItemNames(m.Items)));
         }
         foreach (var d in _todayDrinks)
         {
             items.Add(new LogItem(d.Time, "water", string.IsNullOrWhiteSpace(d.Description) ? "Drink" : d.Description,
-                d.Ounces is double v ? $"{v:0} oz" : null, Array.Empty<string>(), false));
+                d.Ounces is double v ? $"{v:0} oz" : null, MacroChips(d), false, ItemNames(d.Items)));
         }
         foreach (var w in _todayWorkouts)
         {
@@ -568,6 +568,20 @@
         }
         _log = items.OrderByDescending(i => i.Time).Take(10).ToList();
     }
+
+    private static string[] MacroChips(IMacroTotals m)
+    {
+        var macros = new List<string>();
+        if (m.Calories is int c) macros.Add($"{c:0} kcal");
+        if (m.ProteinG is double p) macros.Add($"{p:0} P");
+        if (m.CarbsG is double cb) macros.Add($"{cb:0} C");
+        if (m.FatG is double f) macros.Add($"{f:0} F");
+        return macros.ToArray();
+    }
+
+    // "Coffee · Creamer ×2 · Sugar cube" — the entry's item breakdown, if it has one.
+    private static string[] ItemNames(List<MealItemPortion> items) =>
+        items.Select(it => Math.Abs(it.Portion - 1.0) > 0.01 ? $"{it.Name} ×{it.Portion:0.##}" : it.Name).ToArray();
 
     private static double SlotX(int i) => (480.0 / 7) * i + (480.0 / 7) / 2;
     private static string Coord(double x, double y) => $"{x.ToString("0.#", Inv)},{y.ToString("0.#", Inv)}";

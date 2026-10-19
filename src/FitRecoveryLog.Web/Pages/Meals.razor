@@ -8,6 +8,7 @@
 @inject MealService MealSvc
 @inject DrinkService DrinkSvc
 @inject IAiCoach Coach
+@inject AppState State
 
 <PageTitle>Meals &amp; Drinks — Fit Log</PageTitle>
 
@@ -56,6 +57,7 @@
                     <div class="field"><label>Time</label><input type="datetime-local" @bind="_meal.Time" /></div>
                     <div class="field"><label>Satiety</label><select @bind="_meal.Satiety">@foreach (var v in Enum.GetValues<Satiety>()) { <option value="@v">@v</option> }</select></div>
                 </div>
+                @EditItems(_meal.Id)
                 <div class="inline-fields">
                     <div class="field"><label>Calories</label><input type="number" @bind="_meal.Calories" /></div>
                     <div class="field"><label>Protein (g)</label><input type="number" step="0.1" @bind="_meal.ProteinG" /></div>
@@ -119,6 +121,7 @@
                             <span class="entry"><strong>@m.MealType</strong> — @m.Description
                                 @if (m.Macros.Calories is { } c) { <span class="muted"> · @c cal</span> }
                             </span>
+                            @ItemBreakdown(m.Id)
                         </div>
                         <div class="routine-actions"><button class="icon-action" title="Edit" @onclick="() => EditMeal(m)">✏️</button></div>
                     </li>
@@ -152,6 +155,7 @@
                     <div class="field"><label>Ounces</label><input type="number" step="0.1" @bind="_drink.Ounces" /></div>
                     <div class="field"><label>Sugar added (tsp)</label><input type="number" @bind="_drink.SugarCount" /></div>
                 </div>
+                @EditItems(_drink.Id)
                 <div class="inline-fields">
                     <div class="field"><label>Calories</label><input type="number" @bind="_drink.Calories" /></div>
                     <div class="field"><label>Protein (g)</label><input type="number" step="0.1" @bind="_drink.ProteinG" /></div>
@@ -215,6 +219,7 @@
                                 @if (d.Ounces is { } oz) { <span class="muted"> · @oz.ToString("0.#") oz</span> }
                                 @if (d.Macros.Calories is { } c) { <span class="muted"> · @c cal</span> }
                             </span>
+                            @ItemBreakdown(d.Id)
                         </div>
                         <div class="routine-actions"><button class="icon-action" title="Edit" @onclick="() => EditDrink(d)">✏️</button></div>
                     </li>
@@ -242,6 +247,65 @@
     private Dictionary<string, Drink> _drinkMemory = new(StringComparer.OrdinalIgnoreCase);
     private List<string> _foodNames = new();
     private List<string> _drinkNames = new();
+    // Per-entry item breakdown (out-of-aggregate ItemsJson), keyed by meal/drink id; read-only here.
+    private Dictionary<Guid, List<FitRecoveryLog.Data.MealItemPortion>> _items = new();
+    private readonly HashSet<Guid> _expanded = new();
+
+    private void ToggleItems(Guid id) { if (!_expanded.Remove(id)) _expanded.Add(id); }
+
+    private RenderFragment ItemBreakdown(Guid id) => __builder =>
+    {
+        if (!_items.TryGetValue(id, out var items)) return;
+        <button class="link-btn" style="padding:0;font-size:0.8rem;display:block" @onclick="() => ToggleItems(id)">
+            @(_expanded.Contains(id) ? "▾" : "▸") @items.Count item@(items.Count == 1 ? "" : "s")
+        </button>
+        @if (_expanded.Contains(id))
+        {
+            <ul style="margin:0.2rem 0 0;padding-left:1.1rem;font-size:0.85rem">
+                @foreach (var it in items)
+                {
+                    <li>
+                        @it.Name
+                        @if (Math.Abs(it.Portion - 1.0) > 0.01) { <span class="muted"> · @it.Portion.ToString("0.##")× serving</span> }
+                        @if (ItemLine(it) is { Length: > 0 } line) { <span class="muted" style="display:block;font-size:0.75rem">@line</span> }
+                    </li>
+                }
+            </ul>
+        }
+    };
+
+    // The entry's items on the edit form, always expanded (edit the breakdown on the phone).
+    private RenderFragment EditItems(Guid? id) => __builder =>
+    {
+        if (id is not Guid g || !_items.TryGetValue(g, out var items)) return;
+        <div class="field">
+            <label>Items <span class="muted" style="font-weight:400">— totals below are their sum; adjust items on the phone</span></label>
+            <ul style="margin:0.2rem 0 0;padding-left:1.1rem;font-size:0.85rem">
+                @foreach (var it in items)
+                {
+                    <li>
+                        @it.Name
+                        @if (Math.Abs(it.Portion - 1.0) > 0.01) { <span class="muted"> · @it.Portion.ToString("0.##")× serving</span> }
+                        @if (ItemLine(it) is { Length: > 0 } line) { <span class="muted" style="display:block;font-size:0.75rem">@line</span> }
+                    </li>
+                }
+            </ul>
+        </div>
+    };
+
+    // An item's contribution (per-serving macros × servings).
+    private static string ItemLine(FitRecoveryLog.Data.MealItemPortion it)
+    {
+        var p = it.Portion;
+        var parts = new List<string>();
+        if (it.Calories is { } c) parts.Add($"{Math.Round(c * p)} cal");
+        if (it.ProteinG is { } pr) parts.Add($"{pr * p:0.#}g protein");
+        if (it.CarbsG is { } cb) parts.Add($"{cb * p:0.#}g carbs");
+        if (it.SugarG is { } su) parts.Add($"{su * p:0.#}g sugar");
+        if (it.FatG is { } f) parts.Add($"{f * p:0.#}g fat");
+        if (it.SodiumMg is { } so) parts.Add($"{Math.Round(so * p)}mg sodium");
+        return string.Join(" · ", parts);
+    }
 
     private void Switch(string tab) { _tab = tab; _meal = null; _drink = null; _msg = null; _starReason = null; _drinkStars = null; _advice = null; _mealAiTags.Clear(); _drinkAiTags.Clear(); }
 
@@ -254,6 +318,11 @@
         {
             _meals = await MealSvc.ListAsync();
             _drinks = await DrinkSvc.ListAsync();
+            var pull = await State.DataAsync();
+            _items = WebSyncClient.Rows<FitRecoveryLog.Data.MealEntry>(pull).Select(m => (m.Id, Items: m.Items))
+                .Concat(WebSyncClient.Rows<FitRecoveryLog.Data.DrinkEntry>(pull).Select(d => (d.Id, Items: d.Items)))
+                .Where(x => x.Items.Count > 0)
+                .ToDictionary(x => x.Id, x => x.Items);
             _foodMemory = _meals.Where(m => !string.IsNullOrWhiteSpace(m.Description))
                 .GroupBy(m => m.Description.Trim(), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.OrderByDescending(m => m.Time).First(), StringComparer.OrdinalIgnoreCase);
