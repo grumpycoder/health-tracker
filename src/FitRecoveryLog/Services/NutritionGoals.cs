@@ -75,6 +75,9 @@ public static class NutritionGoals
     public static int AddedSugarMax => Preferences.Default.Get(AddedSugarMaxKey, 30);
     public static void SetAddedSugarMax(int max) => Preferences.Default.Set(AddedSugarMaxKey, Math.Max(0, max));
 
+    // FDA daily value for sodium; fixed until it's made a configurable goal.
+    public const int SodiumMaxMg = 2300;
+
     public static GoalStatus Status(double value, MacroGoal g) =>
         !g.IsSet ? GoalStatus.Unset
         : value < g.Min ? GoalStatus.Under

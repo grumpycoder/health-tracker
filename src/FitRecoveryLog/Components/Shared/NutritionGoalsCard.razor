@@ -19,6 +19,7 @@
         @{ var fib = NutritionGoals.Get(NutritionGoals.Fiber); }
         @Bar("Fiber", NutritionMath.Fiber(Meals, Drinks), " g", fib.Min, fib.Max, false)
         @Bar("Added sugar", NutritionMath.AddedSugar(Meals, Drinks), " g", 0, NutritionGoals.AddedSugarMax, true)
+        @Bar("Sodium", NutritionMath.Sodium(Meals, Drinks), " mg", 0, NutritionGoals.SodiumMaxMg, true)
         @FluidRow()
     </div>
 }
