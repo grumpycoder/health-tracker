@@ -1,0 +1,182 @@
+@* A meal's or drink's item breakdown — same behaviour as the phone: servings per item, per-serving
+   macro edits (optionally saved back to the saved-foods library), remove, add a saved food, or add
+   an item from a nutrition-label photo. The parent re-sums its totals on Changed. *@
+@using FitRecoveryLog.Application.Ai
+@using FitRecoveryLog.Application.Nutrition
+@using FitRecoveryLog.Web.Infrastructure
+@using Persistence = FitRecoveryLog.Data
+@inject SavedFoodService SavedFoodSvc
+@inject IAiCoach Coach
+
+<div class="field">
+    <label>Items @if (Items.Count > 0) { <span class="muted" style="font-weight:400">— the totals below are their sum</span> }</label>
+    @for (var i = 0; i < Items.Count; i++)
+    {
+        var it = Items[i];
+        <div class="item-box">
+            <div class="item-row">
+                <span class="item-name">@it.Name
+                    <span class="muted" style="font-size:0.8rem"> · @Math.Round((it.Calories ?? 0) * it.Portion) cal</span>
+                </span>
+                <label class="muted" style="font-size:0.8rem">Servings</label>
+                <input type="number" step="0.25" min="0.25" style="width:5rem"
+                       value="@it.Portion.ToString("0.##")" @onchange="e => SetServings(it, e.Value)" />
+                <button type="button" class="icon-action" title="Edit macros" aria-label="Edit macros" @onclick="() => StartEdit(it)">✏️</button>
+                <button type="button" class="icon-action danger" title="Remove" aria-label="Remove" @onclick="() => Remove(it)">✕</button>
+            </div>
+            @if (ReferenceEquals(_editing, it))
+            {
+                <p class="muted" style="margin:0.3rem 0 0.2rem;font-size:0.78rem">Per serving — servings multiply these.</p>
+                <div class="inline-fields">
+                    <div class="field"><label>Calories</label><input type="number" @bind="_draft.Calories" /></div>
+                    <div class="field"><label>Protein (g)</label><input type="number" step="0.1" @bind="_draft.ProteinG" /></div>
+                    <div class="field"><label>Carbs (g)</label><input type="number" step="0.1" @bind="_draft.CarbsG" /></div>
+                    <div class="field"><label>Fat (g)</label><input type="number" step="0.1" @bind="_draft.FatG" /></div>
+                </div>
+                <div class="inline-fields">
+                    <div class="field"><label>Sugar (g)</label><input type="number" step="0.1" @bind="_draft.SugarG" /></div>
+                    <div class="field"><label>Added sugar (g)</label><input type="number" step="0.1" @bind="_draft.AddedSugarG" /></div>
+                    <div class="field"><label>Fiber (g)</label><input type="number" step="0.1" @bind="_draft.FiberG" /></div>
+                    <div class="field"><label>Sodium (mg)</label><input type="number" @bind="_draft.SodiumMg" /></div>
+                </div>
+                <label style="display:flex;gap:0.4rem;align-items:center;font-size:0.85rem">
+                    <input type="checkbox" @bind="_updateSaved" /> Also update saved food “@it.Name”
+                </label>
+                <div class="routine-actions" style="margin-top:0.3rem">
+                    <button type="button" class="btn" @onclick="ApplyEdit">Apply</button>
+                    <button type="button" class="link-btn" @onclick="() => _editing = null">Cancel</button>
+                </div>
+            }
+        </div>
+    }
+
+    <div class="chip-row" style="margin-top:0.4rem">
+        <input value="@_add" @oninput="e => _add = e.Value?.ToString() ?? string.Empty"
+               placeholder="➕ add a saved food (@AddHint)" style="flex:1;min-width:10rem" />
+        <button type="button" class="chip" disabled="@string.IsNullOrWhiteSpace(_add)" @onclick="() => Add(_add)">Add</button>
+        <label class="chip" style="cursor:pointer;opacity:@(_busy ? "0.5" : "1")">
+            📷 Label photo
+            <InputFile accept="image/*" capture="environment" style="display:none" OnChange="AddFromLabel" disabled="@_busy" />
+        </label>
+        @if (_busy) { <span class="muted" style="font-size:0.8rem">Reading…</span> }
+    </div>
+    @if (FoodLibrary.Suggest(Library.Names, _add) is { Count: > 0 } sug)
+    {
+        <div class="chip-row" style="margin-top:0.3rem">
+            @foreach (var f in sug) { <button type="button" class="chip" @onclick="() => Add(f)">@f</button> }
+        </div>
+    }
+    @if (_msg is not null) { <span class="muted" style="font-size:0.8rem">@_msg</span> }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public List<Persistence.MealItemPortion> Items { get; set; } = new();
+    /// <summary>Raised after any change so the parent re-sums its totals.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+    [Parameter, EditorRequired] public FoodLibrary Library { get; set; } = FoodLibrary.Empty;
+    /// <summary>Raised after a saved food changes, so the parent can reload the library.</summary>
+    [Parameter] public EventCallback LibraryChanged { get; set; }
+    /// <summary>When adding the first item to an entry that already has totals, fold those totals
+    /// into a base item so they aren't lost (null = nothing to fold).</summary>
+    [Parameter] public Func<Persistence.MealItemPortion?>? SeedBase { get; set; }
+    /// <summary>Servings to apply to a scanned label (e.g. ounces drunk ÷ label serving); default 1.</summary>
+    [Parameter] public Func<NutritionFacts, double>? ScanServings { get; set; }
+    [Parameter] public IReadOnlyList<string> TagVocab { get; set; } = Array.Empty<string>();
+    [Parameter] public string AddHint { get; set; } = "e.g. milk";
+
+    private string _add = "";
+    private string? _msg;
+    private bool _busy;
+    private Persistence.MealItemPortion? _editing;
+    private Persistence.MealItemPortion _draft = new();
+    private bool _updateSaved = true;
+
+    private async Task SetServings(Persistence.MealItemPortion it, object? value)
+    {
+        if (!double.TryParse(value?.ToString(), out var v)) return;
+        it.Portion = Math.Clamp(v, 0.25, 20);
+        await Changed.InvokeAsync();
+    }
+
+    private async Task Remove(Persistence.MealItemPortion it)
+    {
+        Items.Remove(it);
+        if (ReferenceEquals(_editing, it)) _editing = null;
+        await Changed.InvokeAsync();
+    }
+
+    private async Task Append(Persistence.MealItemPortion it)
+    {
+        if (Items.Count == 0 && SeedBase?.Invoke() is { } baseItem) Items.Add(baseItem);
+        Items.Add(it);
+        await Changed.InvokeAsync();
+    }
+
+    private async Task Add(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return;
+        var item = Library.ItemFor(name);
+        await Append(item);
+        _add = "";
+        _msg = $"Added {item.Name} ✓";
+    }
+
+    private async Task AddFromLabel(InputFileChangeEventArgs e)
+    {
+        _msg = null; _busy = true;
+        try
+        {
+            // The browser re-encodes to a bounded JPEG, so HEIC/PNG uploads work and stay small.
+            var jpegFile = await e.File.RequestImageFileAsync("image/jpeg", 1600, 1600);
+            using var ms = new MemoryStream();
+            await jpegFile.OpenReadStream(15 * 1024 * 1024).CopyToAsync(ms);
+            var facts = (await Coach.ReadNutritionLabelAsync(ms.ToArray(), TagVocab))?.Facts;
+            if (facts is null || (facts.Calories is null && facts.ProteinG is null && facts.CarbsG is null))
+            {
+                _msg = "Couldn't read a nutrition label from that photo.";
+                return;
+            }
+            var item = new Persistence.MealItemPortion
+            {
+                Name = string.IsNullOrWhiteSpace(facts.FoodDescription) ? "Item" : facts.FoodDescription.Trim(),
+                Calories = facts.Calories, ProteinG = facts.ProteinG, CarbsG = facts.CarbsG, SugarG = facts.SugarG,
+                AddedSugarG = facts.AddedSugarG, FatG = facts.FatG, SodiumMg = facts.SodiumMg, FiberG = facts.FiberG,
+                Portion = Math.Round(ScanServings?.Invoke(facts) ?? 1, 2),
+            };
+            await Append(item);
+            _msg = $"Added {item.Name}" + (string.IsNullOrWhiteSpace(facts.ServingSize) ? "" : $" (label serving: {facts.ServingSize})") + " ✓";
+        }
+        catch (Exception ex) { _msg = $"Scan failed: {ex.Message}"; }
+        finally { _busy = false; }
+    }
+
+    private void StartEdit(Persistence.MealItemPortion it)
+    {
+        if (ReferenceEquals(_editing, it)) { _editing = null; return; }   // ✏️ again closes it
+        _editing = it;
+        _draft = FoodLibrary.Copy(it, it.Name, it.Portion);
+        _updateSaved = true;
+    }
+
+    private async Task ApplyEdit()
+    {
+        if (_editing is not { } it) return;
+        var d = _draft;
+        FitRecoveryLog.Domain.Nutrition.Macros macros;
+        try { macros = new(d.Calories, d.ProteinG, d.CarbsG, d.FatG, d.FiberG, d.SugarG, d.AddedSugarG, d.SodiumMg); }
+        catch (ArgumentOutOfRangeException ex) { _msg = ex.Message; return; }
+
+        it.Calories = d.Calories; it.ProteinG = d.ProteinG; it.CarbsG = d.CarbsG; it.SugarG = d.SugarG;
+        it.AddedSugarG = d.AddedSugarG; it.FatG = d.FatG; it.SodiumMg = d.SodiumMg; it.FiberG = d.FiberG;
+        _editing = null;
+        await Changed.InvokeAsync();
+
+        if (_updateSaved && !string.IsNullOrWhiteSpace(it.Name))
+        {
+            var note = Library.Saved.TryGetValue(it.Name.Trim(), out var cur) ? cur.ServingNote : null;
+            var result = await SavedFoodSvc.SaveAsync(it.Name.Trim(), macros, note);
+            _msg = result.IsSuccess ? $"Saved “{it.Name}” macros ✓" : result.Error;
+            if (result.IsSuccess) await LibraryChanged.InvokeAsync();
+        }
+    }
+}

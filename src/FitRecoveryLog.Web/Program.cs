@@ -43,10 +43,14 @@ builder.Services.AddScoped<FitRecoveryLog.Application.Common.IDomainEventHandler
 builder.Services.AddScoped<FitRecoveryLog.Application.Workouts.WorkoutService>();
 
 // Nutrition
-builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.IMealRepository, FitRecoveryLog.Web.Infrastructure.ApiMealRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Web.Infrastructure.ApiMealRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.IMealRepository>(sp => sp.GetRequiredService<FitRecoveryLog.Web.Infrastructure.ApiMealRepository>());
 builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.MealService>();
-builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.IDrinkRepository, FitRecoveryLog.Web.Infrastructure.ApiDrinkRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Web.Infrastructure.ApiDrinkRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.IDrinkRepository>(sp => sp.GetRequiredService<FitRecoveryLog.Web.Infrastructure.ApiDrinkRepository>());
 builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.DrinkService>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.ISavedFoodRepository, FitRecoveryLog.Web.Infrastructure.ApiSavedFoodRepository>();
+builder.Services.AddScoped<FitRecoveryLog.Application.Nutrition.SavedFoodService>();
 
 // Body + recovery
 builder.Services.AddScoped<FitRecoveryLog.Application.Body.IMeasurementRepository, FitRecoveryLog.Web.Infrastructure.ApiMeasurementRepository>();

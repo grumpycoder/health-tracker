@@ -423,3 +423,8 @@ a:hover { text-decoration: underline; }
 @media (max-width: 520px) {
     .stats { grid-template-columns: 1fr 1fr; }
 }
+
+/* Meal/drink item breakdown (ItemBuilder) */
+.item-box { border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.6rem; margin-top: 0.3rem; }
+.item-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.item-name { flex: 1 1 10rem; min-width: 0; }

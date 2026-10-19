@@ -1,0 +1,307 @@
+@page "/saved-foods"
+@using Microsoft.AspNetCore.Authorization
+@using FitRecoveryLog.Application.Nutrition
+@using FitRecoveryLog.Web.Infrastructure
+@using Persistence = FitRecoveryLog.Data
+@attribute [Authorize]
+@inject AppState State
+@inject WebSyncClient Sync
+@inject SavedFoodService SavedFoodSvc
+@inject IJSRuntime JS
+
+<PageTitle>Saved Foods — Fit Log</PageTitle>
+
+<div class="dashboard">
+    <header class="dash-header">
+        <div class="dash-date">Saved foods</div>
+        <div class="dash-date-sub">Edit per-serving macros · rename to merge duplicates · hide to declutter suggestions</div>
+    </header>
+
+    <section class="card">
+        <div class="field">
+            <input value="@_filter" @oninput="e => _filter = e.Value?.ToString() ?? string.Empty" placeholder="Filter foods…" />
+        </div>
+        @if (_msg is not null) { <p class="muted" style="margin:0 0 0.5rem">@_msg</p> }
+        @if (_loading)
+        {
+            <p class="muted">Loading…</p>
+        }
+        else if (_error is not null)
+        {
+            <p class="warn-msg">@_error</p>
+            <button class="save-btn" @onclick="Load">Retry</button>
+        }
+        else if (Filtered.Count == 0)
+        {
+            <p class="muted">No foods logged yet.</p>
+        }
+        else
+        {
+            <ul class="timeline">
+                @foreach (var f in Filtered)
+                {
+                    var name = f.Name;
+                    <li>
+                        @if (_renaming == name)
+                        {
+                            <div style="width:100%">
+                                <div class="field">
+                                    <label>Rename — updates all @f.Count log(s)</label>
+                                    <input @bind="_renameTo" />
+                                </div>
+                                <div class="routine-actions">
+                                    <button class="save-btn" @onclick="() => CommitRename(name)" disabled="@_busy">Save</button>
+                                    <button class="link-btn" @onclick="() => _renaming = null">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else if (_editing == name)
+                        {
+                            <div style="width:100%">
+                                <p style="margin:0 0 0.3rem"><strong>@name</strong> <span class="muted" style="font-size:0.8rem">— per serving</span></p>
+                                <div class="field"><label>Serving</label><input @bind="_draftServing" placeholder="e.g. 1 large egg, 2 tbsp" /></div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Calories</label><input type="number" @bind="_draft.Calories" /></div>
+                                    <div class="field"><label>Protein (g)</label><input type="number" step="0.1" @bind="_draft.ProteinG" /></div>
+                                    <div class="field"><label>Carbs (g)</label><input type="number" step="0.1" @bind="_draft.CarbsG" /></div>
+                                    <div class="field"><label>Fat (g)</label><input type="number" step="0.1" @bind="_draft.FatG" /></div>
+                                </div>
+                                <div class="inline-fields">
+                                    <div class="field"><label>Sugar (g)</label><input type="number" step="0.1" @bind="_draft.SugarG" /></div>
+                                    <div class="field"><label>Added sugar (g)</label><input type="number" step="0.1" @bind="_draft.AddedSugarG" /></div>
+                                    <div class="field"><label>Fiber (g)</label><input type="number" step="0.1" @bind="_draft.FiberG" /></div>
+                                    <div class="field"><label>Sodium (mg)</label><input type="number" @bind="_draft.SodiumMg" /></div>
+                                </div>
+                                <p class="muted" style="font-size:0.75rem;margin:0.2rem 0">Used next time you log this food or add it to a meal. Past logs aren't changed.</p>
+                                <div class="routine-actions">
+                                    <button class="save-btn" @onclick="() => CommitMacros(name)" disabled="@_busy">Save</button>
+                                    @if (f.Saved) { <button class="link-btn" @onclick="() => ResetMacros(name)" disabled="@_busy">Reset to last log</button> }
+                                    <button class="link-btn" @onclick="() => _editing = null">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div>
+                                <span class="entry">
+                                    <strong>@name</strong>
+                                    @if (f.Saved) { <span class="muted" style="font-size:0.72rem"> · saved macros</span> }
+                                    @if (_hidden.Contains(name)) { <span class="muted" style="font-size:0.72rem"> · hidden</span> }
+                                </span>
+                                <span class="muted" style="display:block;font-size:0.75rem">
+                                    @(f.Count > 0 ? $"{f.Count} log{(f.Count == 1 ? "" : "s")} · last {f.LastUsed:MMM d, yyyy}" : "not logged yet")
+                                </span>
+                                @if (MacroLine(f.Macros) is { Length: > 0 } ml)
+                                {
+                                    <span class="muted" style="display:block;font-size:0.75rem">@ml@(f.Saved ? "" : " (from last log)")</span>
+                                }
+                            </div>
+                            <div class="routine-actions">
+                                <button class="icon-action" title="Edit macros" aria-label="Edit macros" @onclick="() => StartEdit(f)">🧮</button>
+                                <button class="icon-action" title="Rename" aria-label="Rename" @onclick="() => StartRename(name)">✏️</button>
+                                <button class="icon-action" title="@(_hidden.Contains(name) ? "Show in suggestions" : "Hide from suggestions")"
+                                        aria-label="@(_hidden.Contains(name) ? "Unhide" : "Hide")" @onclick="() => ToggleHide(name)">@(_hidden.Contains(name) ? "👁" : "🙈")</button>
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+</div>
+
+@code {
+    /// <summary>A library food: how often it's been logged (as a meal or an item in a meal/drink),
+    /// and its per-serving macros — the curated saved food if there is one, else the newest log.</summary>
+    private sealed record Food(string Name, int Count, DateTime LastUsed, Persistence.MealItemPortion Macros, bool Saved, string? ServingNote);
+
+    private List<Food> _foods = new();
+    private HashSet<string> _hidden = new(StringComparer.OrdinalIgnoreCase);
+    private string _filter = "";
+    private string? _renaming, _editing, _draftServing, _msg, _error;
+    private string _renameTo = "";
+    private Persistence.MealItemPortion _draft = new();
+    private bool _loading = true, _busy;
+
+    private List<Food> Filtered =>
+        string.IsNullOrWhiteSpace(_filter)
+            ? _foods
+            : _foods.Where(f => f.Name.Contains(_filter.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _hidden = await WebHiddenFoods.LoadAsync(JS);
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _loading = true; _error = null;
+        try
+        {
+            var pull = await State.DataAsync();
+            var uses = new List<(string Name, DateTime Time, Persistence.MealItemPortion Macros)>();
+            foreach (var m in WebSyncClient.Rows<Persistence.MealEntry>(pull))
+            {
+                if (!string.IsNullOrWhiteSpace(m.Description))
+                    uses.Add((m.Description.Trim(), m.Time, new Persistence.MealItemPortion
+                    {
+                        Calories = m.Calories, ProteinG = m.ProteinG, CarbsG = m.CarbsG, SugarG = m.SugarG,
+                        AddedSugarG = m.AddedSugarG, FatG = m.FatG, SodiumMg = m.SodiumMg, FiberG = m.FiberG,
+                    }));
+                foreach (var it in m.Items)
+                    if (!string.IsNullOrWhiteSpace(it.Name)) uses.Add((it.Name.Trim(), m.Time, it));
+            }
+            foreach (var d in WebSyncClient.Rows<Persistence.DrinkEntry>(pull))
+                foreach (var it in d.Items)
+                    if (!string.IsNullOrWhiteSpace(it.Name)) uses.Add((it.Name.Trim(), d.Time, it));
+
+            var saved = (await SavedFoodSvc.ListAsync()).ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
+            var foods = uses
+                .GroupBy(u => u.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(g =>
+                {
+                    var newest = g.MaxBy(u => u.Time);
+                    return saved.TryGetValue(g.Key, out var sf)
+                        ? new Food(g.Key, g.Count(), newest.Time, FromMacros(sf.Macros), true, sf.ServingNote)
+                        : new Food(g.Key, g.Count(), newest.Time, newest.Macros, false, null);
+                })
+                .ToList();
+            // Saved foods with no logs yet (e.g. renamed) still belong in the library.
+            foods.AddRange(saved.Values
+                .Where(sf => !foods.Any(f => string.Equals(f.Name, sf.Name, StringComparison.OrdinalIgnoreCase)))
+                .Select(sf => new Food(sf.Name, 0, DateTime.MinValue, FromMacros(sf.Macros), true, sf.ServingNote)));
+            _foods = foods.OrderByDescending(f => f.LastUsed).ThenBy(f => f.Name).ToList();
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private static Persistence.MealItemPortion FromMacros(FitRecoveryLog.Domain.Nutrition.Macros m) => new()
+    {
+        Calories = m.Calories, ProteinG = m.ProteinG, CarbsG = m.CarbsG, SugarG = m.SugarG,
+        AddedSugarG = m.AddedSugarG, FatG = m.FatG, SodiumMg = m.SodiumMg, FiberG = m.FiberG,
+    };
+
+    private static string MacroLine(Persistence.MealItemPortion m)
+    {
+        var parts = new List<string>();
+        if (m.Calories is { } c) parts.Add($"{c} cal");
+        if (m.ProteinG is { } p) parts.Add($"{p:0.#}g protein");
+        if (m.CarbsG is { } cb) parts.Add($"{cb:0.#}g carbs");
+        if (m.FatG is { } ft) parts.Add($"{ft:0.#}g fat");
+        return string.Join(" · ", parts);
+    }
+
+    private void StartEdit(Food f)
+    {
+        _renaming = null; _msg = null;
+        _editing = f.Name;
+        _draft = FoodLibrary.Copy(f.Macros, f.Name);
+        _draftServing = f.ServingNote;
+    }
+
+    private async Task CommitMacros(string name)
+    {
+        var d = _draft;
+        FitRecoveryLog.Domain.Nutrition.Macros macros;
+        try { macros = new(d.Calories, d.ProteinG, d.CarbsG, d.FatG, d.FiberG, d.SugarG, d.AddedSugarG, d.SodiumMg); }
+        catch (ArgumentOutOfRangeException ex) { _msg = ex.Message; return; }
+
+        _busy = true;
+        try
+        {
+            var result = await SavedFoodSvc.SaveAsync(name, macros, _draftServing);
+            if (!result.IsSuccess) { _msg = result.Error; return; }
+            _editing = null;
+            _msg = $"Saved “{name}” macros ✓";
+            await Load();
+        }
+        catch (Exception ex) { _msg = "Save failed: " + ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ResetMacros(string name)
+    {
+        _busy = true;
+        try
+        {
+            var result = await SavedFoodSvc.ResetAsync(name);
+            if (!result.IsSuccess) { _msg = result.Error; return; }
+            _editing = null;
+            _msg = $"“{name}” now uses its last log";
+            await Load();
+        }
+        catch (Exception ex) { _msg = "Reset failed: " + ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private void StartRename(string name)
+    {
+        _editing = null; _msg = null;
+        _renaming = name;
+        _renameTo = name;
+    }
+
+    // Rename every use (meal names + items in meal/drink breakdowns, matched trimmed and
+    // case-insensitively so variants merge), then move the saved macros to the new name.
+    private async Task CommitRename(string oldName)
+    {
+        var target = _renameTo.Trim();
+        if (string.IsNullOrWhiteSpace(target) || string.Equals(target, oldName, StringComparison.Ordinal))
+        {
+            _renaming = null;
+            return;
+        }
+        bool Match(string? n) => string.Equals(n?.Trim(), oldName, StringComparison.OrdinalIgnoreCase);
+
+        _busy = true;
+        try
+        {
+            var pull = await State.DataAsync(refresh: true);
+            var meals = new List<Persistence.MealEntry>();
+            foreach (var m in WebSyncClient.Rows<Persistence.MealEntry>(pull))
+            {
+                var hit = false;
+                if (Match(m.Description)) { m.Description = target; hit = true; }
+                var items = m.Items;
+                if (items.Any(it => Match(it.Name)))
+                {
+                    foreach (var it in items.Where(it => Match(it.Name))) it.Name = target;
+                    m.Items = items;
+                    hit = true;
+                }
+                if (hit) meals.Add(m);
+            }
+            var drinks = new List<Persistence.DrinkEntry>();
+            foreach (var d in WebSyncClient.Rows<Persistence.DrinkEntry>(pull))
+            {
+                var items = d.Items;
+                if (!items.Any(it => Match(it.Name))) continue;
+                foreach (var it in items.Where(it => Match(it.Name))) it.Name = target;
+                d.Items = items;
+                drinks.Add(d);
+            }
+            if (meals.Count > 0) await Sync.PushAsync(meals);
+            if (drinks.Count > 0) await Sync.PushAsync(drinks);
+            State.Invalidate();
+
+            var renamed = await SavedFoodSvc.RenameAsync(oldName, target);
+            // Carry a hide flag over to the new name so a merge doesn't un-hide it.
+            if (_hidden.Remove(oldName)) { _hidden.Add(target); await WebHiddenFoods.SaveAsync(JS, _hidden); }
+
+            _renaming = null;
+            _msg = renamed.IsSuccess ? $"Renamed {meals.Count + drinks.Count} log(s) → “{target}”" : renamed.Error;
+            await Load();
+        }
+        catch (Exception ex) { _msg = "Rename failed: " + ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task ToggleHide(string name)
+    {
+        if (!_hidden.Remove(name)) _hidden.Add(name);
+        await WebHiddenFoods.SaveAsync(JS, _hidden);
+        _msg = _hidden.Contains(name) ? $"“{name}” hidden from suggestions" : $"“{name}” shown again";
+    }
+}

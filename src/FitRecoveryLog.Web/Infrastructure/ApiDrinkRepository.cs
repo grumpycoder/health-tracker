@@ -30,6 +30,20 @@ public sealed class ApiDrinkRepository : IDrinkRepository
         return WebSyncClient.Rows<Persistence.DrinkEntry>(pull).Select(ToDomain).ToList();
     }
 
+    // The item breakdown is out-of-aggregate, so the web edit form stages it here and the next
+    // save writes it in the same push (create or update). Without a staged list, saves keep the
+    // row's existing breakdown.
+    private bool _hasStagedItems;
+    private string? _stagedItemsJson;
+
+    public void StageItems(List<Persistence.MealItemPortion>? items)
+    {
+        _stagedItemsJson = Persistence.MealItemPortion.Serialize(items);
+        _hasStagedItems = true;
+    }
+
+    public void ClearStagedItems() => _hasStagedItems = false;
+
     public async Task SaveAsync(Drink drink, CancellationToken ct = default)
     {
         var pull = await _state.DataAsync();
@@ -50,9 +64,10 @@ public sealed class ApiDrinkRepository : IDrinkRepository
             SodiumMg = drink.Macros.SodiumMg,
             FiberG = drink.Macros.FiberG,
             AddedSugarG = drink.Macros.AddedSugarG,
-            ItemsJson = existing?.ItemsJson,   // out-of-aggregate breakdown — preserve across edits
+            ItemsJson = _hasStagedItems ? _stagedItemsJson : existing?.ItemsJson,   // out-of-aggregate breakdown
             CreatedAt = existing?.CreatedAt ?? DateTime.UtcNow,
         });
+        _hasStagedItems = false;
         _state.Invalidate();
     }
 

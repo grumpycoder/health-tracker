@@ -9,6 +9,10 @@
 @inject DrinkService DrinkSvc
 @inject IAiCoach Coach
 @inject AppState State
+@inject FitRecoveryLog.Web.Infrastructure.ApiMealRepository MealRepo
+@inject FitRecoveryLog.Web.Infrastructure.ApiDrinkRepository DrinkRepo
+@inject SavedFoodService SavedFoodSvc
+@inject IJSRuntime JS
 
 <PageTitle>Meals &amp; Drinks — Fit Log</PageTitle>
 
@@ -57,7 +61,15 @@
                     <div class="field"><label>Time</label><input type="datetime-local" @bind="_meal.Time" /></div>
                     <div class="field"><label>Satiety</label><select @bind="_meal.Satiety">@foreach (var v in Enum.GetValues<Satiety>()) { <option value="@v">@v</option> }</select></div>
                 </div>
-                @EditItems(_meal.Id)
+                <div class="chip-row" style="margin-bottom:0.4rem">
+                    <label class="chip" style="cursor:pointer;opacity:@(_aiBusy ? "0.5" : "1")">
+                        📷 Plate photo (AI estimate)
+                        <InputFile accept="image/*" capture="environment" style="display:none" OnChange="EstimatePlate" disabled="@_aiBusy" />
+                    </label>
+                    <input @bind="_plateHint" placeholder="optional hint, e.g. it's turkey · ~4 oz" style="flex:1;min-width:10rem" />
+                </div>
+                <ItemBuilder Items="_meal.Items" Changed="@(() => _meal.SetTotals())" Library="_lib" LibraryChanged="ReloadLibrary"
+                             SeedBase="@(() => _meal.BaseItem())" TagVocab="_tagVocab" AddHint="e.g. whole milk" />
                 <div class="inline-fields">
                     <div class="field"><label>Calories</label><input type="number" @bind="_meal.Calories" /></div>
                     <div class="field"><label>Protein (g)</label><input type="number" step="0.1" @bind="_meal.ProteinG" /></div>
@@ -155,7 +167,9 @@
                     <div class="field"><label>Ounces</label><input type="number" step="0.1" @bind="_drink.Ounces" /></div>
                     <div class="field"><label>Sugar added (tsp)</label><input type="number" @bind="_drink.SugarCount" /></div>
                 </div>
-                @EditItems(_drink.Id)
+                <ItemBuilder Items="_drink.Items" Changed="@(() => _drink.SetTotals())" Library="_lib" LibraryChanged="ReloadLibrary"
+                             SeedBase="@(() => _drink.BaseItem())" ScanServings="DrinkScanServings" TagVocab="_tagVocab"
+                             AddHint="e.g. creamer, sugar cube" />
                 <div class="inline-fields">
                     <div class="field"><label>Calories</label><input type="number" @bind="_drink.Calories" /></div>
                     <div class="field"><label>Protein (g)</label><input type="number" step="0.1" @bind="_drink.ProteinG" /></div>
@@ -274,24 +288,92 @@
         }
     };
 
-    // The entry's items on the edit form, always expanded (edit the breakdown on the phone).
-    private RenderFragment EditItems(Guid? id) => __builder =>
+    private FitRecoveryLog.Web.Infrastructure.FoodLibrary _lib = FitRecoveryLog.Web.Infrastructure.FoodLibrary.Empty;
+    private string _plateHint = "";
+
+    private async Task ReloadLibrary() =>
+        _lib = await FitRecoveryLog.Web.Infrastructure.FoodLibrary.LoadAsync(State, SavedFoodSvc, await FitRecoveryLog.Web.Infrastructure.WebHiddenFoods.LoadAsync(JS));
+
+    // A label's macros are per serving; for a drink, scale by ounces drunk ÷ the label's serving.
+    private double DrinkScanServings(NutritionFacts f) =>
+        _drink?.Ounces is { } drank and > 0 && ParseServingOunces(f.ServingSize) is { } serv and > 0 ? drank / serv : 1;
+
+    private static double? ParseServingOunces(string? serving)
     {
-        if (id is not Guid g || !_items.TryGetValue(g, out var items)) return;
-        <div class="field">
-            <label>Items <span class="muted" style="font-weight:400">— totals below are their sum; adjust items on the phone</span></label>
-            <ul style="margin:0.2rem 0 0;padding-left:1.1rem;font-size:0.85rem">
-                @foreach (var it in items)
+        if (string.IsNullOrWhiteSpace(serving)) return null;
+        var rx = System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+        var oz = System.Text.RegularExpressions.Regex.Match(serving, @"(\d+(?:\.\d+)?)\s*fl\s*oz", rx);
+        if (!oz.Success) oz = System.Text.RegularExpressions.Regex.Match(serving, @"(\d+(?:\.\d+)?)\s*oz", rx);
+        if (oz.Success && double.TryParse(oz.Groups[1].Value, out var v)) return v;
+        var ml = System.Text.RegularExpressions.Regex.Match(serving, @"(\d+(?:\.\d+)?)\s*ml", rx);
+        if (ml.Success && double.TryParse(ml.Groups[1].Value, out var mlv) && mlv > 0) return Math.Round(mlv / 29.5735, 1);
+        return null;
+    }
+
+    // 📷 Plate photo → the AI's per-item estimate, added to the meal as items (one serving each;
+    // adjust servings per item afterwards). Adds onto anything already on the meal.
+    private async Task EstimatePlate(InputFileChangeEventArgs e)
+    {
+        if (_meal is null) return;
+        _aiBusy = true; _msg = null; _starReason = null;
+        try
+        {
+            var jpegFile = await e.File.RequestImageFileAsync("image/jpeg", 1600, 1600);
+            using var ms = new MemoryStream();
+            await jpegFile.OpenReadStream(15 * 1024 * 1024).CopyToAsync(ms);
+            var scan = await Coach.EstimateMealFromPhotoAsync(ms.ToArray(), _tagVocab,
+                string.IsNullOrWhiteSpace(_plateHint) ? null : _plateHint, _meal.MealType.ToString());
+            var f = scan?.Facts;
+            if (f is null || (f.Calories is null && f.ProteinG is null && f.CarbsG is null))
+            {
+                _msg = "Couldn't estimate macros from that photo — try a clearer shot or enter by hand.";
+                return;
+            }
+            var items = f.Items.Count > 0
+                ? f.Items.Select(i => new FitRecoveryLog.Data.MealItemPortion
                 {
-                    <li>
-                        @it.Name
-                        @if (Math.Abs(it.Portion - 1.0) > 0.01) { <span class="muted"> · @it.Portion.ToString("0.##")× serving</span> }
-                        @if (ItemLine(it) is { Length: > 0 } line) { <span class="muted" style="display:block;font-size:0.75rem">@line</span> }
-                    </li>
-                }
-            </ul>
-        </div>
-    };
+                    Name = i.Name, Calories = i.Calories, ProteinG = i.ProteinG, CarbsG = i.CarbsG, SugarG = i.SugarG,
+                    AddedSugarG = i.AddedSugarG, FatG = i.FatG, SodiumMg = i.SodiumMg, FiberG = i.FiberG, Portion = 1,
+                }).ToList()
+                : new() { new FitRecoveryLog.Data.MealItemPortion
+                {
+                    Name = string.IsNullOrWhiteSpace(f.FoodDescription) ? "Plate" : f.FoodDescription.Trim(),
+                    Calories = f.Calories, ProteinG = f.ProteinG, CarbsG = f.CarbsG, SugarG = f.SugarG,
+                    AddedSugarG = f.AddedSugarG, FatG = f.FatG, SodiumMg = f.SodiumMg, FiberG = f.FiberG, Portion = 1,
+                } };
+            if (_meal.Items.Count == 0 && _meal.BaseItem() is { } baseItem) _meal.Items.Add(baseItem);
+            _meal.Items.AddRange(items);
+            _meal.SetTotals();
+            if (string.IsNullOrWhiteSpace(_meal.Description) && !string.IsNullOrWhiteSpace(f.FoodDescription))
+                _meal.Description = f.FoodDescription.Trim();
+            ApplyTags(scan!.Tags);
+            _advice = scan.Advice;
+            _msg = $"Estimated {items.Count} item{(items.Count == 1 ? "" : "s")} — set servings for each if needed.";
+        }
+        catch (Exception ex) { _msg = "Estimate failed: " + ex.Message; }
+        finally { _aiBusy = false; }
+    }
+
+    // Deep copy of an entry's stored breakdown, so editing (or cancelling) doesn't touch the cache.
+    private List<FitRecoveryLog.Data.MealItemPortion> ItemsOf(Guid id) =>
+        _items.TryGetValue(id, out var items)
+            ? FitRecoveryLog.Data.MealItemPortion.Parse(FitRecoveryLog.Data.MealItemPortion.Serialize(items))
+            : new();
+
+    // Sum of each item's per-serving macros × servings; null when nothing is left.
+    private sealed record ItemTotals(int? Calories, double? ProteinG, double? CarbsG, double? SugarG,
+        double? AddedSugarG, double? FatG, int? SodiumMg, double? FiberG)
+    {
+        public static ItemTotals Of(List<FitRecoveryLog.Data.MealItemPortion> items)
+        {
+            if (items.Count == 0) return new(null, null, null, null, null, null, null, null);
+            double Sum(Func<FitRecoveryLog.Data.MealItemPortion, double?> sel) => items.Sum(it => (sel(it) ?? 0) * it.Portion);
+            return new((int)Math.Round(Sum(x => x.Calories)), Math.Round(Sum(x => x.ProteinG), 1),
+                Math.Round(Sum(x => x.CarbsG), 1), Math.Round(Sum(x => x.SugarG), 1),
+                Math.Round(Sum(x => x.AddedSugarG), 1), Math.Round(Sum(x => x.FatG), 1),
+                (int)Math.Round(Sum(x => x.SodiumMg)), Math.Round(Sum(x => x.FiberG), 1));
+        }
+    }
 
     // An item's contribution (per-serving macros × servings).
     private static string ItemLine(FitRecoveryLog.Data.MealItemPortion it)
@@ -331,6 +413,8 @@
                 .GroupBy(d => d.Description.Trim(), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.OrderByDescending(d => d.Time).First(), StringComparer.OrdinalIgnoreCase);
             _drinkNames = _drinkMemory.Values.OrderByDescending(d => d.Time).Select(d => d.Description.Trim()).ToList();
+
+            _lib = await FitRecoveryLog.Web.Infrastructure.FoodLibrary.LoadAsync(State, SavedFoodSvc, await FitRecoveryLog.Web.Infrastructure.WebHiddenFoods.LoadAsync(JS));
 
             // Existing tags become the suggester's vocabulary (it strongly prefers reusing them).
             _tagVocab = _meals.SelectMany(m => m.Tags.Values)
@@ -486,11 +570,14 @@
 
     // ---- meals ----
     private void AddMeal() { _meal = new MealDraft { Time = DateTime.Now }; _msg = null; _starReason = null; _mealAiTags.Clear(); }
-    private void EditMeal(Meal m) { _meal = MealDraft.From(m); _msg = null; _starReason = null; _mealAiTags.Clear(); }
+    private void EditMeal(Meal m) { _meal = MealDraft.From(m); _meal.Items = ItemsOf(m.Id); _msg = null; _starReason = null; _mealAiTags.Clear(); }
     private void RepeatFood(ChangeEventArgs e)
     {
         if (_meal is null || e.Value?.ToString() is not { Length: > 0 } name || !_foodMemory.TryGetValue(name, out var src)) return;
-        var d = MealDraft.From(src); d.Id = null; d.Time = DateTime.Now; _meal = d;
+        var d = MealDraft.From(src); d.Id = null; d.Time = DateTime.Now;
+        d.Items = _lib.Restore(ItemsOf(src.Id));
+        if (d.Items.Count > 0) d.SetTotals();   // one serving of each; curated saved-food macros win
+        _meal = d;
     }
     private async Task SaveMeal()
     {
@@ -498,13 +585,14 @@
         _busy = true; _msg = null;
         try
         {
+            MealRepo.StageItems(_meal.Items);
             var ok = _meal.Id is Guid id ? (await MealSvc.UpdateAsync(id, _meal.ToData())).IsSuccess
                                          : (await MealSvc.CreateAsync(_meal.ToData())).IsSuccess;
             if (!ok) { _msg = "Save failed."; return; }
             _meal = null; await Load();
         }
         catch (Exception ex) { _msg = "Failed: " + ex.Message; }
-        finally { _busy = false; }
+        finally { _busy = false; MealRepo.ClearStagedItems(); }
     }
     private async Task DeleteMeal()
     {
@@ -514,11 +602,14 @@
 
     // ---- drinks ----
     private void AddDrink() { _drink = new DrinkDraft { Time = DateTime.Now }; _msg = null; _drinkStars = null; _starReason = null; _drinkAiTags.Clear(); }
-    private void EditDrink(Drink d) { _drink = DrinkDraft.From(d); _msg = null; _drinkStars = null; _starReason = null; _drinkAiTags.Clear(); }
+    private void EditDrink(Drink d) { _drink = DrinkDraft.From(d); _drink.Items = ItemsOf(d.Id); _msg = null; _drinkStars = null; _starReason = null; _drinkAiTags.Clear(); }
     private void RepeatDrink(ChangeEventArgs e)
     {
         if (_drink is null || e.Value?.ToString() is not { Length: > 0 } name || !_drinkMemory.TryGetValue(name, out var src)) return;
-        var d = DrinkDraft.From(src); d.Id = null; d.Time = DateTime.Now; _drink = d;
+        var d = DrinkDraft.From(src); d.Id = null; d.Time = DateTime.Now;
+        d.Items = _lib.Restore(ItemsOf(src.Id));
+        if (d.Items.Count > 0) d.SetTotals();
+        _drink = d;
     }
     private async Task SaveDrink()
     {
@@ -526,13 +617,14 @@
         _busy = true; _msg = null;
         try
         {
+            DrinkRepo.StageItems(_drink.Items);
             var ok = _drink.Id is Guid id ? (await DrinkSvc.UpdateAsync(id, _drink.ToData())).IsSuccess
                                           : (await DrinkSvc.CreateAsync(_drink.ToData())).IsSuccess;
             if (!ok) { _msg = "Save failed (check amounts)."; return; }
             _drink = null; await Load();
         }
         catch (Exception ex) { _msg = "Failed: " + ex.Message; }
-        finally { _busy = false; }
+        finally { _busy = false; DrinkRepo.ClearStagedItems(); }
     }
     private async Task DeleteDrink()
     {
@@ -543,6 +635,26 @@
     private sealed class MealDraft
     {
         public Guid? Id;
+        public List<FitRecoveryLog.Data.MealItemPortion> Items = new();
+
+        // The entry's current totals as one item, so adding the first item keeps them.
+        public FitRecoveryLog.Data.MealItemPortion? BaseItem() =>
+            Calories is null && ProteinG is null && CarbsG is null && SugarG is null && FatG is null
+                && SodiumMg is null && FiberG is null && AddedSugarG is null
+                ? null
+                : new FitRecoveryLog.Data.MealItemPortion
+                {
+                    Name = string.IsNullOrWhiteSpace(Description) ? "Base" : Description.Trim(),
+                    Calories = Calories, ProteinG = ProteinG, CarbsG = CarbsG, SugarG = SugarG,
+                    AddedSugarG = AddedSugarG, FatG = FatG, SodiumMg = SodiumMg, FiberG = FiberG, Portion = 1,
+                };
+
+        public void SetTotals()
+        {
+            var t = ItemTotals.Of(Items);
+            Calories = t.Calories; ProteinG = t.ProteinG; CarbsG = t.CarbsG; SugarG = t.SugarG;
+            AddedSugarG = t.AddedSugarG; FatG = t.FatG; SodiumMg = t.SodiumMg; FiberG = t.FiberG;
+        }
         public DateTime Time = DateTime.Now;
         public MealType MealType = MealType.Snack;
         public string? Description, PortionNote, Tags;
@@ -566,6 +678,26 @@
     private sealed class DrinkDraft
     {
         public Guid? Id;
+        public List<FitRecoveryLog.Data.MealItemPortion> Items = new();
+
+        // The entry's current totals as one item, so adding the first item keeps them.
+        public FitRecoveryLog.Data.MealItemPortion? BaseItem() =>
+            Calories is null && ProteinG is null && CarbsG is null && SugarG is null && FatG is null
+                && SodiumMg is null && FiberG is null && AddedSugarG is null
+                ? null
+                : new FitRecoveryLog.Data.MealItemPortion
+                {
+                    Name = string.IsNullOrWhiteSpace(Description) ? "Base" : Description.Trim(),
+                    Calories = Calories, ProteinG = ProteinG, CarbsG = CarbsG, SugarG = SugarG,
+                    AddedSugarG = AddedSugarG, FatG = FatG, SodiumMg = SodiumMg, FiberG = FiberG, Portion = 1,
+                };
+
+        public void SetTotals()
+        {
+            var t = ItemTotals.Of(Items);
+            Calories = t.Calories; ProteinG = t.ProteinG; CarbsG = t.CarbsG; SugarG = t.SugarG;
+            AddedSugarG = t.AddedSugarG; FatG = t.FatG; SodiumMg = t.SodiumMg; FiberG = t.FiberG;
+        }
         public DateTime Time = DateTime.Now;
         public string? Description, Tags;
         public double? Ounces;
