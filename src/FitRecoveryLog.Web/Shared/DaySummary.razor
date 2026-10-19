@@ -1,0 +1,92 @@
+@* One day's nutrition, matching the phone's Log tab: totals, goal-fit stars, goal bars (rest vs
+   active-day ranges from the synced goals) and a rough energy balance. Tap a bar for numbers. *@
+@using FitRecoveryLog.Data
+
+@if (!NutritionMath.HasData(Meals, Drinks) && NutritionMath.FluidOz(Drinks) <= 0)
+{
+    <p class="muted" style="margin:0">Nothing with macros logged this day.</p>
+}
+else
+{
+    <div style="display:flex;flex-wrap:wrap;gap:0.4rem 1.1rem;font-size:0.95rem;margin-bottom:0.4rem">
+        <span><strong>@Calories</strong> <span class="muted">cal</span></span>
+        <span><strong>@NutritionMath.Protein(Meals, Drinks).ToString("0")</strong> <span class="muted">g protein</span></span>
+        <span><strong>@NutritionMath.Sugar(Meals, Drinks).ToString("0")</strong> <span class="muted">g total sugar</span></span>
+        <span><strong>@NutritionMath.Sodium(Meals, Drinks).ToString("0")</strong> <span class="muted">mg sodium</span></span>
+    </div>
+    @if (Rated.Count > 0)
+    {
+        <p class="muted" style="margin:0 0 0.4rem" title="Average 'fit with your goals' across rated meals">
+            Goal fit: <span style="color:#f5b301">@Rated.Average(m => m.QualityStars!.Value).ToString("0.0")★</span>
+            <span style="font-size:0.8rem"> · @Rated.Count rated meal(s)</span>
+        </p>
+    }
+    @if (Goals is { } g)
+    {
+        <p class="muted" style="margin:0 0 0.3rem;font-size:0.72rem">
+            @(ActiveDay ? "🏋️ Active-day targets" : "🛌 Rest-day targets") <span style="opacity:0.7">(calories/carbs/water)</span> · tap a bar for exact numbers
+        </p>
+        @Bar("Calories", Calories, "", ActiveDay ? g.CaloriesActiveMin : g.CaloriesRestMin, ActiveDay ? g.CaloriesActiveMax : g.CaloriesRestMax, false)
+        @Bar("Protein", NutritionMath.Protein(Meals, Drinks), " g", g.ProteinMin, g.ProteinMax, false)
+        @Bar("Carbs", NutritionMath.Carbs(Meals, Drinks), " g", ActiveDay ? g.CarbsActiveMin : g.CarbsRestMin, ActiveDay ? g.CarbsActiveMax : g.CarbsRestMax, false)
+        @Bar("Fat", NutritionMath.Fat(Meals, Drinks), " g", g.FatMin, g.FatMax, false)
+        @Bar("Fiber", NutritionMath.Fiber(Meals, Drinks), " g", g.FiberMin, g.FiberMax, false)
+        @Bar("Added sugar", NutritionMath.AddedSugar(Meals, Drinks), " g", 0, g.AddedSugarMax, true)
+        @Bar("Sodium", NutritionMath.Sodium(Meals, Drinks), " mg", 0, SodiumMaxMg, true)
+        @Bar("💧 Fluids (all drinks)", NutritionMath.FluidOz(Drinks), " oz", ActiveDay ? g.WaterActiveMin : g.WaterRestMin, ActiveDay ? g.WaterActiveMax : g.WaterRestMax, false)
+    }
+    else
+    {
+        <p class="muted" style="margin:0;font-size:0.8rem">Set nutrition targets on the Goals page to see progress bars.</p>
+    }
+    @if (EnergyOut is { } outKcal && Calories > 0)
+    {
+        var net = Calories - outKcal;
+        <p class="muted" style="margin:0.4rem 0 0;font-size:0.8rem" title="Rough: assumes every item is logged with calories; resting burn is estimated">
+            Energy balance ≈ <strong>@Calories</strong> in − <strong>@outKcal</strong> out =
+            <span style="color:@(net > 0 ? "#c47f00" : "#3fa34d")">@(net > 0 ? "+" : "")@net cal</span>
+            (@(net > 0 ? "surplus" : "deficit")) · rough estimate
+        </p>
+    }
+}
+
+@code {
+    [Parameter] public List<MealEntry> Meals { get; set; } = new();
+    [Parameter] public List<DrinkEntry> Drinks { get; set; } = new();
+    [Parameter] public GoalSettings? Goals { get; set; }
+    /// <summary>Workout / High Workload day → active-day calorie, carb and water ranges.</summary>
+    [Parameter] public bool ActiveDay { get; set; }
+    /// <summary>Estimated calories out (BMR × light activity + workout burn); null if unknown.</summary>
+    [Parameter] public int? EnergyOut { get; set; }
+
+    // FDA daily value — the phone uses the same fixed ceiling.
+    private const int SodiumMaxMg = 2300;
+    private readonly HashSet<string> _show = new();
+
+    private int Calories => NutritionMath.Calories(Meals, Drinks);
+    private List<MealEntry> Rated => Meals.Where(m => m.QualityStars is not null).ToList();
+
+    private void Toggle(string label) { if (!_show.Remove(label)) _show.Add(label); }
+
+    private RenderFragment Bar(string label, double value, string unit, int low, int high, bool ceiling)
+    {
+        if (high <= 0) return @<text></text>;
+        var fillPct = (int)Math.Clamp(value / high * 100, 0, 100);
+        var lowPct = ceiling ? -1 : (int)Math.Clamp((double)low / high * 100, 0, 100);
+        var text = ceiling ? $"{value:0} / ≤{high}{unit}" : $"{value:0} / {low}–{high}{unit}";
+        var expanded = _show.Contains(label);
+        return @<div style="padding:0.25rem 0;cursor:pointer" @onclick="() => Toggle(label)">
+            <div style="display:flex;justify-content:space-between;font-size:0.85rem">
+                <span>@label</span>
+                <span class="muted" style="font-size:0.78rem">@(expanded ? text : "")</span>
+            </div>
+            <div style="position:relative;height:9px;border-radius:5px;overflow:hidden;margin-top:0.2rem;background:linear-gradient(to right,#4a72d0,#c47f00)">
+                <div style="position:absolute;top:0;bottom:0;left:@(fillPct)%;right:0;background:var(--border)"></div>
+                @if (lowPct >= 0)
+                {
+                    <div style="position:absolute;top:0;bottom:0;left:@(lowPct)%;width:2px;background:rgba(120,120,120,0.85)" title="range start"></div>
+                }
+            </div>
+        </div>;
+    }
+}

@@ -27,6 +27,30 @@
         <button class="seg @(_tab == "drink" ? "active" : "")" @onclick='() => Switch("drink")'>🥤 Drinks</button>
     </div>
 
+    <section class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.6rem;flex-wrap:wrap">
+            <h2 style="margin:0">@(_viewDate == DateTime.Today ? "Today" : _viewDate.ToString("ddd, MMM d"))</h2>
+            <div class="chip-row">
+                <button class="icon-action" title="Previous day" aria-label="Previous day" @onclick="() => ShiftDay(-1)">◀</button>
+                <input type="date" style="width:auto" value="@_viewDate.ToString("yyyy-MM-dd")" @onchange="OnViewDateChanged" />
+                <button class="icon-action" title="Next day" aria-label="Next day" @onclick="() => ShiftDay(1)" disabled="@(_viewDate >= DateTime.Today)">▶</button>
+                @if (_viewDate != DateTime.Today) { <button class="link-btn" @onclick="() => ShiftDay(0)">Today</button> }
+            </div>
+        </div>
+        @if (!_loading && _error is null)
+        {
+            <button class="link-btn" style="padding:0;margin-top:0.4rem" @onclick="() => _showDayMacros = !_showDayMacros">
+                @(_showDayMacros ? "▾" : "▸") Macros for this day
+            </button>
+            @if (_showDayMacros)
+            {
+                <div style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid var(--border)">
+                    <DaySummary Meals="_dayMealRows" Drinks="_dayDrinkRows" Goals="_goals" ActiveDay="_viewDayActive" EnergyOut="EnergyOut" />
+                </div>
+            }
+        }
+    </section>
+
     @if (_loading)
     {
         <section class="card"><p class="muted">Loading…</p></section>
@@ -83,6 +107,20 @@
                     <div class="field"><label>Sodium (mg)</label><input type="number" @bind="_meal.SodiumMg" /></div>
                 </div>
                 <div class="field"><label>Portion note</label><input @bind="_meal.PortionNote" /></div>
+                @if (_meal.Id is null)
+                {
+                    <div class="chip-row" style="margin-bottom:0.4rem">
+                        <button type="button" class="chip @(_remindFullness ? "selected" : "")" @onclick="ToggleRemind">
+                            ⏰ Logging before eating — remind me to rate fullness
+                        </button>
+                    </div>
+                    @if (_remindFullness)
+                    {
+                        <p class="muted" style="margin:-0.2rem 0 0.4rem;font-size:0.78rem">
+                            Fullness stays unrated; you'll get a reminder in @(_meal.MealType == MealType.Snack ? 5 : 30) min while a Fit Log tab is open@(_notifyPermission == "granted" ? "" : " (allow notifications for a pop-up)"), and a one-tap rating shows on the meal.
+                        </p>
+                    }
+                }
                 <div class="field">
                     <label>Tags (comma-separated)</label>
                     <input @bind="_meal.Tags" />
@@ -123,17 +161,27 @@
         }
 
         <section class="card">
-            @if (_meals.Count == 0) { <p class="muted">No meals logged.</p> }
+            @if (!DayMeals.Any()) { <p class="muted">No meals logged this day.</p> }
             <ul class="timeline">
-                @foreach (var m in _meals.OrderByDescending(x => x.Time))
+                @foreach (var m in DayMeals)
                 {
                     <li>
                         <div>
-                            <span class="time">@m.Time.ToLocalTime().ToString("g")</span>
+                            <span class="time">@m.Time.ToString("h:mm tt")</span>
                             <span class="entry"><strong>@m.MealType</strong> — @m.Description
                                 @if (m.Macros.Calories is { } c) { <span class="muted"> · @c cal</span> }
                             </span>
                             @ItemBreakdown(m.Id)
+                            @if (m.Satiety == Satiety.Unset)
+                            {
+                                <div class="chip-row" style="margin-top:0.4rem">
+                                    <span class="muted" style="font-size:0.75rem">how did it sit?</span>
+                                    @foreach (var sat in SatietyOptions)
+                                    {
+                                        <button type="button" class="chip" disabled="@_busy" @onclick="() => RateMeal(m, sat)">@Pretty(sat.ToString())</button>
+                                    }
+                                </div>
+                            }
                         </div>
                         <div class="routine-actions"><button class="icon-action" title="Edit" @onclick="() => EditMeal(m)">✏️</button></div>
                     </li>
@@ -222,13 +270,13 @@
         }
 
         <section class="card">
-            @if (_drinks.Count == 0) { <p class="muted">No drinks logged.</p> }
+            @if (!DayDrinks.Any()) { <p class="muted">No drinks logged this day.</p> }
             <ul class="timeline">
-                @foreach (var d in _drinks.OrderByDescending(x => x.Time))
+                @foreach (var d in DayDrinks)
                 {
                     <li>
                         <div>
-                            <span class="time">@d.Time.ToLocalTime().ToString("g")</span>
+                            <span class="time">@d.Time.ToString("h:mm tt")</span>
                             <span class="entry">🥤 @d.Description
                                 @if (d.Ounces is { } oz) { <span class="muted"> · @oz.ToString("0.#") oz</span> }
                                 @if (d.Macros.Calories is { } c) { <span class="muted"> · @c cal</span> }
@@ -287,6 +335,104 @@
             </ul>
         }
     };
+
+    // ---- Day view (matches the phone's Log tab) ----
+    private DateTime _viewDate = DateTime.Today;
+    private bool _showDayMacros = true;
+    private List<FitRecoveryLog.Data.MealEntry> _dayMealRows = new();
+    private List<FitRecoveryLog.Data.DrinkEntry> _dayDrinkRows = new();
+    private FitRecoveryLog.Data.GoalSettings? _goals;
+    private bool _viewDayActive;
+    private double? _latestWeightLbs;
+    private int? _latestBmr;
+    private int _dayWorkoutSeconds;
+
+    private IEnumerable<Meal> DayMeals => _meals.Where(m => m.Time.Date == _viewDate).OrderByDescending(m => m.Time);
+    private IEnumerable<Drink> DayDrinks => _drinks.Where(d => d.Time.Date == _viewDate).OrderByDescending(d => d.Time);
+
+    private void ShiftDay(int days)
+    {
+        var next = days == 0 ? DateTime.Today : _viewDate.AddDays(days);
+        if (next > DateTime.Today) return;
+        _viewDate = next;
+        _meal = null; _drink = null;
+        _ = RefreshDay();
+    }
+
+    private async Task OnViewDateChanged(ChangeEventArgs e)
+    {
+        if (!DateTime.TryParse(e.Value?.ToString(), out var d)) return;
+        _viewDate = d.Date > DateTime.Today ? DateTime.Today : d.Date;
+        _meal = null; _drink = null;
+        await RefreshDay();
+    }
+
+    // Rows for the viewed day + the inputs the summary needs (goals, day type, energy balance).
+    private async Task RefreshDay()
+    {
+        var pull = await State.DataAsync();
+        var day = DateOnly.FromDateTime(_viewDate);
+        _dayMealRows = WebSyncClient.Rows<FitRecoveryLog.Data.MealEntry>(pull).Where(m => m.Time.Date == _viewDate).ToList();
+        _dayDrinkRows = WebSyncClient.Rows<FitRecoveryLog.Data.DrinkEntry>(pull).Where(d => d.Time.Date == _viewDate).ToList();
+        _goals = WebSyncClient.Rows<FitRecoveryLog.Data.GoalSettings>(pull).OrderByDescending(g => g.UpdatedAt).FirstOrDefault();
+        var dayType = WebSyncClient.Rows<FitRecoveryLog.Data.DailyLog>(pull).FirstOrDefault(x => x.Date == day)?.DayType;
+        _viewDayActive = dayType is FitRecoveryLog.Data.DayType.Workout or FitRecoveryLog.Data.DayType.HighWorkload;
+        var body = WebSyncClient.Rows<FitRecoveryLog.Data.BodyMeasurement>(pull).OrderByDescending(b => b.Date).ToList();
+        _latestWeightLbs = body.FirstOrDefault(b => b.WeightLbs is not null)?.WeightLbs;
+        _latestBmr = body.FirstOrDefault(b => b.BasalMetabolicRate is not null)?.BasalMetabolicRate;
+        _dayWorkoutSeconds = WebSyncClient.Rows<FitRecoveryLog.Data.WorkoutSession>(pull)
+            .Where(w => w.Date == day).Sum(w => w.TotalSeconds ?? 0);
+        StateHasChanged();
+    }
+
+    // Same rough estimate as the phone: BMR (Hume, else weight×10) × 1.25 light activity, plus
+    // workout burn at MET ~5 scaled by body weight.
+    private int? EnergyOut
+    {
+        get
+        {
+            var bmr = _latestBmr ?? (_latestWeightLbs is { } w and > 0 ? (int)(w * 10) : (int?)null);
+            if (bmr is null) return null;
+            var lbs = _latestWeightLbs ?? 0;
+            var workout = lbs <= 0 || _dayWorkoutSeconds <= 0 ? 0
+                : (int)Math.Round(_dayWorkoutSeconds / 60.0 * 5 * 3.5 * (lbs * 0.453592) / 200.0);
+            return (int)Math.Round(bmr.Value * 1.25) + workout;
+        }
+    }
+
+    // ---- Fullness: one-tap rating for unrated meals + the "remind me" toggle ----
+    private static readonly Satiety[] SatietyOptions = Enum.GetValues<Satiety>().Where(x => x != Satiety.Unset).ToArray();
+    private bool _remindFullness;
+    private string? _notifyPermission;
+
+    private static string Pretty(string camel) =>
+        System.Text.RegularExpressions.Regex.Replace(camel, "(?<=.)([A-Z])", " $1");
+
+    private async Task ToggleRemind()
+    {
+        _remindFullness = !_remindFullness;
+        if (_remindFullness && _notifyPermission is null or "default")
+        {
+            try { _notifyPermission = await JS.InvokeAsync<string>("fitlogReminders.requestPermission"); }
+            catch (JSException) { _notifyPermission = "unsupported"; }
+        }
+    }
+
+    private async Task RateMeal(Meal m, Satiety satiety)
+    {
+        _busy = true; _msg = null;
+        try
+        {
+            var d = MealDraft.From(m);
+            d.Satiety = satiety;   // ToData keeps every other field; no staged items → breakdown kept
+            var result = await MealSvc.UpdateAsync(m.Id, d.ToData());
+            if (!result.IsSuccess) { _msg = result.Error; return; }
+            await JS.InvokeVoidAsync("fitlogReminders.cancel");   // rated before the reminder fired
+            await Load();
+        }
+        catch (Exception ex) { _msg = "Failed: " + ex.Message; }
+        finally { _busy = false; }
+    }
 
     private FitRecoveryLog.Web.Infrastructure.FoodLibrary _lib = FitRecoveryLog.Web.Infrastructure.FoodLibrary.Empty;
     private string _plateHint = "";
@@ -414,6 +560,7 @@
                 .ToDictionary(g => g.Key, g => g.OrderByDescending(d => d.Time).First(), StringComparer.OrdinalIgnoreCase);
             _drinkNames = _drinkMemory.Values.OrderByDescending(d => d.Time).Select(d => d.Description.Trim()).ToList();
 
+            await RefreshDay();
             _lib = await FitRecoveryLog.Web.Infrastructure.FoodLibrary.LoadAsync(State, SavedFoodSvc, await FitRecoveryLog.Web.Infrastructure.WebHiddenFoods.LoadAsync(JS));
 
             // Existing tags become the suggester's vocabulary (it strongly prefers reusing them).
@@ -586,10 +733,18 @@
         try
         {
             MealRepo.StageItems(_meal.Items);
+            var remind = _meal.Id is null && _remindFullness;
+            if (remind) _meal.Satiety = Satiety.Unset;
+            var (foodName, isSnack) = (_meal.Description ?? "your meal", _meal.MealType == MealType.Snack);
             var ok = _meal.Id is Guid id ? (await MealSvc.UpdateAsync(id, _meal.ToData())).IsSuccess
                                          : (await MealSvc.CreateAsync(_meal.ToData())).IsSuccess;
             if (!ok) { _msg = "Save failed."; return; }
-            _meal = null; await Load();
+            if (remind)
+                await JS.InvokeVoidAsync("fitlogReminders.schedule", "How did it sit? 🍽️",
+                    $"Rate how \"{foodName}\" left you.", isSnack ? 5 : 30);
+            else if (_meal.Satiety != Satiety.Unset)
+                await JS.InvokeVoidAsync("fitlogReminders.cancel");   // rated now — drop any pending nudge
+            _meal = null; _remindFullness = false; await Load();
         }
         catch (Exception ex) { _msg = "Failed: " + ex.Message; }
         finally { _busy = false; MealRepo.ClearStagedItems(); }
