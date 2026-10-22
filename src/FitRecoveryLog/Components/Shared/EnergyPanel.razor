@@ -11,11 +11,12 @@
         @if (_day is { } d && CaloriesIn > 0)
         {
             var net = CaloriesIn - d.Kcal;
-            <div class="muted" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em">@DayLabel · @(d.FromHealth ? "Apple Health" : "estimated burn")</div>
+            var projected = Date >= DateOnly.FromDateTime(DateTime.Now);   // day not over: out is a full-day estimate
+            <div class="muted" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em">@DayLabel · @(projected ? "projected full day" : d.FromHealth ? "Apple Health" : "estimated burn")</div>
             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.4rem;margin:0.2rem 0 0.6rem">
                 @Stat(CaloriesIn.ToString("N0"), "in", null)
-                @Stat(d.Kcal.ToString("N0"), "out", null)
-                @Stat(Signed(net), net > 0 ? "surplus" : "deficit", NetColor(net))
+                @Stat(d.Kcal.ToString("N0"), projected ? "projected out" : "out", null)
+                @Stat(Signed(net), (projected ? "projected " : "") + (net > 0 ? "surplus" : "deficit"), NetColor(net))
             </div>
         }
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">

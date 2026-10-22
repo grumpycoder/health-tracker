@@ -39,7 +39,7 @@ else
     {
         <p class="muted" style="margin:0;font-size:0.8rem">Set nutrition targets on the Goals page to see progress bars.</p>
     }
-    @EnergyPanel(Calories, EnergyOut, Avg7, Bal7, Avg14, Bal14, AvgEnd)
+    @EnergyPanel(Date, Calories, EnergyOut, Avg7, Bal7, Avg14, Bal14, AvgEnd)
 }
 
 @code {
@@ -50,6 +50,8 @@ else
     [Parameter] public bool ActiveDay { get; set; }
     /// <summary>Calories out (Apple Health for a completed day, else the BMR estimate); null if unknown.</summary>
     [Parameter] public EnergyMath.EnergyOut? EnergyOut { get; set; }
+    /// <summary>The day shown; today's out/balance are labeled projected (the day isn't over).</summary>
+    [Parameter] public DateOnly Date { get; set; }
     /// <summary>Rolling average calories out over completed days ending <see cref="AvgEnd"/>.</summary>
     [Parameter] public EnergyHistory.RollingAverage? Avg7 { get; set; }
     [Parameter] public EnergyHistory.RollingAverage? Avg14 { get; set; }
@@ -67,7 +69,7 @@ else
 
     // Energy panel: the viewed day's in/out/balance as three labeled stats, then one card per
     // rolling window (completed days only) so each number sits under its own label.
-    private static RenderFragment EnergyPanel(int caloriesIn, EnergyMath.EnergyOut? day,
+    private static RenderFragment EnergyPanel(DateOnly date, int caloriesIn, EnergyMath.EnergyOut? day,
         EnergyHistory.RollingAverage? avg7, EnergyHistory.RollingBalance? bal7,
         EnergyHistory.RollingAverage? avg14, EnergyHistory.RollingBalance? bal14, DateOnly end) => __builder =>
     {
@@ -76,11 +78,12 @@ else
             @if (day is { } d && caloriesIn > 0)
             {
                 var net = caloriesIn - d.Kcal;
-                <div class="muted" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em">This day · @(d.FromHealth ? "Apple Health" : "estimated burn")</div>
+                var projected = date >= DateOnly.FromDateTime(DateTime.Now);   // day not over: out is a full-day estimate
+                <div class="muted" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em">This day · @(projected ? "projected full day" : d.FromHealth ? "Apple Health" : "estimated burn")</div>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.4rem;margin:0.2rem 0 0.6rem">
                     @Stat(caloriesIn.ToString("N0"), "in", null)
-                    @Stat(d.Kcal.ToString("N0"), "out", null)
-                    @Stat(Signed(net), net > 0 ? "surplus" : "deficit", NetColor(net))
+                    @Stat(d.Kcal.ToString("N0"), projected ? "projected out" : "out", null)
+                    @Stat(Signed(net), (projected ? "projected " : "") + (net > 0 ? "surplus" : "deficit"), NetColor(net))
                 </div>
             }
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">

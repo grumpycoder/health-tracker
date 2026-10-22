@@ -45,7 +45,7 @@
             @if (_showDayMacros)
             {
                 <div style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid var(--border)">
-                    <DaySummary Meals="_dayMealRows" Drinks="_dayDrinkRows" Goals="_goals" ActiveDay="_viewDayActive" EnergyOut="EnergyOut" Avg7="_avg7" Avg14="_avg14" AvgEnd="_avgEnd" Bal7="_bal7" Bal14="_bal14" />
+                    <DaySummary Date="DateOnly.FromDateTime(_viewDate)" Meals="_dayMealRows" Drinks="_dayDrinkRows" Goals="_goals" ActiveDay="_viewDayActive" EnergyOut="EnergyOut" Avg7="_avg7" Avg14="_avg14" AvgEnd="_avgEnd" Bal7="_bal7" Bal14="_bal14" />
                 </div>
             }
         }
