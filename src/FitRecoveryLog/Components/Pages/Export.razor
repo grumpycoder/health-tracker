@@ -27,6 +27,21 @@
     </section>
 
     <section class="card">
+        <h2>Date range</h2>
+        <p class="muted" style="margin:0 0 0.6rem">Applies to the report and CSV exports. The JSON backup is always complete.</p>
+        <label style="display:flex;gap:0.4rem;align-items:center">
+            <input type="checkbox" @bind="_allDates" /> All dates
+        </label>
+        @if (!_allDates)
+        {
+            <div class="inline-fields" style="margin-top:0.4rem">
+                <div class="field"><label>From</label><input type="date" @bind="_from" max="@_to.ToString("yyyy-MM-dd")" /></div>
+                <div class="field"><label>To</label><input type="date" @bind="_to" min="@_from.ToString("yyyy-MM-dd")" /></div>
+            </div>
+        }
+    </section>
+
+    <section class="card">
         <h2>Report (Markdown)</h2>
         <p class="muted" style="margin:0 0 0.6rem">Readable summary you can keep or convert to PDF.</p>
         <button class="save-btn" disabled="@_busy" @onclick="ExportMarkdown">Export Markdown</button>
@@ -75,9 +90,12 @@
 
 @code {
     private static readonly string[] Categories =
-        { "Body measurements", "Meals", "Drinks", "Workouts", "Sleep", "Recovery", "Medications", "Labs", "Workload" };
+        { "Body measurements", "Daily nutrition", "Meals", "Drinks", "Workouts", "Sleep", "Recovery", "Medications", "Labs", "Workload" };
 
     private string _csvCategory = "Body measurements";
+    private bool _allDates = true;
+    private DateOnly _from = DateOnly.FromDateTime(DateTime.Today).AddDays(-30);
+    private DateOnly _to = DateOnly.FromDateTime(DateTime.Today);
     private bool _busy;
     private string? _status;
 
@@ -167,6 +185,26 @@
         }
     }
 
+    /// <summary>Inclusive date range for the report/CSV; null bounds = all dates.</summary>
+    private sealed record Range(DateOnly? From, DateOnly? To)
+    {
+        public static readonly Range All = new(null, null);
+        public DateOnly Min => From ?? DateOnly.MinValue;
+        public DateOnly Max => To ?? DateOnly.MaxValue;
+        // Timestamped rows: [From 00:00, day after To 00:00).
+        public DateTime Start => From?.ToDateTime(TimeOnly.MinValue) ?? DateTime.MinValue;
+        public DateTime End => To?.AddDays(1).ToDateTime(TimeOnly.MinValue) ?? DateTime.MaxValue;
+        public string Label => From is null ? "all dates" : $"{From:yyyy-MM-dd} to {To:yyyy-MM-dd}";
+        public string FileSuffix => From is null ? "" : $"-{From:yyyyMMdd}-{To:yyyyMMdd}";
+    }
+
+    private Range SelectedRange()
+    {
+        if (_allDates) return Range.All;
+        var (from, to) = _from <= _to ? (_from, _to) : (_to, _from);
+        return new Range(from, to);
+    }
+
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         WriteIndented = true,
@@ -184,41 +222,42 @@
 
     private async Task ExportMarkdown()
     {
-        await Run("fitrecoverylog-report.md", async db =>
+        var r = SelectedRange();
+        await Run($"fitrecoverylog-report{r.FileSuffix}.md", async db =>
         {
             var sb = new StringBuilder();
             sb.AppendLine($"# Fit Recovery Log — export");
-            sb.AppendLine($"_Generated {DateTime.Now:yyyy-MM-dd HH:mm}_\n");
+            sb.AppendLine($"_Generated {DateTime.Now:yyyy-MM-dd HH:mm} · {r.Label}_\n");
 
-            var weight = await db.BodyMeasurements.OrderByDescending(m => m.Date).Take(30).ToListAsync();
+            var weight = await db.BodyMeasurements.Where(m => m.Date >= r.Min && m.Date <= r.Max).OrderByDescending(m => m.Date).ToListAsync();
             sb.AppendLine("## Body measurements");
             sb.AppendLine("| Date | Weight | Waist |");
             sb.AppendLine("|---|---|---|");
             foreach (var m in weight)
                 sb.AppendLine($"| {m.Date:yyyy-MM-dd} | {m.WeightLbs?.ToString("0.0") ?? "—"} | {m.WaistInches?.ToString("0.0") ?? "—"} |");
 
-            var sessions = await db.WorkoutSessions.OrderByDescending(s => s.Date).Take(30).ToListAsync();
+            var sessions = await db.WorkoutSessions.Where(s => s.Date >= r.Min && s.Date <= r.Max).OrderByDescending(s => s.Date).ToListAsync();
             sb.AppendLine("\n## Workouts");
             sb.AppendLine("| Date | Minutes |");
             sb.AppendLine("|---|---|");
             foreach (var s in sessions)
                 sb.AppendLine($"| {s.Date:yyyy-MM-dd} | {(s.TotalSeconds is { } t ? (t / 60).ToString() : "—")} |");
 
-            var sleep = await db.SleepEntries.OrderByDescending(s => s.Date).Take(30).ToListAsync();
+            var sleep = await db.SleepEntries.Where(s => s.Date >= r.Min && s.Date <= r.Max).OrderByDescending(s => s.Date).ToListAsync();
             sb.AppendLine("\n## Sleep");
             sb.AppendLine("| Date | Hours | Score |");
             sb.AppendLine("|---|---|---|");
             foreach (var s in sleep)
                 sb.AppendLine($"| {s.Date:yyyy-MM-dd} | {s.DurationHours?.ToString("0.0") ?? "—"} | {s.SleepScore?.ToString() ?? "—"} |");
 
-            var meds = await db.MedicationEntries.OrderByDescending(m => m.TakenAt).Take(50).ToListAsync();
+            var meds = await db.MedicationEntries.Where(m => m.TakenAt >= r.Start && m.TakenAt < r.End).OrderByDescending(m => m.TakenAt).ToListAsync();
             sb.AppendLine("\n## Medications");
             sb.AppendLine("| When | Name | Dose | Site |");
             sb.AppendLine("|---|---|---|---|");
             foreach (var m in meds)
                 sb.AppendLine($"| {m.TakenAt:yyyy-MM-dd HH:mm} | {m.Name} | {m.Dose} | {m.InjectionSite} |");
 
-            var labs = await db.LabResults.OrderByDescending(l => l.Date).Take(50).ToListAsync();
+            var labs = await db.LabResults.Where(l => l.Date >= r.Min && l.Date <= r.Max).OrderByDescending(l => l.Date).ToListAsync();
             sb.AppendLine("\n## Labs");
             sb.AppendLine("| Date | Lab | Value | Unit |");
             sb.AppendLine("|---|---|---|---|");
@@ -232,11 +271,12 @@
     private async Task ExportCsv()
     {
         var cat = _csvCategory;
-        var file = $"fitrecoverylog-{cat.ToLower().Replace(' ', '-')}.csv";
-        await Run(file, db => BuildCsv(db, cat));
+        var r = SelectedRange();
+        var file = $"fitrecoverylog-{cat.ToLower().Replace(' ', '-')}{r.FileSuffix}.csv";
+        await Run(file, db => BuildCsv(db, cat, r));
     }
 
-    private static async Task<string> BuildCsv(AppDbContext db, string category)
+    private static async Task<string> BuildCsv(AppDbContext db, string category, Range r)
     {
         var sb = new StringBuilder();
         switch (category)
@@ -244,56 +284,102 @@
             case "Body measurements":
                 sb.AppendLine("Date,Weight (lbs),Waist,Chest,Hips,Arms,Forearms,Thighs,Shoulders,Calves," +
                               "Body fat %,Muscle mass (lbs),Visceral fat,Body water %,BMR,Metabolic age,Notes");
-                foreach (var m in await db.BodyMeasurements.OrderBy(x => x.Date).ToListAsync())
+                foreach (var m in await db.BodyMeasurements.Where(x => x.Date >= r.Min && x.Date <= r.Max).OrderBy(x => x.Date).ToListAsync())
                     sb.AppendLine(Row(m.Date.ToString("yyyy-MM-dd"), m.WeightLbs, m.WaistInches, m.ChestInches, m.HipsInches,
                         m.ArmsInches, m.ForearmsInches, m.ThighsInches, m.ShouldersInches, m.CalvesInches,
                         m.BodyFatPercent, m.MuscleMassLbs, m.VisceralFat, m.BodyWaterPercent, m.BasalMetabolicRate,
                         m.MetabolicAge, m.ClothingFitNotes));
                 break;
+            case "Daily nutrition":
+                await DailyNutritionCsv(db, r, sb);
+                break;
             case "Meals":
                 sb.AppendLine("Time,Type,Description,Portion,Tags,Satiety," + MacroHeader);
-                foreach (var m in await db.MealEntries.OrderBy(x => x.Time).ToListAsync())
+                foreach (var m in await db.MealEntries.Where(x => x.Time >= r.Start && x.Time < r.End).OrderBy(x => x.Time).ToListAsync())
                     sb.AppendLine(Row(m.Time.ToString("yyyy-MM-dd HH:mm"), m.MealType, m.Description, m.PortionNote, m.Tags, m.Satiety,
                         m.Calories, m.ProteinG, m.CarbsG, m.FatG, m.FiberG, m.SugarG, m.AddedSugarG, m.SodiumMg));
                 break;
             case "Drinks":
                 sb.AppendLine("Time,Description,Ounces,Sugar," + MacroHeader);
-                foreach (var d in await db.DrinkEntries.OrderBy(x => x.Time).ToListAsync())
+                foreach (var d in await db.DrinkEntries.Where(x => x.Time >= r.Start && x.Time < r.End).OrderBy(x => x.Time).ToListAsync())
                     sb.AppendLine(Row(d.Time.ToString("yyyy-MM-dd HH:mm"), d.Description, d.Ounces, d.SugarCount,
                         d.Calories, d.ProteinG, d.CarbsG, d.FatG, d.FiberG, d.SugarG, d.AddedSugarG, d.SodiumMg));
                 break;
             case "Workouts":
                 sb.AppendLine("Date,Minutes,Notes");
-                foreach (var s in await db.WorkoutSessions.OrderBy(x => x.Date).ToListAsync())
+                foreach (var s in await db.WorkoutSessions.Where(x => x.Date >= r.Min && x.Date <= r.Max).OrderBy(x => x.Date).ToListAsync())
                     sb.AppendLine(Row(s.Date.ToString("yyyy-MM-dd"), s.TotalSeconds is { } t ? t / 60 : (int?)null, s.Notes));
                 break;
             case "Sleep":
                 sb.AppendLine("Date,Hours,Score,Interruptions,Notes");
-                foreach (var s in await db.SleepEntries.OrderBy(x => x.Date).ToListAsync())
+                foreach (var s in await db.SleepEntries.Where(x => x.Date >= r.Min && x.Date <= r.Max).OrderBy(x => x.Date).ToListAsync())
                     sb.AppendLine(Row(s.Date.ToString("yyyy-MM-dd"), s.DurationHours, s.SleepScore, s.Interruptions, s.Notes));
                 break;
             case "Recovery":
                 sb.AppendLine("Date,Recovery,Fatigue,Soreness,Severity,Notes");
-                foreach (var r in await db.RecoveryEntries.OrderBy(x => x.Date).ToListAsync())
-                    sb.AppendLine(Row(r.Date.ToString("yyyy-MM-dd"), r.RecoveryRating, r.FatigueRating, r.SorenessLocations, r.SorenessSeverity, r.Notes));
+                foreach (var rec in await db.RecoveryEntries.Where(x => x.Date >= r.Min && x.Date <= r.Max).OrderBy(x => x.Date).ToListAsync())
+                    sb.AppendLine(Row(rec.Date.ToString("yyyy-MM-dd"), rec.RecoveryRating, rec.FatigueRating, rec.SorenessLocations, rec.SorenessSeverity, rec.Notes));
                 break;
             case "Medications":
                 sb.AppendLine("When,Name,Dose,Frequency,Site,Notes");
-                foreach (var m in await db.MedicationEntries.OrderBy(x => x.TakenAt).ToListAsync())
+                foreach (var m in await db.MedicationEntries.Where(x => x.TakenAt >= r.Start && x.TakenAt < r.End).OrderBy(x => x.TakenAt).ToListAsync())
                     sb.AppendLine(Row(m.TakenAt.ToString("yyyy-MM-dd HH:mm"), m.Name, m.Dose, m.Frequency, m.InjectionSite, m.ReactionNotes));
                 break;
             case "Labs":
                 sb.AppendLine("Date,Lab,Value,Unit,Notes");
-                foreach (var l in await db.LabResults.OrderBy(x => x.Date).ToListAsync())
+                foreach (var l in await db.LabResults.Where(x => x.Date >= r.Min && x.Date <= r.Max).OrderBy(x => x.Date).ToListAsync())
                     sb.AppendLine(Row(l.Date.ToString("yyyy-MM-dd"), l.LabName, l.Value, l.Unit, l.Notes));
                 break;
             case "Workload":
                 sb.AppendLine("Date,Activity,Minutes,Intensity,BodyAreas,Notes");
-                foreach (var w in await db.PhysicalWorkloadEntries.OrderBy(x => x.Date).ToListAsync())
+                foreach (var w in await db.PhysicalWorkloadEntries.Where(x => x.Date >= r.Min && x.Date <= r.Max).OrderBy(x => x.Date).ToListAsync())
                     sb.AppendLine(Row(w.Date.ToString("yyyy-MM-dd"), w.Activity, w.DurationMinutes, w.Intensity, w.BodyAreasAffected, w.Notes));
                 break;
         }
         return sb.ToString();
+    }
+
+    /// <summary>One row per day with any meal or drink: macro totals (same math as the Log tab),
+    /// macro coverage, fluids, and calories out (Apple Health for completed days, else the BMR
+    /// estimate using the body measurements known as of that day).</summary>
+    private static async Task DailyNutritionCsv(AppDbContext db, Range r, StringBuilder sb)
+    {
+        var meals = await db.MealEntries.Where(x => x.Time >= r.Start && x.Time < r.End).ToListAsync();
+        var drinks = await db.DrinkEntries.Where(x => x.Time >= r.Start && x.Time < r.End).ToListAsync();
+        var logs = await db.DailyLogs.Where(x => x.Date >= r.Min && x.Date <= r.Max).ToDictionaryAsync(x => x.Date);
+        var workoutSecs = (await db.WorkoutSessions.Where(x => x.Date >= r.Min && x.Date <= r.Max && x.TotalSeconds != null)
+                .Select(x => new { x.Date, x.TotalSeconds }).ToListAsync())
+            .GroupBy(x => x.Date).ToDictionary(g => g.Key, g => g.Sum(x => x.TotalSeconds!.Value));
+        var body = await db.BodyMeasurements.Where(m => m.WeightLbs != null || m.BasalMetabolicRate != null)
+            .OrderBy(m => m.Date).Select(m => new { m.Date, m.WeightLbs, m.BasalMetabolicRate }).ToListAsync();
+        var today = DateOnly.FromDateTime(DateTime.Now);
+
+        sb.AppendLine("Date,Day type,Meals,Meals with macros,Drinks," + MacroHeader +
+                      ",Fluids (oz),Calories out,Calories out source,Net calories");
+        var days = meals.Select(m => DateOnly.FromDateTime(m.Time))
+            .Concat(drinks.Select(d => DateOnly.FromDateTime(d.Time))).Distinct().Order();
+        foreach (var day in days)
+        {
+            var dm = meals.Where(m => DateOnly.FromDateTime(m.Time) == day).ToList();
+            var dd = drinks.Where(d => DateOnly.FromDateTime(d.Time) == day).ToList();
+            logs.TryGetValue(day, out var log);
+            var asOf = body.Where(b => b.Date <= day).ToList();
+            var energy = EnergyMath.Out(log, today,
+                asOf.LastOrDefault(b => b.BasalMetabolicRate != null)?.BasalMetabolicRate,
+                asOf.LastOrDefault(b => b.WeightLbs != null)?.WeightLbs,
+                workoutSecs.GetValueOrDefault(day));
+            var calories = NutritionMath.Calories(dm, dd);
+            sb.AppendLine(Row(day.ToString("yyyy-MM-dd"),
+                log?.DayType is { } dt and not DayType.Unset ? dt : null,
+                dm.Count, dm.Count(m => m.Calories is not null || m.ProteinG is not null), dd.Count,
+                calories, R1(NutritionMath.Protein(dm, dd)), R1(NutritionMath.Carbs(dm, dd)), R1(NutritionMath.Fat(dm, dd)),
+                R1(NutritionMath.Fiber(dm, dd)), R1(NutritionMath.Sugar(dm, dd)), R1(NutritionMath.AddedSugar(dm, dd)),
+                (int)Math.Round(NutritionMath.Sodium(dm, dd)), NutritionMath.FluidOz(dd),
+                energy?.Kcal, energy is null ? null : energy.Value.FromHealth ? "Apple Health" : "Estimate",
+                energy is null ? null : calories - energy.Value.Kcal));
+        }
+
+        static double R1(double v) => Math.Round(v, 1);
     }
 
     // Shared macro columns for meals and drinks, in the same order as the row values.
