@@ -440,13 +440,14 @@
                     <span><strong>@DaySodium.ToString("0")</strong> <span class="muted">mg sodium</span></span>
                 </div>
                 <NutritionGoalsCard Meals="_todayMeals" Drinks="_todayDrinks" ActiveDay="_viewDayActive" />
-                @if (EnergyOut is { } outKcal && DayCalories > 0)
+                @if (EnergyOut is { } energy && DayCalories > 0)
                 {
+                    var outKcal = energy.Kcal;
                     var net = DayCalories - outKcal;
-                    <p class="muted" style="margin:0.4rem 0 0;font-size:0.8rem" title="Rough: assumes every item is logged with calories; resting burn is estimated">
+                    <p class="muted" style="margin:0.4rem 0 0;font-size:0.8rem" title="@(energy.FromHealth ? "Out = Apple Health resting + active energy (active already includes workouts). In assumes every item is logged with calories." : "Rough: assumes every item is logged with calories; resting burn is estimated from BMR")">
                         Energy balance ≈ <strong>@DayCalories</strong> in − <strong>@outKcal</strong> out =
                         <span style="color:@(net > 0 ? "#c47f00" : "#3fa34d")">@(net > 0 ? "+" : "")@net cal</span>
-                        (@(net > 0 ? "surplus" : "deficit")) · rough estimate
+                        (@(net > 0 ? "surplus" : "deficit")) · @(energy.FromHealth ? "Apple Health" : "rough estimate")
                     </p>
                 }
                 <p class="muted" style="margin:0.3rem 0 0;font-size:0.72rem">
@@ -789,6 +790,7 @@
     private int? _latestBmr;
     private int _dayWorkoutSeconds;
     private bool _viewDayActive;   // viewed day is Workout/High Workload → active-day ranges
+    private DailyLog? _viewDayLog;  // day type + Apple Health energy for the viewed day
 
     private int MacroMealCount => _todayMeals.Count(m => m.Calories is not null || m.ProteinG is not null);
     private int DayCalories => NutritionMath.Calories(_todayMeals, _todayDrinks);
@@ -797,25 +799,9 @@
     private double DaySugar => NutritionMath.Sugar(_todayMeals, _todayDrinks);
     private bool HasNutritionData => NutritionMath.HasData(_todayMeals, _todayDrinks);
 
-    private int WorkoutKcal   // MET ~5 strength, scaled by body weight
-    {
-        get
-        {
-            var lbs = _latestWeightLbs ?? 0;
-            if (lbs <= 0 || _dayWorkoutSeconds <= 0) return 0;
-            return (int)Math.Round(_dayWorkoutSeconds / 60.0 * 5 * 3.5 * (lbs * 0.453592) / 200.0);
-        }
-    }
-    // Estimated calories out: BMR (Hume, or a rough weight×10 fallback) × light-activity
-    // factor, plus the day's workout burn.
-    private int? EnergyOut
-    {
-        get
-        {
-            var bmr = _latestBmr ?? (_latestWeightLbs is { } w and > 0 ? (int)(w * 10) : (int?)null);
-            return bmr is null ? null : (int)Math.Round(bmr.Value * 1.25) + WorkoutKcal;
-        }
-    }
+    // Calories out: Apple Health resting + active for a completed day, else the BMR estimate.
+    private EnergyMath.EnergyOut? EnergyOut =>
+        EnergyMath.Out(_viewDayLog, DateOnly.FromDateTime(DateTime.Now), _latestBmr, _latestWeightLbs, _dayWorkoutSeconds);
 
     // Meals and drinks merged into one chronological list for the Log tab.
     private IEnumerable<(DateTime Time, MealEntry? Meal, DrinkEntry? Drink)> MergedToday() =>
@@ -2169,7 +2155,8 @@
         _dayWorkoutSeconds = await db.WorkoutSessions
             .Where(w => w.Date == viewDate && w.TotalSeconds != null)
             .SumAsync(w => w.TotalSeconds!.Value);
-        var dayType = (await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == viewDate))?.DayType ?? DayType.Unset;
+        _viewDayLog = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == viewDate);
+        var dayType = _viewDayLog?.DayType ?? DayType.Unset;
         _viewDayActive = dayType is DayType.Workout or DayType.HighWorkload;
 
         // Build typeahead libraries: seed list + every distinct food/drink logged.

@@ -281,6 +281,9 @@ namespace FitRecoveryLog.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("ActiveEnergyKcal")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -298,6 +301,9 @@ namespace FitRecoveryLog.Data.Migrations
 
                     b.Property<string>("Note")
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("RestingEnergyKcal")
+                        .HasColumnType("INTEGER");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("TEXT");

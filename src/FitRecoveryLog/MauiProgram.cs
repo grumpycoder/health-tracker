@@ -92,6 +92,7 @@ public static class MauiProgram
 		// Measurements: the EF repo wrapped in the event-dispatching decorator so recording a
 		// weight/waist raises MeasurementRecorded -> mirrored to Apple Health (phone-only handler).
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Body.IHealthMirror, FitRecoveryLog.Services.HealthMirror>();
+		builder.Services.AddSingleton<FitRecoveryLog.Services.HealthEnergyImport>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Common.IDomainEventHandler<FitRecoveryLog.Domain.Body.Events.MeasurementRecorded>, FitRecoveryLog.Application.Body.MeasurementRecordedHandler>();
 		builder.Services.AddSingleton<FitRecoveryLog.Infrastructure.Body.EfMeasurementRepository>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Body.IMeasurementRepository>(sp =>

@@ -8,6 +8,7 @@
 @inject IAiCoach AiCoach
 @inject NavigationManager Nav
 @inject IHealthService Health
+@inject HealthEnergyImport EnergyImport
 @inject IJSRuntime JS
 @inject ActiveWorkoutState ActiveWorkout
 
@@ -436,6 +437,7 @@
                     await Health.RequestAuthorizationAsync();
                     _steps = await Health.ReadStepsAsync(_today);
                     StateHasChanged();
+                    await EnergyImport.RunAsync();
                 }
                 catch { }
             }
@@ -451,6 +453,7 @@
         if (Health.IsAvailable)
         {
             try { _steps = await Health.ReadStepsAsync(_today); } catch { }
+            try { await EnergyImport.RunAsync(); } catch { }
         }
         StateHasChanged();
     }

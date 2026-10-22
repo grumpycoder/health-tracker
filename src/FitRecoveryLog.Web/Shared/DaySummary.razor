@@ -39,13 +39,14 @@ else
     {
         <p class="muted" style="margin:0;font-size:0.8rem">Set nutrition targets on the Goals page to see progress bars.</p>
     }
-    @if (EnergyOut is { } outKcal && Calories > 0)
+    @if (EnergyOut is { } energy && Calories > 0)
     {
+        var outKcal = energy.Kcal;
         var net = Calories - outKcal;
-        <p class="muted" style="margin:0.4rem 0 0;font-size:0.8rem" title="Rough: assumes every item is logged with calories; resting burn is estimated">
+        <p class="muted" style="margin:0.4rem 0 0;font-size:0.8rem" title="@(energy.FromHealth ? "Out = Apple Health resting + active energy (active already includes workouts). In assumes every item is logged with calories." : "Rough: assumes every item is logged with calories; resting burn is estimated from BMR")">
             Energy balance ≈ <strong>@Calories</strong> in − <strong>@outKcal</strong> out =
             <span style="color:@(net > 0 ? "#c47f00" : "#3fa34d")">@(net > 0 ? "+" : "")@net cal</span>
-            (@(net > 0 ? "surplus" : "deficit")) · rough estimate
+            (@(net > 0 ? "surplus" : "deficit")) · @(energy.FromHealth ? "Apple Health" : "rough estimate")
         </p>
     }
 }
@@ -56,8 +57,8 @@ else
     [Parameter] public GoalSettings? Goals { get; set; }
     /// <summary>Workout / High Workload day → active-day calorie, carb and water ranges.</summary>
     [Parameter] public bool ActiveDay { get; set; }
-    /// <summary>Estimated calories out (BMR × light activity + workout burn); null if unknown.</summary>
-    [Parameter] public int? EnergyOut { get; set; }
+    /// <summary>Calories out (Apple Health for a completed day, else the BMR estimate); null if unknown.</summary>
+    [Parameter] public EnergyMath.EnergyOut? EnergyOut { get; set; }
 
     // FDA daily value — the phone uses the same fixed ceiling.
     private const int SodiumMaxMg = 2300;

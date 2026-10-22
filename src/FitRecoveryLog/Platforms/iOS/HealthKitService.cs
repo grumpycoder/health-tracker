@@ -13,6 +13,7 @@ public sealed class HealthKitService : IHealthService
     private readonly HKQuantityType _steps = HKQuantityType.Create(HKQuantityTypeIdentifier.StepCount)!;
     private readonly HKCategoryType _sleep = HKCategoryType.Create(HKCategoryTypeIdentifier.SleepAnalysis)!;
     private readonly HKQuantityType _activeEnergy = HKQuantityType.Create(HKQuantityTypeIdentifier.ActiveEnergyBurned)!;
+    private readonly HKQuantityType _basalEnergy = HKQuantityType.Create(HKQuantityTypeIdentifier.BasalEnergyBurned)!;
     private static readonly HKUnit Pound = HKUnit.FromString("lb");
     private static readonly HKUnit Inch = HKUnit.FromString("in");
     private static readonly HKUnit Count = HKUnit.FromString("count");
@@ -34,7 +35,7 @@ public sealed class HealthKitService : IHealthService
     {
         if (_store is null) return Task.FromResult(false);
         var share = new NSSet<HKSampleType>(_bodyMass, _waist, _activeEnergy, HKObjectType.WorkoutType);
-        var read = new NSSet<HKObjectType>(_bodyMass, _waist, _steps, _sleep, _activeEnergy, HKObjectType.WorkoutType);
+        var read = new NSSet<HKObjectType>(_bodyMass, _waist, _steps, _sleep, _activeEnergy, _basalEnergy, HKObjectType.WorkoutType);
         var tcs = new TaskCompletionSource<bool>();
         _store.RequestAuthorizationToShare(share, read, (ok, _) => tcs.TrySetResult(ok));
         return tcs.Task;
@@ -176,17 +177,30 @@ public sealed class HealthKitService : IHealthService
             tcs.Task is { IsCompletedSuccessfully: true } t && t.Result);
     }
 
-    public Task<int?> ReadStepsAsync(DateOnly date)
+    public async Task<int?> ReadStepsAsync(DateOnly date) =>
+        await DaySumAsync(_steps, Count, date) is { } steps ? (int)steps : null;
+
+    public async Task<(int? RestingKcal, int? ActiveKcal)> ReadEnergyAsync(DateOnly date)
     {
-        if (_store is null) return Task.FromResult<int?>(null);
+        // Our own workout energy samples are deliberately included: they ARE the day's
+        // workout burn when no Watch measured it (the statistics query de-duplicates sources).
+        var resting = await DaySumAsync(_basalEnergy, Kcal, date);
+        var active = await DaySumAsync(_activeEnergy, Kcal, date);
+        return (resting is { } r ? (int)Math.Round(r) : null, active is { } a ? (int)Math.Round(a) : null);
+    }
+
+    /// <summary>Cumulative sum of <paramref name="type"/> over one local day, or null if no samples.</summary>
+    private Task<double?> DaySumAsync(HKQuantityType type, HKUnit unit, DateOnly date)
+    {
+        if (_store is null) return Task.FromResult<double?>(null);
         var start = (NSDate)date.ToDateTime(TimeOnly.MinValue).ToUniversalTime();
         var end = (NSDate)date.AddDays(1).ToDateTime(TimeOnly.MinValue).ToUniversalTime();
         var predicate = HKQuery.GetPredicateForSamples(start, end, HKQueryOptions.StrictStartDate);
-        var tcs = new TaskCompletionSource<int?>();
-        var query = new HKStatisticsQuery(_steps, predicate, HKStatisticsOptions.CumulativeSum, (_, result, _) =>
+        var tcs = new TaskCompletionSource<double?>();
+        var query = new HKStatisticsQuery(type, predicate, HKStatisticsOptions.CumulativeSum, (_, result, _) =>
         {
             var sum = result?.SumQuantity();
-            tcs.TrySetResult(sum is null ? null : (int)sum.GetDoubleValue(Count));
+            tcs.TrySetResult(sum is null ? null : sum.GetDoubleValue(unit));
         });
         _store.ExecuteQuery(query);
         return tcs.Task;

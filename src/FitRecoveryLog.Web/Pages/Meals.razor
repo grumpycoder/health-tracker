@@ -346,6 +346,7 @@
     private double? _latestWeightLbs;
     private int? _latestBmr;
     private int _dayWorkoutSeconds;
+    private FitRecoveryLog.Data.DailyLog? _viewDayLog;
 
     private IEnumerable<Meal> DayMeals => _meals.Where(m => m.Time.Date == _viewDate).OrderByDescending(m => m.Time);
     private IEnumerable<Drink> DayDrinks => _drinks.Where(d => d.Time.Date == _viewDate).OrderByDescending(d => d.Time);
@@ -375,7 +376,8 @@
         _dayMealRows = WebSyncClient.Rows<FitRecoveryLog.Data.MealEntry>(pull).Where(m => m.Time.Date == _viewDate).ToList();
         _dayDrinkRows = WebSyncClient.Rows<FitRecoveryLog.Data.DrinkEntry>(pull).Where(d => d.Time.Date == _viewDate).ToList();
         _goals = WebSyncClient.Rows<FitRecoveryLog.Data.GoalSettings>(pull).OrderByDescending(g => g.UpdatedAt).FirstOrDefault();
-        var dayType = WebSyncClient.Rows<FitRecoveryLog.Data.DailyLog>(pull).FirstOrDefault(x => x.Date == day)?.DayType;
+        _viewDayLog = WebSyncClient.Rows<FitRecoveryLog.Data.DailyLog>(pull).FirstOrDefault(x => x.Date == day);
+        var dayType = _viewDayLog?.DayType;
         _viewDayActive = dayType is FitRecoveryLog.Data.DayType.Workout or FitRecoveryLog.Data.DayType.HighWorkload;
         var body = WebSyncClient.Rows<FitRecoveryLog.Data.BodyMeasurement>(pull).OrderByDescending(b => b.Date).ToList();
         _latestWeightLbs = body.FirstOrDefault(b => b.WeightLbs is not null)?.WeightLbs;
@@ -385,20 +387,9 @@
         StateHasChanged();
     }
 
-    // Same rough estimate as the phone: BMR (Hume, else weight×10) × 1.25 light activity, plus
-    // workout burn at MET ~5 scaled by body weight.
-    private int? EnergyOut
-    {
-        get
-        {
-            var bmr = _latestBmr ?? (_latestWeightLbs is { } w and > 0 ? (int)(w * 10) : (int?)null);
-            if (bmr is null) return null;
-            var lbs = _latestWeightLbs ?? 0;
-            var workout = lbs <= 0 || _dayWorkoutSeconds <= 0 ? 0
-                : (int)Math.Round(_dayWorkoutSeconds / 60.0 * 5 * 3.5 * (lbs * 0.453592) / 200.0);
-            return (int)Math.Round(bmr.Value * 1.25) + workout;
-        }
-    }
+    // Same as the phone: Apple Health resting + active for a completed day, else the BMR estimate.
+    private FitRecoveryLog.Data.EnergyMath.EnergyOut? EnergyOut =>
+        FitRecoveryLog.Data.EnergyMath.Out(_viewDayLog, DateOnly.FromDateTime(DateTime.Today), _latestBmr, _latestWeightLbs, _dayWorkoutSeconds);
 
     // ---- Fullness: one-tap rating for unrated meals + the "remind me" toggle ----
     private static readonly Satiety[] SatietyOptions = Enum.GetValues<Satiety>().Where(x => x != Satiety.Unset).ToArray();

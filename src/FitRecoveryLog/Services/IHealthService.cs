@@ -33,6 +33,10 @@ public interface IHealthService
 
     /// <summary>Sleep per night (keyed by the date you woke up) since the given time.</summary>
     Task<IReadOnlyList<SleepNight>> ReadSleepAsync(DateTime since);
+
+    /// <summary>Resting (basal) and active energy totals for one day, kcal; each null if Health has none.
+    /// Active energy includes workouts, so callers must not add workout burn on top.</summary>
+    Task<(int? RestingKcal, int? ActiveKcal)> ReadEnergyAsync(DateOnly date);
 }
 
 /// <summary>One night from Health. <see cref="HasDetail"/> is false when the source
@@ -55,4 +59,6 @@ public sealed class NoopHealthService : IHealthService
     public Task<int?> ReadStepsAsync(DateOnly date) => Task.FromResult<int?>(null);
     public Task<IReadOnlyList<SleepNight>> ReadSleepAsync(DateTime since) =>
         Task.FromResult<IReadOnlyList<SleepNight>>(Array.Empty<SleepNight>());
+    public Task<(int? RestingKcal, int? ActiveKcal)> ReadEnergyAsync(DateOnly date) =>
+        Task.FromResult<(int?, int?)>((null, null));
 }
