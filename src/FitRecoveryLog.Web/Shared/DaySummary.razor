@@ -39,27 +39,7 @@ else
     {
         <p class="muted" style="margin:0;font-size:0.8rem">Set nutrition targets on the Goals page to see progress bars.</p>
     }
-    @if (EnergyOut is { } energy && Calories > 0)
-    {
-        var outKcal = energy.Kcal;
-        var net = Calories - outKcal;
-        <p class="muted" style="margin:0.4rem 0 0;font-size:0.8rem" title="@(energy.FromHealth ? "Out = Apple Health resting + active energy (active already includes workouts). In assumes every item is logged with calories." : "Rough: assumes every item is logged with calories; resting burn is estimated from BMR")">
-            Energy balance ≈ <strong>@Calories</strong> in − <strong>@outKcal</strong> out =
-            <span style="color:@(net > 0 ? "#c47f00" : "#3fa34d")">@(net > 0 ? "+" : "")@net cal</span>
-            (@(net > 0 ? "surplus" : "deficit")) · @(energy.FromHealth ? "Apple Health" : "rough estimate")
-        </p>
-    }
-    @if (Avg7 is not null || Bal7 is not null)
-    {
-        <div style="margin-top:0.3rem" title="Completed days ending @(AvgEnd.ToString("MMM d")) — today isn't counted until it's over. Balance only counts days with food logged, and assumes everything eaten was logged with calories.">
-            @RollingLine("7-day", Avg7, Bal7)
-            @RollingLine("14-day", Avg14, Bal14)
-            @if ((Avg14 ?? Avg7) is { } src)
-            {
-                <div class="muted" style="font-size:0.72rem">Calories out from Apple Health on @src.HealthDays of @src.Days days, estimated on the rest</div>
-            }
-        </div>
-    }
+    @EnergyPanel(Calories, EnergyOut, Avg7, Bal7, Avg14, Bal14, AvgEnd)
 }
 
 @code {
@@ -85,24 +65,75 @@ else
     private int Calories => NutritionMath.Calories(Meals, Drinks);
     private List<MealEntry> Rated => Meals.Where(m => m.QualityStars is not null).ToList();
 
-    // One rolling-window line: average calories out, then the average daily deficit/surplus over
-    // the days with food logged (with the window total and its rough pound equivalent).
-    private static RenderFragment RollingLine(string label, EnergyHistory.RollingAverage? avg, EnergyHistory.RollingBalance? bal) => __builder =>
+    // Energy panel: the viewed day's in/out/balance as three labeled stats, then one card per
+    // rolling window (completed days only) so each number sits under its own label.
+    private static RenderFragment EnergyPanel(int caloriesIn, EnergyMath.EnergyOut? day,
+        EnergyHistory.RollingAverage? avg7, EnergyHistory.RollingBalance? bal7,
+        EnergyHistory.RollingAverage? avg14, EnergyHistory.RollingBalance? bal14, DateOnly end) => __builder =>
     {
-        if (avg is null && bal is null) return;
-        <div style="font-size:0.8rem;margin-top:0.15rem">
-            <span class="muted">@label:</span>
-            @if (avg is { } a) { <span class="muted"> out <strong>@a.Kcal.ToString("N0")</strong>/day</span> }
-            @if (bal is { } b)
+        if (day is null && avg7 is null && bal7 is null) return;
+        <div style="margin-top:0.6rem;padding-top:0.5rem;border-top:1px solid var(--border)">
+            @if (day is { } d && caloriesIn > 0)
             {
-                <span class="muted"> · </span>
-                <strong style="color:@(b.AvgNet > 0 ? "#c47f00" : "#3fa34d")">@(b.AvgNet > 0 ? "+" : "")@b.AvgNet.ToString("N0")/day</strong>
-                <span class="muted"> @(b.AvgNet > 0 ? "surplus" : "deficit")
-                    <span style="font-size:0.72rem">(@(b.TotalNet > 0 ? "+" : "")@b.TotalNet.ToString("N0") ≈ @(b.Pounds > 0 ? "+" : "")@b.Pounds.ToString("0.0") lb · @b.Days day@(b.Days == 1 ? "" : "s") logged)</span>
-                </span>
+                var net = caloriesIn - d.Kcal;
+                <div class="muted" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em">This day · @(d.FromHealth ? "Apple Health" : "estimated burn")</div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.4rem;margin:0.2rem 0 0.6rem">
+                    @Stat(caloriesIn.ToString("N0"), "in", null)
+                    @Stat(d.Kcal.ToString("N0"), "out", null)
+                    @Stat(Signed(net), net > 0 ? "surplus" : "deficit", NetColor(net))
+                </div>
+            }
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
+                @WindowCard(7, avg7, bal7, end)
+                @WindowCard(14, avg14, bal14, end)
+            </div>
+            @if ((avg14 ?? avg7) is { } src)
+            {
+                <div class="muted" style="font-size:0.72rem;margin-top:0.35rem">
+                    Averages use completed days only (today is left out). Out is from Apple Health on @src.HealthDays of @src.Days days@(src.HealthDays < src.Days ? ", estimated from BMR on the rest" : "").
+                </div>
             }
         </div>
     };
+
+    private static RenderFragment Stat(string value, string label, string? color) => __builder =>
+    {
+        <div>
+            <div style="font-size:1.05rem;font-weight:600;color:@(color ?? "inherit")">@value</div>
+            <div class="muted" style="font-size:0.72rem">@label</div>
+        </div>
+    };
+
+    private static RenderFragment WindowCard(int days, EnergyHistory.RollingAverage? avg, EnergyHistory.RollingBalance? bal, DateOnly end) => __builder =>
+    {
+        <div style="border:1px solid var(--border);border-radius:8px;padding:0.45rem 0.55rem">
+            <div class="muted" style="font-size:0.72rem">@days days · @DayRange(end.AddDays(1 - days), end)</div>
+            @if (bal is { } b)
+            {
+                <div style="font-size:1.05rem;font-weight:600;color:@NetColor(b.AvgNet)">@Signed(b.AvgNet)<span style="font-size:0.75rem;font-weight:400">/day</span></div>
+                <div class="muted" style="font-size:0.72rem;margin-bottom:0.3rem">avg @(b.AvgNet > 0 ? "surplus" : "deficit")</div>
+                @Row("Total", $"{Signed(b.TotalNet)} (≈{(b.Pounds > 0 ? "+" : "")}{b.Pounds:0.0} lb)")
+            }
+            else
+            {
+                <div class="muted" style="font-size:0.8rem;margin:0.2rem 0 0.3rem">No food logged</div>
+            }
+            @if (avg is { } a) { @Row("Avg out", $"{a.Kcal:N0}/day") }
+            @Row("Logged", $"{bal?.Days ?? 0} of {days} days")
+        </div>
+    };
+
+    private static RenderFragment Row(string label, string value) => __builder =>
+    {
+        <div style="display:flex;justify-content:space-between;gap:0.4rem;font-size:0.75rem;line-height:1.5">
+            <span class="muted">@label</span><span style="text-align:right">@value</span>
+        </div>
+    };
+
+    private static string DayRange(DateOnly from, DateOnly to) =>
+        from.Month == to.Month ? $"{from:MMM d}–{to.Day}" : $"{from:MMM d}–{to:MMM d}";
+    private static string Signed(int v) => (v > 0 ? "+" : "") + v.ToString("N0");
+    private static string NetColor(int net) => net > 0 ? "#c47f00" : "#3fa34d";
 
     private void Toggle(string label) { if (!_show.Remove(label)) _show.Add(label); }
 

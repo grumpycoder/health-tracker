@@ -440,27 +440,7 @@
                     <span><strong>@DaySodium.ToString("0")</strong> <span class="muted">mg sodium</span></span>
                 </div>
                 <NutritionGoalsCard Meals="_todayMeals" Drinks="_todayDrinks" ActiveDay="_viewDayActive" />
-                @if (EnergyOut is { } energy && DayCalories > 0)
-                {
-                    var outKcal = energy.Kcal;
-                    var net = DayCalories - outKcal;
-                    <p class="muted" style="margin:0.4rem 0 0;font-size:0.8rem" title="@(energy.FromHealth ? "Out = Apple Health resting + active energy (active already includes workouts). In assumes every item is logged with calories." : "Rough: assumes every item is logged with calories; resting burn is estimated from BMR")">
-                        Energy balance ≈ <strong>@DayCalories</strong> in − <strong>@outKcal</strong> out =
-                        <span style="color:@(net > 0 ? "#c47f00" : "#3fa34d")">@(net > 0 ? "+" : "")@net cal</span>
-                        (@(net > 0 ? "surplus" : "deficit")) · @(energy.FromHealth ? "Apple Health" : "rough estimate")
-                    </p>
-                }
-                @if (_avg7 is not null || _bal7 is not null)
-                {
-                    <div style="margin-top:0.3rem" title="Completed days ending @(_avgEnd.ToString("MMM d")) — today isn't counted until it's over. Balance only counts days with food logged, and assumes everything eaten was logged with calories.">
-                        @RollingLine("7-day", _avg7, _bal7)
-                        @RollingLine("14-day", _avg14, _bal14)
-                        @if ((_avg14 ?? _avg7) is { } src)
-                        {
-                            <div class="muted" style="font-size:0.72rem">Calories out from Apple Health on @src.HealthDays of @src.Days days, estimated on the rest</div>
-                        }
-                    </div>
-                }
+                <EnergyPanel Date="DateOnly.FromDateTime(_viewDate)" CaloriesIn="DayCalories" />
                 <p class="muted" style="margin:0.3rem 0 0;font-size:0.72rem">
                     Totals from @MacroMealCount of @_todayMeals.Count meal(s) with macros@(MacroMealCount < _todayMeals.Count ? " — scan/enter the rest for a full picture" : "")
                 </p>
@@ -797,12 +777,8 @@
 
     // --- Daily nutrition metrics (viewed day). Totals cover only items that carry
     // macros, so they're labeled with coverage; energy balance is a rough estimate. ---
-    private EnergyHistory? _energy;   // calories out per day + rolling averages
-    private EnergyHistory.RollingAverage? _avg7, _avg14;
-    private EnergyHistory.RollingBalance? _bal7, _bal14;
-    private DateOnly _avgEnd;
     private bool _viewDayActive;   // viewed day is Workout/High Workload → active-day ranges
-    private DailyLog? _viewDayLog;  // day type + Apple Health energy for the viewed day
+    private DailyLog? _viewDayLog;  // viewed day's day type (rest vs active targets)
 
     private int MacroMealCount => _todayMeals.Count(m => m.Calories is not null || m.ProteinG is not null);
     private int DayCalories => NutritionMath.Calories(_todayMeals, _todayDrinks);
@@ -811,27 +787,6 @@
     private double DaySugar => NutritionMath.Sugar(_todayMeals, _todayDrinks);
     private bool HasNutritionData => NutritionMath.HasData(_todayMeals, _todayDrinks);
 
-    // One rolling-window line: average calories out, then the average daily deficit/surplus over
-    // the days with food logged (with the window total and its rough pound equivalent).
-    private static RenderFragment RollingLine(string label, EnergyHistory.RollingAverage? avg, EnergyHistory.RollingBalance? bal) => __builder =>
-    {
-        if (avg is null && bal is null) return;
-        <div style="font-size:0.8rem;margin-top:0.15rem">
-            <span class="muted">@label:</span>
-            @if (avg is { } a) { <span class="muted"> out <strong>@a.Kcal.ToString("N0")</strong>/day</span> }
-            @if (bal is { } b)
-            {
-                <span class="muted"> · </span>
-                <strong style="color:@(b.AvgNet > 0 ? "#c47f00" : "#3fa34d")">@(b.AvgNet > 0 ? "+" : "")@b.AvgNet.ToString("N0")/day</strong>
-                <span class="muted"> @(b.AvgNet > 0 ? "surplus" : "deficit")
-                    <span style="font-size:0.72rem">(@(b.TotalNet > 0 ? "+" : "")@b.TotalNet.ToString("N0") ≈ @(b.Pounds > 0 ? "+" : "")@b.Pounds.ToString("0.0") lb · @b.Days day@(b.Days == 1 ? "" : "s") logged)</span>
-                </span>
-            }
-        </div>
-    };
-
-    // Calories out: Apple Health resting + active for a completed day, else the BMR estimate.
-    private EnergyMath.EnergyOut? EnergyOut => _energy?.For(DateOnly.FromDateTime(_viewDate));
 
     // Meals and drinks merged into one chronological list for the Log tab.
     private IEnumerable<(DateTime Time, MealEntry? Meal, DrinkEntry? Drink)> MergedToday() =>
@@ -2175,26 +2130,8 @@
             .Where(d => d.Time >= start && d.Time < end)
             .OrderBy(d => d.Time).ToListAsync();
 
-        // Energy-balance inputs for the viewed day and the 14 days before it: day logs (Apple
-        // Health energy), body measurements (BMR/weight as of each day) and workout time.
         var viewDate = DateOnly.FromDateTime(_viewDate);
-        var windowStart = viewDate.AddDays(-14);
-        var today = DateOnly.FromDateTime(DateTime.Now);
-        _energy = new EnergyHistory(
-            await db.DailyLogs.Where(x => x.Date >= windowStart && x.Date <= viewDate).ToListAsync(),
-            await db.BodyMeasurements.Where(m => m.Date <= viewDate && (m.WeightLbs != null || m.BasalMetabolicRate != null)).ToListAsync(),
-            await db.WorkoutSessions.Where(w => w.Date >= windowStart && w.Date <= viewDate).ToListAsync(),
-            today);
-        _avgEnd = viewDate < today ? viewDate : today.AddDays(-1);
-        _avg7 = _energy.Average(viewDate, 7);
-        _avg14 = _energy.Average(viewDate, 14);
-        var windowFrom = windowStart.ToDateTime(TimeOnly.MinValue);
-        var kin = NutritionMath.CaloriesByDay(
-            await db.MealEntries.Where(m => m.Time >= windowFrom && m.Time < end).ToListAsync(),
-            await db.DrinkEntries.Where(d => d.Time >= windowFrom && d.Time < end).ToListAsync());
-        _bal7 = _energy.Balance(viewDate, 7, kin);
-        _bal14 = _energy.Balance(viewDate, 14, kin);
-        _viewDayLog = _energy.Log(viewDate);
+        _viewDayLog = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == viewDate);
         var dayType = _viewDayLog?.DayType ?? DayType.Unset;
         _viewDayActive = dayType is DayType.Workout or DayType.HighWorkload;
 

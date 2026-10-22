@@ -1,0 +1,115 @@
+@* Calories in vs out for one day plus 7/14-day rolling cards (completed days only): average
+   calories out and the average deficit/surplus over days with food logged. Used on Meals (Log
+   tab) and the Home dashboard. Loads its own history; re-loads when any parameter changes. *@
+@using FitRecoveryLog.Data
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+@if (_day is not null || _avg7 is not null || _bal7 is not null)
+{
+    <div style="@(Divider ? "margin-top:0.6rem;padding-top:0.5rem;border-top:1px solid var(--border)" : "")">
+        @if (_day is { } d && CaloriesIn > 0)
+        {
+            var net = CaloriesIn - d.Kcal;
+            <div class="muted" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em">@DayLabel · @(d.FromHealth ? "Apple Health" : "estimated burn")</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.4rem;margin:0.2rem 0 0.6rem">
+                @Stat(CaloriesIn.ToString("N0"), "in", null)
+                @Stat(d.Kcal.ToString("N0"), "out", null)
+                @Stat(Signed(net), net > 0 ? "surplus" : "deficit", NetColor(net))
+            </div>
+        }
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
+            @WindowCard(7, _avg7, _bal7, _end)
+            @WindowCard(14, _avg14, _bal14, _end)
+        </div>
+        @if ((_avg14 ?? _avg7) is { } src)
+        {
+            <div class="muted" style="font-size:0.72rem;margin-top:0.35rem">
+                Averages use completed days only (today is left out). Out is from Apple Health on @src.HealthDays of @src.Days days@(src.HealthDays < src.Days ? ", estimated from BMR on the rest" : "").
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public DateOnly Date { get; set; }
+    /// <summary>Calories logged on <see cref="Date"/> (the caller already has them summed).</summary>
+    [Parameter] public int CaloriesIn { get; set; }
+    [Parameter] public string DayLabel { get; set; } = "This day";
+    /// <summary>Top rule separating it from content above (off when it's a card of its own).</summary>
+    [Parameter] public bool Divider { get; set; } = true;
+    /// <summary>Bump to force a reload (e.g. after Apple Health energy is imported).</summary>
+    [Parameter] public int Version { get; set; }
+
+    private EnergyMath.EnergyOut? _day;
+    private EnergyHistory.RollingAverage? _avg7, _avg14;
+    private EnergyHistory.RollingBalance? _bal7, _bal14;
+    private DateOnly _end;
+    private (DateOnly, int, int)? _loaded;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded == (Date, CaloriesIn, Version)) return;
+        _loaded = (Date, CaloriesIn, Version);
+
+        var from = Date.AddDays(-14);
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var energy = new EnergyHistory(
+            await db.DailyLogs.Where(x => x.Date >= from && x.Date <= Date).ToListAsync(),
+            await db.BodyMeasurements.Where(m => m.Date <= Date && (m.WeightLbs != null || m.BasalMetabolicRate != null)).ToListAsync(),
+            await db.WorkoutSessions.Where(w => w.Date >= from && w.Date <= Date).ToListAsync(),
+            today);
+        var start = from.ToDateTime(TimeOnly.MinValue);
+        var stop = Date.AddDays(1).ToDateTime(TimeOnly.MinValue);
+        var kin = NutritionMath.CaloriesByDay(
+            await db.MealEntries.Where(m => m.Time >= start && m.Time < stop).ToListAsync(),
+            await db.DrinkEntries.Where(d => d.Time >= start && d.Time < stop).ToListAsync());
+
+        _day = energy.For(Date);
+        _end = Date < today ? Date : today.AddDays(-1);
+        _avg7 = energy.Average(Date, 7);
+        _avg14 = energy.Average(Date, 14);
+        _bal7 = energy.Balance(Date, 7, kin);
+        _bal14 = energy.Balance(Date, 14, kin);
+    }
+
+    private static RenderFragment Stat(string value, string label, string? color) => __builder =>
+    {
+        <div>
+            <div style="font-size:1.05rem;font-weight:600;color:@(color ?? "inherit")">@value</div>
+            <div class="muted" style="font-size:0.72rem">@label</div>
+        </div>
+    };
+
+    private static RenderFragment WindowCard(int days, EnergyHistory.RollingAverage? avg, EnergyHistory.RollingBalance? bal, DateOnly end) => __builder =>
+    {
+        <div style="border:1px solid var(--border);border-radius:8px;padding:0.45rem 0.55rem">
+            <div class="muted" style="font-size:0.72rem">@days days · @DayRange(end.AddDays(1 - days), end)</div>
+            @if (bal is { } b)
+            {
+                <div style="font-size:1.05rem;font-weight:600;color:@NetColor(b.AvgNet)">@Signed(b.AvgNet)<span style="font-size:0.75rem;font-weight:400">/day</span></div>
+                <div class="muted" style="font-size:0.72rem;margin-bottom:0.3rem">avg @(b.AvgNet > 0 ? "surplus" : "deficit")</div>
+                @Row("Total", $"{Signed(b.TotalNet)} (≈{(b.Pounds > 0 ? "+" : "")}{b.Pounds:0.0} lb)")
+            }
+            else
+            {
+                <div class="muted" style="font-size:0.8rem;margin:0.2rem 0 0.3rem">No food logged</div>
+            }
+            @if (avg is { } a) { @Row("Avg out", $"{a.Kcal:N0}/day") }
+            @Row("Logged", $"{bal?.Days ?? 0} of {days} days")
+        </div>
+    };
+
+    private static RenderFragment Row(string label, string value) => __builder =>
+    {
+        <div style="display:flex;justify-content:space-between;gap:0.4rem;font-size:0.75rem;line-height:1.5">
+            <span class="muted">@label</span><span style="text-align:right">@value</span>
+        </div>
+    };
+
+    private static string DayRange(DateOnly from, DateOnly to) =>
+        from.Month == to.Month ? $"{from:MMM d}–{to.Day}" : $"{from:MMM d}–{to:MMM d}";
+    private static string Signed(int v) => (v > 0 ? "+" : "") + v.ToString("N0");
+    private static string NetColor(int net) => net > 0 ? "#c47f00" : "#3fa34d";
+}

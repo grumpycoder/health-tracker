@@ -62,6 +62,12 @@
     </section>
 
     <section class="card">
+        <h2>Energy balance</h2>
+        <EnergyPanel Date="_today" CaloriesIn="NutritionMath.Calories(_todayMeals, _todayDrinks)"
+                     DayLabel="Today" Divider="false" Version="_energyVersion" />
+    </section>
+
+    <section class="card">
         <h2>Today's plan</h2>
         <div class="daytype-grid">
             @foreach (var dt in DayTypes)
@@ -230,6 +236,7 @@
 
     // Today's meals/drinks for the goals card (active vs rest ranges follow _log.DayType).
     private List<MealEntry> _todayMeals = new();
+    private int _energyVersion;   // bumped after the Health energy import so the card reloads
     private List<DrinkEntry> _todayDrinks = new();
 
     // Timestamped notes, addable any time through the day.
@@ -438,6 +445,8 @@
                     _steps = await Health.ReadStepsAsync(_today);
                     StateHasChanged();
                     await EnergyImport.RunAsync();
+                    _energyVersion++;
+                    StateHasChanged();
                 }
                 catch { }
             }
@@ -453,7 +462,7 @@
         if (Health.IsAvailable)
         {
             try { _steps = await Health.ReadStepsAsync(_today); } catch { }
-            try { await EnergyImport.RunAsync(); } catch { }
+            try { await EnergyImport.RunAsync(); _energyVersion++; } catch { }
         }
         StateHasChanged();
     }
