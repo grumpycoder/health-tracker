@@ -83,7 +83,15 @@ else
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.4rem;margin:0.2rem 0 0.6rem">
                     @Stat(caloriesIn.ToString("N0"), "in", null)
                     @Stat(d.Kcal.ToString("N0"), projected ? "projected out" : "out", null)
-                    @Stat(Signed(net), (projected ? "projected " : "") + (net > 0 ? "surplus" : "deficit"), NetColor(net))
+                    @if (projected)
+                    {
+                        // Today: what's left before eating reaches the projected burn (maintenance).
+                        @Stat(Math.Abs(net).ToString("N0"), net > 0 ? "over calorie budget" : "remaining calorie budget", NetColor(net))
+                    }
+                    else
+                    {
+                        @Stat(Signed(net), net > 0 ? "surplus" : "deficit", NetColor(net))
+                    }
                 </div>
             }
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem">
