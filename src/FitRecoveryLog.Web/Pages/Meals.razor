@@ -45,7 +45,7 @@
             @if (_showDayMacros)
             {
                 <div style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid var(--border)">
-                    <DaySummary Meals="_dayMealRows" Drinks="_dayDrinkRows" Goals="_goals" ActiveDay="_viewDayActive" EnergyOut="EnergyOut" />
+                    <DaySummary Meals="_dayMealRows" Drinks="_dayDrinkRows" Goals="_goals" ActiveDay="_viewDayActive" EnergyOut="EnergyOut" Avg7="_avg7" Avg14="_avg14" AvgEnd="_avgEnd" />
                 </div>
             }
         }
@@ -343,9 +343,9 @@
     private List<FitRecoveryLog.Data.DrinkEntry> _dayDrinkRows = new();
     private FitRecoveryLog.Data.GoalSettings? _goals;
     private bool _viewDayActive;
-    private double? _latestWeightLbs;
-    private int? _latestBmr;
-    private int _dayWorkoutSeconds;
+    private FitRecoveryLog.Data.EnergyHistory? _energy;
+    private FitRecoveryLog.Data.EnergyHistory.RollingAverage? _avg7, _avg14;
+    private DateOnly _avgEnd;
     private FitRecoveryLog.Data.DailyLog? _viewDayLog;
 
     private IEnumerable<Meal> DayMeals => _meals.Where(m => m.Time.Date == _viewDate).OrderByDescending(m => m.Time);
@@ -376,20 +376,23 @@
         _dayMealRows = WebSyncClient.Rows<FitRecoveryLog.Data.MealEntry>(pull).Where(m => m.Time.Date == _viewDate).ToList();
         _dayDrinkRows = WebSyncClient.Rows<FitRecoveryLog.Data.DrinkEntry>(pull).Where(d => d.Time.Date == _viewDate).ToList();
         _goals = WebSyncClient.Rows<FitRecoveryLog.Data.GoalSettings>(pull).OrderByDescending(g => g.UpdatedAt).FirstOrDefault();
-        _viewDayLog = WebSyncClient.Rows<FitRecoveryLog.Data.DailyLog>(pull).FirstOrDefault(x => x.Date == day);
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        _energy = new FitRecoveryLog.Data.EnergyHistory(
+            WebSyncClient.Rows<FitRecoveryLog.Data.DailyLog>(pull),
+            WebSyncClient.Rows<FitRecoveryLog.Data.BodyMeasurement>(pull),
+            WebSyncClient.Rows<FitRecoveryLog.Data.WorkoutSession>(pull),
+            today);
+        _avgEnd = day < today ? day : today.AddDays(-1);
+        _avg7 = _energy.Average(day, 7);
+        _avg14 = _energy.Average(day, 14);
+        _viewDayLog = _energy.Log(day);
         var dayType = _viewDayLog?.DayType;
         _viewDayActive = dayType is FitRecoveryLog.Data.DayType.Workout or FitRecoveryLog.Data.DayType.HighWorkload;
-        var body = WebSyncClient.Rows<FitRecoveryLog.Data.BodyMeasurement>(pull).OrderByDescending(b => b.Date).ToList();
-        _latestWeightLbs = body.FirstOrDefault(b => b.WeightLbs is not null)?.WeightLbs;
-        _latestBmr = body.FirstOrDefault(b => b.BasalMetabolicRate is not null)?.BasalMetabolicRate;
-        _dayWorkoutSeconds = WebSyncClient.Rows<FitRecoveryLog.Data.WorkoutSession>(pull)
-            .Where(w => w.Date == day).Sum(w => w.TotalSeconds ?? 0);
         StateHasChanged();
     }
 
     // Same as the phone: Apple Health resting + active for a completed day, else the BMR estimate.
-    private FitRecoveryLog.Data.EnergyMath.EnergyOut? EnergyOut =>
-        FitRecoveryLog.Data.EnergyMath.Out(_viewDayLog, DateOnly.FromDateTime(DateTime.Today), _latestBmr, _latestWeightLbs, _dayWorkoutSeconds);
+    private FitRecoveryLog.Data.EnergyMath.EnergyOut? EnergyOut => _energy?.For(DateOnly.FromDateTime(_viewDate));
 
     // ---- Fullness: one-tap rating for unrated meals + the "remind me" toggle ----
     private static readonly Satiety[] SatietyOptions = Enum.GetValues<Satiety>().Where(x => x != Satiety.Unset).ToArray();

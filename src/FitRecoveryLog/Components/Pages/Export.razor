@@ -341,33 +341,29 @@
 
     /// <summary>One row per day with any meal or drink: macro totals (same math as the Log tab),
     /// macro coverage, fluids, and calories out (Apple Health for completed days, else the BMR
-    /// estimate using the body measurements known as of that day).</summary>
+    /// estimate using the body measurements known as of that day) with 7/14-day rolling averages.</summary>
     private static async Task DailyNutritionCsv(AppDbContext db, Range r, StringBuilder sb)
     {
         var meals = await db.MealEntries.Where(x => x.Time >= r.Start && x.Time < r.End).ToListAsync();
         var drinks = await db.DrinkEntries.Where(x => x.Time >= r.Start && x.Time < r.End).ToListAsync();
-        var logs = await db.DailyLogs.Where(x => x.Date >= r.Min && x.Date <= r.Max).ToDictionaryAsync(x => x.Date);
-        var workoutSecs = (await db.WorkoutSessions.Where(x => x.Date >= r.Min && x.Date <= r.Max && x.TotalSeconds != null)
-                .Select(x => new { x.Date, x.TotalSeconds }).ToListAsync())
-            .GroupBy(x => x.Date).ToDictionary(g => g.Key, g => g.Sum(x => x.TotalSeconds!.Value));
-        var body = await db.BodyMeasurements.Where(m => m.WeightLbs != null || m.BasalMetabolicRate != null)
-            .OrderBy(m => m.Date).Select(m => new { m.Date, m.WeightLbs, m.BasalMetabolicRate }).ToListAsync();
-        var today = DateOnly.FromDateTime(DateTime.Now);
+        // 14 extra days before the range so the first rows' rolling averages are full.
+        var histMin = r.From?.AddDays(-14) ?? DateOnly.MinValue;
+        var energy = new EnergyHistory(
+            await db.DailyLogs.Where(x => x.Date >= histMin && x.Date <= r.Max).ToListAsync(),
+            await db.BodyMeasurements.Where(m => m.WeightLbs != null || m.BasalMetabolicRate != null).ToListAsync(),
+            await db.WorkoutSessions.Where(x => x.Date >= histMin && x.Date <= r.Max).ToListAsync(),
+            DateOnly.FromDateTime(DateTime.Now));
 
         sb.AppendLine("Date,Day type,Meals,Meals with macros,Drinks," + MacroHeader +
-                      ",Fluids (oz),Calories out,Calories out source,Net calories");
+                      ",Fluids (oz),Calories out,Calories out source,Net calories,Calories out 7d avg,Calories out 14d avg");
         var days = meals.Select(m => DateOnly.FromDateTime(m.Time))
             .Concat(drinks.Select(d => DateOnly.FromDateTime(d.Time))).Distinct().Order();
         foreach (var day in days)
         {
             var dm = meals.Where(m => DateOnly.FromDateTime(m.Time) == day).ToList();
             var dd = drinks.Where(d => DateOnly.FromDateTime(d.Time) == day).ToList();
-            logs.TryGetValue(day, out var log);
-            var asOf = body.Where(b => b.Date <= day).ToList();
-            var energy = EnergyMath.Out(log, today,
-                asOf.LastOrDefault(b => b.BasalMetabolicRate != null)?.BasalMetabolicRate,
-                asOf.LastOrDefault(b => b.WeightLbs != null)?.WeightLbs,
-                workoutSecs.GetValueOrDefault(day));
+            var log = energy.Log(day);
+            var dayOut = energy.For(day);
             var calories = NutritionMath.Calories(dm, dd);
             sb.AppendLine(Row(day.ToString("yyyy-MM-dd"),
                 log?.DayType is { } dt and not DayType.Unset ? dt : null,
@@ -375,8 +371,9 @@
                 calories, R1(NutritionMath.Protein(dm, dd)), R1(NutritionMath.Carbs(dm, dd)), R1(NutritionMath.Fat(dm, dd)),
                 R1(NutritionMath.Fiber(dm, dd)), R1(NutritionMath.Sugar(dm, dd)), R1(NutritionMath.AddedSugar(dm, dd)),
                 (int)Math.Round(NutritionMath.Sodium(dm, dd)), NutritionMath.FluidOz(dd),
-                energy?.Kcal, energy is null ? null : energy.Value.FromHealth ? "Apple Health" : "Estimate",
-                energy is null ? null : calories - energy.Value.Kcal));
+                dayOut?.Kcal, dayOut is null ? null : dayOut.Value.FromHealth ? "Apple Health" : "Estimate",
+                dayOut is null ? null : calories - dayOut.Value.Kcal,
+                energy.Average(day, 7)?.Kcal, energy.Average(day, 14)?.Kcal));
         }
 
         static double R1(double v) => Math.Round(v, 1);

@@ -49,6 +49,13 @@ else
             (@(net > 0 ? "surplus" : "deficit")) · @(energy.FromHealth ? "Apple Health" : "rough estimate")
         </p>
     }
+    @if (Avg7 is { } a7)
+    {
+        <p class="muted" style="margin:0.2rem 0 0;font-size:0.8rem" title="Average calories out over completed days ending @(AvgEnd.ToString("MMM d")) — today isn't counted until it's over">
+            Avg out: 7-day <strong>@a7.Kcal.ToString("N0")</strong>@if (Avg14 is { } a14) { <text> · 14-day <strong>@a14.Kcal.ToString("N0")</strong></text> }
+            <span style="font-size:0.72rem">(Apple Health @(Avg14?.HealthDays ?? a7.HealthDays) of @(Avg14?.Days ?? a7.Days) days)</span>
+        </p>
+    }
 }
 
 @code {
@@ -59,6 +66,10 @@ else
     [Parameter] public bool ActiveDay { get; set; }
     /// <summary>Calories out (Apple Health for a completed day, else the BMR estimate); null if unknown.</summary>
     [Parameter] public EnergyMath.EnergyOut? EnergyOut { get; set; }
+    /// <summary>Rolling average calories out over completed days ending <see cref="AvgEnd"/>.</summary>
+    [Parameter] public EnergyHistory.RollingAverage? Avg7 { get; set; }
+    [Parameter] public EnergyHistory.RollingAverage? Avg14 { get; set; }
+    [Parameter] public DateOnly AvgEnd { get; set; }
 
     // FDA daily value — the phone uses the same fixed ceiling.
     private const int SodiumMaxMg = 2300;

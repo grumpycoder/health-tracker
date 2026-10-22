@@ -450,6 +450,13 @@
                         (@(net > 0 ? "surplus" : "deficit")) · @(energy.FromHealth ? "Apple Health" : "rough estimate")
                     </p>
                 }
+                @if (_avg7 is { } a7)
+                {
+                    <p class="muted" style="margin:0.2rem 0 0;font-size:0.8rem" title="Average calories out over completed days ending @(_avgEnd.ToString("MMM d")) — today isn't counted until it's over">
+                        Avg out: 7-day <strong>@a7.Kcal.ToString("N0")</strong>@if (_avg14 is { } a14) { <text> · 14-day <strong>@a14.Kcal.ToString("N0")</strong></text> }
+                        <span style="font-size:0.72rem">(Apple Health @(_avg14?.HealthDays ?? a7.HealthDays) of @(_avg14?.Days ?? a7.Days) days)</span>
+                    </p>
+                }
                 <p class="muted" style="margin:0.3rem 0 0;font-size:0.72rem">
                     Totals from @MacroMealCount of @_todayMeals.Count meal(s) with macros@(MacroMealCount < _todayMeals.Count ? " — scan/enter the rest for a full picture" : "")
                 </p>
@@ -786,9 +793,9 @@
 
     // --- Daily nutrition metrics (viewed day). Totals cover only items that carry
     // macros, so they're labeled with coverage; energy balance is a rough estimate. ---
-    private double? _latestWeightLbs;
-    private int? _latestBmr;
-    private int _dayWorkoutSeconds;
+    private EnergyHistory? _energy;   // calories out per day + rolling averages
+    private EnergyHistory.RollingAverage? _avg7, _avg14;
+    private DateOnly _avgEnd;
     private bool _viewDayActive;   // viewed day is Workout/High Workload → active-day ranges
     private DailyLog? _viewDayLog;  // day type + Apple Health energy for the viewed day
 
@@ -800,8 +807,7 @@
     private bool HasNutritionData => NutritionMath.HasData(_todayMeals, _todayDrinks);
 
     // Calories out: Apple Health resting + active for a completed day, else the BMR estimate.
-    private EnergyMath.EnergyOut? EnergyOut =>
-        EnergyMath.Out(_viewDayLog, DateOnly.FromDateTime(DateTime.Now), _latestBmr, _latestWeightLbs, _dayWorkoutSeconds);
+    private EnergyMath.EnergyOut? EnergyOut => _energy?.For(DateOnly.FromDateTime(_viewDate));
 
     // Meals and drinks merged into one chronological list for the Log tab.
     private IEnumerable<(DateTime Time, MealEntry? Meal, DrinkEntry? Drink)> MergedToday() =>
@@ -2145,17 +2151,20 @@
             .Where(d => d.Time >= start && d.Time < end)
             .OrderBy(d => d.Time).ToListAsync();
 
-        // Energy-balance inputs: latest weight + BMR (from Hume) and this day's
-        // workout time. All best-effort — energy balance is a rough estimate.
-        _latestWeightLbs = (await db.BodyMeasurements.Where(m => m.WeightLbs != null)
-            .OrderByDescending(m => m.Date).Select(m => m.WeightLbs).FirstOrDefaultAsync());
-        _latestBmr = (await db.BodyMeasurements.Where(m => m.BasalMetabolicRate != null)
-            .OrderByDescending(m => m.Date).Select(m => m.BasalMetabolicRate).FirstOrDefaultAsync());
+        // Energy-balance inputs for the viewed day and the 14 days before it: day logs (Apple
+        // Health energy), body measurements (BMR/weight as of each day) and workout time.
         var viewDate = DateOnly.FromDateTime(_viewDate);
-        _dayWorkoutSeconds = await db.WorkoutSessions
-            .Where(w => w.Date == viewDate && w.TotalSeconds != null)
-            .SumAsync(w => w.TotalSeconds!.Value);
-        _viewDayLog = await db.DailyLogs.FirstOrDefaultAsync(x => x.Date == viewDate);
+        var windowStart = viewDate.AddDays(-14);
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        _energy = new EnergyHistory(
+            await db.DailyLogs.Where(x => x.Date >= windowStart && x.Date <= viewDate).ToListAsync(),
+            await db.BodyMeasurements.Where(m => m.Date <= viewDate && (m.WeightLbs != null || m.BasalMetabolicRate != null)).ToListAsync(),
+            await db.WorkoutSessions.Where(w => w.Date >= windowStart && w.Date <= viewDate).ToListAsync(),
+            today);
+        _avgEnd = viewDate < today ? viewDate : today.AddDays(-1);
+        _avg7 = _energy.Average(viewDate, 7);
+        _avg14 = _energy.Average(viewDate, 14);
+        _viewDayLog = _energy.Log(viewDate);
         var dayType = _viewDayLog?.DayType ?? DayType.Unset;
         _viewDayActive = dayType is DayType.Workout or DayType.HighWorkload;
 
