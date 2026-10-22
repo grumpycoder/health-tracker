@@ -6,6 +6,12 @@ namespace FitRecoveryLog.Data;
 public sealed class EnergyHistory
 {
     public readonly record struct RollingAverage(int Kcal, int Days, int HealthDays);
+    /// <summary>Calories in − out over a window: per-day average and total (negative = deficit).</summary>
+    public readonly record struct RollingBalance(int AvgNet, int TotalNet, int Days)
+    {
+        /// <summary>Rough body-weight equivalent of the total (≈3,500 kcal per lb).</summary>
+        public double Pounds => TotalNet / 3500.0;
+    }
 
     private readonly Dictionary<DateOnly, DailyLog> _logs;
     private readonly List<BodyMeasurement> _body;          // oldest first
@@ -41,10 +47,26 @@ public sealed class EnergyHistory
     /// burn isn't finished). Days with no estimate are skipped; null if none qualify.</summary>
     public RollingAverage? Average(DateOnly end, int days)
     {
-        var last = end < _today ? end : _today.AddDays(-1);
-        var outs = Enumerable.Range(0, days).Select(i => For(last.AddDays(-i)))
-            .Where(o => o is not null).Select(o => o!.Value).ToList();
+        var outs = Window(end, days).Select(For).Where(o => o is not null).Select(o => o!.Value).ToList();
         if (outs.Count == 0) return null;
         return new((int)Math.Round(outs.Average(o => o.Kcal)), outs.Count, outs.Count(o => o.FromHealth));
+    }
+
+    /// <summary>Deficit/surplus over the same completed-day window as <see cref="Average"/>. Only days
+    /// with food logged count — an unlogged day would otherwise read as a full-day deficit.</summary>
+    public RollingBalance? Balance(DateOnly end, int days, IReadOnlyDictionary<DateOnly, int> caloriesIn)
+    {
+        var nets = Window(end, days)
+            .Select(d => caloriesIn.TryGetValue(d, out var kin) && kin > 0 && For(d) is { } o ? kin - o.Kcal : (int?)null)
+            .Where(n => n is not null).Select(n => n!.Value).ToList();
+        if (nets.Count == 0) return null;
+        return new((int)Math.Round(nets.Average()), nets.Sum(), nets.Count);
+    }
+
+    // The completed days ending on end (or yesterday, if end is today or later).
+    private IEnumerable<DateOnly> Window(DateOnly end, int days)
+    {
+        var last = end < _today ? end : _today.AddDays(-1);
+        return Enumerable.Range(0, days).Select(i => last.AddDays(-i));
     }
 }

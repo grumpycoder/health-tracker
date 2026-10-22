@@ -49,12 +49,16 @@ else
             (@(net > 0 ? "surplus" : "deficit")) · @(energy.FromHealth ? "Apple Health" : "rough estimate")
         </p>
     }
-    @if (Avg7 is { } a7)
+    @if (Avg7 is not null || Bal7 is not null)
     {
-        <p class="muted" style="margin:0.2rem 0 0;font-size:0.8rem" title="Average calories out over completed days ending @(AvgEnd.ToString("MMM d")) — today isn't counted until it's over">
-            Avg out: 7-day <strong>@a7.Kcal.ToString("N0")</strong>@if (Avg14 is { } a14) { <text> · 14-day <strong>@a14.Kcal.ToString("N0")</strong></text> }
-            <span style="font-size:0.72rem">(Apple Health @(Avg14?.HealthDays ?? a7.HealthDays) of @(Avg14?.Days ?? a7.Days) days)</span>
-        </p>
+        <div style="margin-top:0.3rem" title="Completed days ending @(AvgEnd.ToString("MMM d")) — today isn't counted until it's over. Balance only counts days with food logged, and assumes everything eaten was logged with calories.">
+            @RollingLine("7-day", Avg7, Bal7)
+            @RollingLine("14-day", Avg14, Bal14)
+            @if ((Avg14 ?? Avg7) is { } src)
+            {
+                <div class="muted" style="font-size:0.72rem">Calories out from Apple Health on @src.HealthDays of @src.Days days, estimated on the rest</div>
+            }
+        </div>
     }
 }
 
@@ -70,6 +74,9 @@ else
     [Parameter] public EnergyHistory.RollingAverage? Avg7 { get; set; }
     [Parameter] public EnergyHistory.RollingAverage? Avg14 { get; set; }
     [Parameter] public DateOnly AvgEnd { get; set; }
+    /// <summary>Average daily deficit/surplus over the same windows (days with food logged only).</summary>
+    [Parameter] public EnergyHistory.RollingBalance? Bal7 { get; set; }
+    [Parameter] public EnergyHistory.RollingBalance? Bal14 { get; set; }
 
     // FDA daily value — the phone uses the same fixed ceiling.
     private const int SodiumMaxMg = 2300;
@@ -77,6 +84,25 @@ else
 
     private int Calories => NutritionMath.Calories(Meals, Drinks);
     private List<MealEntry> Rated => Meals.Where(m => m.QualityStars is not null).ToList();
+
+    // One rolling-window line: average calories out, then the average daily deficit/surplus over
+    // the days with food logged (with the window total and its rough pound equivalent).
+    private static RenderFragment RollingLine(string label, EnergyHistory.RollingAverage? avg, EnergyHistory.RollingBalance? bal) => __builder =>
+    {
+        if (avg is null && bal is null) return;
+        <div style="font-size:0.8rem;margin-top:0.15rem">
+            <span class="muted">@label:</span>
+            @if (avg is { } a) { <span class="muted"> out <strong>@a.Kcal.ToString("N0")</strong>/day</span> }
+            @if (bal is { } b)
+            {
+                <span class="muted"> · </span>
+                <strong style="color:@(b.AvgNet > 0 ? "#c47f00" : "#3fa34d")">@(b.AvgNet > 0 ? "+" : "")@b.AvgNet.ToString("N0")/day</strong>
+                <span class="muted"> @(b.AvgNet > 0 ? "surplus" : "deficit")
+                    <span style="font-size:0.72rem">(@(b.TotalNet > 0 ? "+" : "")@b.TotalNet.ToString("N0") ≈ @(b.Pounds > 0 ? "+" : "")@b.Pounds.ToString("0.0") lb · @b.Days day@(b.Days == 1 ? "" : "s") logged)</span>
+                </span>
+            }
+        </div>
+    };
 
     private void Toggle(string label) { if (!_show.Remove(label)) _show.Add(label); }
 

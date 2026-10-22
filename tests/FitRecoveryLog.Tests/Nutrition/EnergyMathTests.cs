@@ -77,3 +77,29 @@ public class EnergyHistoryTests
         });
     }
 }
+
+[TestFixture]
+public class EnergyBalanceTests
+{
+    private static readonly DateOnly Today = new(2026, 10, 22);
+
+    [Test]
+    public void Balance_SkipsUnloggedDays_AndToday()
+    {
+        var logs = new[]
+        {
+            new DailyLog { Date = Today.AddDays(-1), RestingEnergyKcal = 1900, ActiveEnergyKcal = 600 }, // out 2500
+            new DailyLog { Date = Today.AddDays(-2), RestingEnergyKcal = 1900, ActiveEnergyKcal = 400 }, // out 2300
+            new DailyLog { Date = Today.AddDays(-3), RestingEnergyKcal = 1900, ActiveEnergyKcal = 400 }, // no food logged
+        };
+        var h = new EnergyHistory(logs, [], [], Today);
+        var kin = new Dictionary<DateOnly, int> { [Today] = 500, [Today.AddDays(-1)] = 2000, [Today.AddDays(-2)] = 2500 };
+
+        var b = h.Balance(Today, 7, kin);
+        Assert.Multiple(() =>
+        {
+            Assert.That(b, Is.EqualTo(new EnergyHistory.RollingBalance(-150, -300, 2)));  // -500 and +200
+            Assert.That(b!.Value.Pounds, Is.EqualTo(-300 / 3500.0));
+        });
+    }
+}

@@ -344,10 +344,14 @@
     /// estimate using the body measurements known as of that day) with 7/14-day rolling averages.</summary>
     private static async Task DailyNutritionCsv(AppDbContext db, Range r, StringBuilder sb)
     {
-        var meals = await db.MealEntries.Where(x => x.Time >= r.Start && x.Time < r.End).ToListAsync();
-        var drinks = await db.DrinkEntries.Where(x => x.Time >= r.Start && x.Time < r.End).ToListAsync();
         // 14 extra days before the range so the first rows' rolling averages are full.
         var histMin = r.From?.AddDays(-14) ?? DateOnly.MinValue;
+        var histStart = r.From is null ? DateTime.MinValue : histMin.ToDateTime(TimeOnly.MinValue);
+        var histMeals = await db.MealEntries.Where(x => x.Time >= histStart && x.Time < r.End).ToListAsync();
+        var histDrinks = await db.DrinkEntries.Where(x => x.Time >= histStart && x.Time < r.End).ToListAsync();
+        var kin = NutritionMath.CaloriesByDay(histMeals, histDrinks);
+        var meals = histMeals.Where(x => x.Time >= r.Start).ToList();
+        var drinks = histDrinks.Where(x => x.Time >= r.Start).ToList();
         var energy = new EnergyHistory(
             await db.DailyLogs.Where(x => x.Date >= histMin && x.Date <= r.Max).ToListAsync(),
             await db.BodyMeasurements.Where(m => m.WeightLbs != null || m.BasalMetabolicRate != null).ToListAsync(),
@@ -355,7 +359,7 @@
             DateOnly.FromDateTime(DateTime.Now));
 
         sb.AppendLine("Date,Day type,Meals,Meals with macros,Drinks," + MacroHeader +
-                      ",Fluids (oz),Calories out,Calories out source,Net calories,Calories out 7d avg,Calories out 14d avg");
+                      ",Fluids (oz),Calories out,Calories out source,Net calories,Calories out 7d avg,Calories out 14d avg,Net 7d avg,Net 14d avg");
         var days = meals.Select(m => DateOnly.FromDateTime(m.Time))
             .Concat(drinks.Select(d => DateOnly.FromDateTime(d.Time))).Distinct().Order();
         foreach (var day in days)
@@ -373,7 +377,8 @@
                 (int)Math.Round(NutritionMath.Sodium(dm, dd)), NutritionMath.FluidOz(dd),
                 dayOut?.Kcal, dayOut is null ? null : dayOut.Value.FromHealth ? "Apple Health" : "Estimate",
                 dayOut is null ? null : calories - dayOut.Value.Kcal,
-                energy.Average(day, 7)?.Kcal, energy.Average(day, 14)?.Kcal));
+                energy.Average(day, 7)?.Kcal, energy.Average(day, 14)?.Kcal,
+                energy.Balance(day, 7, kin)?.AvgNet, energy.Balance(day, 14, kin)?.AvgNet));
         }
 
         static double R1(double v) => Math.Round(v, 1);

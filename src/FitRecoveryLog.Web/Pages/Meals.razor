@@ -45,7 +45,7 @@
             @if (_showDayMacros)
             {
                 <div style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px solid var(--border)">
-                    <DaySummary Meals="_dayMealRows" Drinks="_dayDrinkRows" Goals="_goals" ActiveDay="_viewDayActive" EnergyOut="EnergyOut" Avg7="_avg7" Avg14="_avg14" AvgEnd="_avgEnd" />
+                    <DaySummary Meals="_dayMealRows" Drinks="_dayDrinkRows" Goals="_goals" ActiveDay="_viewDayActive" EnergyOut="EnergyOut" Avg7="_avg7" Avg14="_avg14" AvgEnd="_avgEnd" Bal7="_bal7" Bal14="_bal14" />
                 </div>
             }
         }
@@ -345,6 +345,7 @@
     private bool _viewDayActive;
     private FitRecoveryLog.Data.EnergyHistory? _energy;
     private FitRecoveryLog.Data.EnergyHistory.RollingAverage? _avg7, _avg14;
+    private FitRecoveryLog.Data.EnergyHistory.RollingBalance? _bal7, _bal14;
     private DateOnly _avgEnd;
     private FitRecoveryLog.Data.DailyLog? _viewDayLog;
 
@@ -385,6 +386,10 @@
         _avgEnd = day < today ? day : today.AddDays(-1);
         _avg7 = _energy.Average(day, 7);
         _avg14 = _energy.Average(day, 14);
+        var kin = FitRecoveryLog.Data.NutritionMath.CaloriesByDay(
+            WebSyncClient.Rows<FitRecoveryLog.Data.MealEntry>(pull), WebSyncClient.Rows<FitRecoveryLog.Data.DrinkEntry>(pull));
+        _bal7 = _energy.Balance(day, 7, kin);
+        _bal14 = _energy.Balance(day, 14, kin);
         _viewDayLog = _energy.Log(day);
         var dayType = _viewDayLog?.DayType;
         _viewDayActive = dayType is FitRecoveryLog.Data.DayType.Workout or FitRecoveryLog.Data.DayType.HighWorkload;

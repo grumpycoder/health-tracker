@@ -10,6 +10,13 @@ public static class NutritionMath
     public static int Calories(IEnumerable<MealEntry> meals, IEnumerable<DrinkEntry> drinks) =>
         meals.Sum(m => m.Calories ?? 0) + drinks.Sum(d => d.Calories ?? 0);
 
+    /// <summary>Calories in per local day (only days with any calories logged).</summary>
+    public static Dictionary<DateOnly, int> CaloriesByDay(IEnumerable<MealEntry> meals, IEnumerable<DrinkEntry> drinks) =>
+        meals.Select(m => (Day: DateOnly.FromDateTime(m.Time), Kcal: m.Calories ?? 0))
+            .Concat(drinks.Select(d => (Day: DateOnly.FromDateTime(d.Time), Kcal: d.Calories ?? 0)))
+            .GroupBy(x => x.Day).Select(g => (g.Key, Kcal: g.Sum(x => x.Kcal))).Where(x => x.Kcal > 0)
+            .ToDictionary(x => x.Key, x => x.Kcal);
+
     public static double Protein(IEnumerable<MealEntry> meals, IEnumerable<DrinkEntry> drinks) =>
         meals.Sum(m => m.ProteinG ?? 0) + drinks.Sum(d => d.ProteinG ?? 0);
 
