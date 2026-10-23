@@ -324,6 +324,7 @@ final class Store: ObservableObject {
     func computeReadiness() async {
         var x = Readiness.Inputs()
         x.hrv = await health.dailyAverages(.heartRateVariabilitySDNN, .secondUnit(with: .milli))
+        x.hrvSource = await health.watchSources(.heartRateVariabilitySDNN).isEmpty ? nil : "Apple Watch"
         // Resting HR = each night's overnight low, so today and the baseline use the same measure.
         x.restingHR = Dictionary(nights.compactMap { n in n.vitals.overnightLowHR.map { (n.day, $0) } }, uniquingKeysWith: { a, _ in a })
         x.respiratory = await health.dailyAverages(.respiratoryRate, .count().unitDivided(by: .minute()))

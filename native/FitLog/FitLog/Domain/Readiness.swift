@@ -52,6 +52,8 @@ struct Readiness: Equatable {
         var morningRestingHR: Double?
         /// HRV during last night's sleep, used when there's no daily series for the prior nights.
         var overnightHRV: Double?
+        /// Where HRV came from, shown on the row (e.g. "Apple Watch").
+        var hrvSource: String?
     }
 
     static let minBaselineDays = 10
@@ -86,7 +88,7 @@ struct Readiness: Equatable {
         if let r = recent(x.hrv, from: 1, days: 3) ?? x.overnightHRV, hb.n >= 2, hb.mean > 0 {
             if hb.n < minBaselineDays { calibrating = true }
             let z = hb.sd > 0 ? (r - hb.mean) / hb.sd : 0
-            parts.append((Factor(name: "HRV", score: Int(relative(z).dotnetRounded), detail: "\(Int(r.dotnetRounded)) ms, \(pct(r, hb.mean))"), 0.35))
+            parts.append((Factor(name: "HRV", score: Int(relative(z).dotnetRounded), detail: "\(Int(r.dotnetRounded)) ms, \(pct(r, hb.mean))" + (x.hrvSource.map { " · \($0)" } ?? "")), 0.35))
         } else { missing.append("HRV") }
         // Resting HR: today vs baseline. Lower = better.
         let rb = baseline(x.restingHR)

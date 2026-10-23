@@ -41,13 +41,29 @@ struct SleepNight: Identifiable {
 }
 
 extension HealthService {
-    /// Daily averages for readiness baselines (last `days` days), one query per metric.
+    /// Apple Watch sources that have written `id` (bundle ids "com.apple.health.<device>"), so
+    /// readiness uses one consistent measurement — e.g. HRV from the Watch, not mixed with Hume's.
+    func watchSources(_ id: HKQuantityTypeIdentifier) async -> Set<HKSource> {
+        let q = HKSourceQueryDescriptor(predicate: .quantitySample(type: HKQuantityType(id)))
+        let all = (try? await q.result(for: healthStore)) ?? []
+        return Set(all.filter { $0.bundleIdentifier.hasPrefix("com.apple.health.") })
+    }
+
+    /// Samples in [from, to), limited to the Watch when it has written this metric.
+    private func watchPredicate(_ id: HKQuantityTypeIdentifier, from: Date, to: Date) async -> NSPredicate {
+        let window = HKQuery.predicateForSamples(withStart: from, end: to)
+        let watches = await watchSources(id)
+        guard !watches.isEmpty else { return window }
+        return NSCompoundPredicate(andPredicateWithSubpredicates: [window, HKQuery.predicateForObjects(from: watches)])
+    }
+
+    /// Daily averages for readiness baselines (last `days` days), one query per metric, Watch only.
     func dailyAverages(_ id: HKQuantityTypeIdentifier, _ unit: HKUnit, days: Int = 40, scale: Double = 1) async -> [Day: Double] {
         guard isAvailable else { return [:] }
         let cal = Calendar.current
         let end = cal.startOfDay(for: Date()).addingTimeInterval(86_400)
         let start = cal.date(byAdding: .day, value: -days, to: end)!
-        let pred = HKSamplePredicate.quantitySample(type: HKQuantityType(id), predicate: HKQuery.predicateForSamples(withStart: start, end: end))
+        let pred = HKSamplePredicate.quantitySample(type: HKQuantityType(id), predicate: await watchPredicate(id, from: start, to: end))
         let q = HKStatisticsCollectionQueryDescriptor(predicate: pred, options: .discreteAverage, anchorDate: start, intervalComponents: DateComponents(day: 1))
         guard let coll = try? await q.result(for: healthStore) else { return [:] }
         var out: [Day: Double] = [:]
@@ -60,7 +76,7 @@ extension HealthService {
     /// Average (or the minimum, for a resting-HR proxy) of a metric over a window.
     func average(_ id: HKQuantityTypeIdentifier, _ unit: HKUnit, from: Date, to: Date, minimum: Bool = false) async -> Double? {
         guard isAvailable else { return nil }
-        let pred = HKSamplePredicate.quantitySample(type: HKQuantityType(id), predicate: HKQuery.predicateForSamples(withStart: from, end: to))
+        let pred = HKSamplePredicate.quantitySample(type: HKQuantityType(id), predicate: await watchPredicate(id, from: from, to: to))
         let q = HKStatisticsQueryDescriptor(predicate: pred, options: minimum ? .discreteMin : .discreteAverage)
         let stats = try? await q.result(for: healthStore)
         return (minimum ? stats?.minimumQuantity() : stats?.averageQuantity())?.doubleValue(for: unit)
@@ -132,7 +148,7 @@ extension HealthService {
             return (try? await q.result(for: healthStore))?.averageQuantity()?.doubleValue(for: unit)
         }
         var v = SleepNight.Vitals()
-        v.hrvMs = await avg(.heartRateVariabilitySDNN, .secondUnit(with: .milli), from: n.bedtime, to: n.wake)
+        v.hrvMs = await average(.heartRateVariabilitySDNN, .secondUnit(with: .milli), from: n.bedtime, to: n.wake)
         v.respiratoryRate = await avg(.respiratoryRate, .count().unitDivided(by: .minute()), from: n.bedtime, to: n.wake)
         v.spo2 = await avg(.oxygenSaturation, .percent(), from: n.bedtime, to: n.wake).map { $0 * 100 }
         v.wristTempC = await avg(.appleSleepingWristTemperature, .degreeCelsius(), from: n.bedtime.addingTimeInterval(-3600), to: n.wake.addingTimeInterval(3600))
