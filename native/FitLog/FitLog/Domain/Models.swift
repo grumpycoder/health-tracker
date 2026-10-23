@@ -102,3 +102,13 @@ struct Day: Hashable, Comparable, Decodable {
     func adding(_ days: Int) -> Day { Day(Calendar.current.date(byAdding: .day, value: days, to: date)!) }
     static func < (a: Day, b: Day) -> Bool { (a.y, a.m, a.d) < (b.y, b.m, b.d) }
 }
+
+struct SleepEntry: Decodable, Identifiable {
+    let id: UUID
+    let date: Day
+    let durationHours: Double?
+    let sleepScore: Int?
+    let interruptions: Int?
+    let notes: String?
+    let scoreEstimated: Bool?
+}

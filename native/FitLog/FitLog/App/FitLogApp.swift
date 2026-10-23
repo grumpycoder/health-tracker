@@ -43,7 +43,7 @@ struct RootView: View {
             DayLogView().tabItem { Label("Meals", systemImage: "fork.knife") }
             WorkoutTab().tabItem { Label("Workout", systemImage: "figure.strengthtraining.traditional") }
             BodyView().tabItem { Label("Body", systemImage: "scalemass") }
-            AccountView().tabItem { Label("Account", systemImage: "person.crop.circle") }
+            SleepView().tabItem { Label("Sleep", systemImage: "bed.double") }
         }
     }
 }
@@ -77,7 +77,6 @@ struct AccountView: View {
     @EnvironmentObject private var store: Store
 
     var body: some View {
-        NavigationStack {
             List {
                 Section("Sync") {
                     LabeledContent("Last synced", value: store.lastSync?.formatted(date: .abbreviated, time: .shortened) ?? "—")
@@ -96,6 +95,5 @@ struct AccountView: View {
                 Section { Button("Sign out", role: .destructive) { auth.signOut() } }
             }
             .navigationTitle("Account")
-        }
     }
 }

@@ -17,6 +17,7 @@ struct TodayView: View {
                 } header: { Text("Today's goals") }
             }
             .navigationTitle(Date().formatted(.dateTime.weekday(.wide).month().day()))
+            .toolbar { NavigationLink { AccountView() } label: { Image(systemName: "person.crop.circle") }.accessibilityLabel("Account & sync") }
             .refreshable { await store.refresh(auth: auth) }
         }
     }

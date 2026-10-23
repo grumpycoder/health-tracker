@@ -16,6 +16,9 @@ final class Store: ObservableObject {
     @Published private(set) var routineExercises: [RoutineExercise] = []
     @Published private(set) var sets: [ExerciseSet] = []
     @Published private(set) var feedback: [ExerciseFeedback] = []
+    @Published private(set) var sleepEntries: [SleepEntry] = []
+    /// Rich nights read live from Apple Health (phone only — not synced).
+    @Published private(set) var nights: [SleepNight] = []
     @Published private(set) var library = FoodLibrary()
     // Derived once per reload (not per redraw): per-day lookups and the energy history.
     @Published private(set) var energy = EnergyHistory(logs: [], body: [], sessions: [])
@@ -50,6 +53,8 @@ final class Store: ObservableObject {
         await health.load()
         error = sync.error
         reload()   // also rebuilds energy with the fresh Health data
+        nights = await health.readSleep()
+        if sync.error == nil { importSleep() }   // only after a successful pull, so we see the other app's nights
     }
 
     /// Everything the views read, computed together off the main thread.
@@ -57,7 +62,7 @@ final class Store: ObservableObject {
         var meals: [MealEntry] = [], drinks: [DrinkEntry] = [], logs: [DailyLog] = []
         var body: [BodyMeasurement] = [], sessions: [WorkoutSession] = [], goals: GoalSettings?
         var exercises: [ExerciseDefinition] = [], routines: [WorkoutRoutine] = [], routineExercises: [RoutineExercise] = []
-        var sets: [ExerciseSet] = [], feedback: [ExerciseFeedback] = []
+        var sets: [ExerciseSet] = [], feedback: [ExerciseFeedback] = [], sleep: [SleepEntry] = []
         var mealsByDay: [Day: [MealEntry]] = [:], drinksByDay: [Day: [DrinkEntry]] = [:]
         var caloriesByDay: [Day: Int] = [:], library = FoodLibrary()
 
@@ -74,6 +79,7 @@ final class Store: ObservableObject {
             routineExercises = (try rows.decode("RoutineExercise") as [RoutineExercise]).sorted { $0.order < $1.order }
             sets = try rows.decode("ExerciseSet")
             feedback = try rows.decode("ExerciseFeedback")
+            sleep = (try rows.decode("SleepEntry") as [SleepEntry]).sorted { $0.date > $1.date }
             mealsByDay = Dictionary(grouping: meals) { Day($0.time) }.mapValues { $0.sorted { $0.time > $1.time } }
             drinksByDay = Dictionary(grouping: drinks) { Day($0.time) }.mapValues { $0.sorted { $0.time > $1.time } }
             caloriesByDay = Nutrition.caloriesByDay(meals, drinks)
@@ -105,6 +111,7 @@ final class Store: ObservableObject {
     private func apply(_ s: Snapshot) {
         meals = s.meals; drinks = s.drinks; logs = s.logs; body = s.body; sessions = s.sessions; goals = s.goals
         exercises = s.exercises; routines = s.routines; routineExercises = s.routineExercises; sets = s.sets; feedback = s.feedback
+        sleepEntries = s.sleep
         mealsByDay = s.mealsByDay; drinksByDay = s.drinksByDay; caloriesByDay = s.caloriesByDay; library = s.library
         rebuildEnergy()
     }
@@ -275,6 +282,46 @@ final class Store: ObservableObject {
             }
         }
     }
+
+    // MARK: sleep
+
+    /// Create a synced SleepEntry for each Health night that has none yet (never overwrites — a
+    /// manual entry or the other app's import wins), with the same fields/score as the MAUI import.
+    private func importSleep() {
+        let have = Set(((try? rows.rows("SleepEntry")) ?? []).compactMap { r -> String? in
+            if case .bool(true) = r["isDeleted"] { return nil }
+            return r.string("date").map { String($0.prefix(10)) }
+        })
+        // This morning's night only once it's surely over (after 11 AM) — imports never overwrite,
+        // so a half-night imported at 3 AM would stick.
+        let todayDone = Calendar.current.component(.hour, from: Date()) >= 11
+        let missing = nights.filter { !have.contains(Self.dayString($0.day)) && ($0.day < .today || ($0.day == .today && todayDone)) }
+        guard !missing.isEmpty else { return }
+        write {
+            for n in missing {
+                try rows.insert("SleepEntry", [
+                    "date": Wire.day(n.day), "durationHours": .d(n.hours.dotnetRounded(1)),
+                    "interruptions": n.hasStages ? .i(n.awakenings) : .null,
+                    "sleepScore": n.hasStages ? .i(n.estimatedScore) : .null,
+                    "scoreEstimated": .bool(n.hasStages),
+                    "notes": n.hasStages ? .string("Score estimated by Fit Log — not Apple's Sleep Score") : .null,
+                ])
+            }
+        }
+    }
+
+    func sleepRow(_ id: UUID) -> Row? { (try? rows.row("SleepEntry", id.uuidString.lowercased())) ?? nil }
+
+    /// Edit a night's synced summary. Entering a score by hand marks it as real (not estimated).
+    func saveSleep(_ id: UUID, hours: Double?, score: Int?, interruptions: Int?, notes: String) {
+        let n = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let wasScore = sleepEntries.first { $0.id == id }?.sleepScore
+        var f: Row = ["durationHours": .d(hours), "sleepScore": .i(score), "interruptions": .i(interruptions), "notes": .s(n.isEmpty ? nil : n)]
+        if score != wasScore { f["scoreEstimated"] = .bool(false) }
+        upsert("SleepEntry", id.uuidString.lowercased(), f)
+    }
+
+    func deleteSleep(_ id: UUID) { write { try rows.delete("SleepEntry", id.uuidString.lowercased()) } }
 
     // MARK: body measurements
 

@@ -10,6 +10,7 @@ final class HealthService: ObservableObject {
 
     @Published private(set) var energy: [Day: DayEnergy] = [:]
     private let store = HKHealthStore()
+    var healthStore: HKHealthStore { store }
     private let basal = HKQuantityType(.basalEnergyBurned)
     private let active = HKQuantityType(.activeEnergyBurned)
     private let bodyMass = HKQuantityType(.bodyMass)
@@ -20,7 +21,9 @@ final class HealthService: ObservableObject {
     func requestAccessAndLoad() async {
         guard isAvailable else { return }
         do {
-            try await store.requestAuthorization(toShare: [HKObjectType.workoutType(), active, bodyMass, waist], read: [basal, active, HKObjectType.workoutType(), bodyMass, waist])
+            try await store.requestAuthorization(toShare: [HKObjectType.workoutType(), active, bodyMass, waist], read: [basal, active, HKObjectType.workoutType(), bodyMass, waist, HKCategoryType(.sleepAnalysis),
+                     HKQuantityType(.heartRateVariabilitySDNN), HKQuantityType(.restingHeartRate), HKQuantityType(.respiratoryRate),
+                     HKQuantityType(.appleSleepingWristTemperature), HKQuantityType(.oxygenSaturation)])
             await load()
         } catch { }
     }
