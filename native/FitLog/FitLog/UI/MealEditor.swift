@@ -14,10 +14,9 @@ struct MealEditor: View {
             Form {
                 Section {
                     FoodNameField(title: "What did you eat?", text: $draft.description) { name in
-                        // Picking a known food on a new, empty meal fills in its last breakdown/macros.
+                        // Picking a known meal on a new, empty entry repeats last time — items included.
                         guard draft.id == nil, draft.items.isEmpty, draft.macros.isEmpty else { return }
-                        let it = store.library.item(for: name)
-                        draft.macros = Macros.of(it)
+                        draft.repeatLast(name, from: store.library)
                     }
                     Picker("Meal", selection: $draft.mealType) {
                         ForEach(MealType.allCases.filter { $0 != .drink }, id: \.self) { Label($0.label, systemImage: $0.symbol).tag($0) }
@@ -75,7 +74,7 @@ struct DrinkEditor: View {
                 Section {
                     FoodNameField(title: "Drink", text: $draft.description) { name in
                         guard draft.id == nil, draft.items.isEmpty, draft.macros.isEmpty else { return }
-                        draft.macros = Macros.of(store.library.item(for: name))
+                        draft.repeatLast(name, from: store.library)
                     }
                     DatePicker("Time", selection: $draft.time)
                     OptionalNumberField("Ounces", value: $draft.ounces)

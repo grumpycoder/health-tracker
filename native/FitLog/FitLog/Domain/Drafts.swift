@@ -12,6 +12,8 @@ struct MealDraft {
     var stars: Int?
     var macros = Macros()
     var items: [MealItem] = []
+    /// Tags carried from a repeated meal (new entries only; editing never touches tags).
+    var carriedTags: String?
 
     init(type: MealType = MealType.forHour()) { mealType = type }
 
@@ -42,7 +44,22 @@ struct MealDraft {
         r["satiety"] = .int(Int64(satiety.rawValue))
         r["qualityStars"] = .i(stars)
         r["itemsJson"] = .s(MealItem.serialize(items))
+        if id == nil, let t = carriedTags { r["tags"] = .string(t) }
         return r
+    }
+
+    /// Fill from the last time this meal was logged, like the MAUI app's repeat: portion note, tags,
+    /// stars and macros; and its item breakdown at one serving each (saved-food macros win).
+    mutating func repeatLast(_ name: String, from lib: FoodLibrary) {
+        guard let m = lib.lastMeal[name.trimmingCharacters(in: .whitespaces).lowercased()] else {
+            if macros.isEmpty { macros = Macros.of(lib.item(for: name)) }
+            return
+        }
+        if portionNote.isEmpty { portionNote = m.portionNote ?? "" }
+        carriedTags = m.tags
+        stars = m.qualityStars
+        items = lib.restore(m.items)
+        macros = items.isEmpty ? m.macros : .of(items)
     }
 }
 
@@ -54,6 +71,7 @@ struct DrinkDraft {
     var sugarCount: Int?
     var macros = Macros()
     var items: [MealItem] = []
+    var carriedTags: String?
 
     init() {}
 
@@ -77,7 +95,21 @@ struct DrinkDraft {
         r["ounces"] = .d(ounces)
         r["sugarCount"] = .i(sugarCount)
         r["itemsJson"] = .s(MealItem.serialize(items))
+        if id == nil, let t = carriedTags { r["tags"] = .string(t) }
         return r
+    }
+
+    /// Repeat the last drink with this name: ounces, sugar, tags, macros and its add-ins.
+    mutating func repeatLast(_ name: String, from lib: FoodLibrary) {
+        guard let d = lib.lastDrink[name.trimmingCharacters(in: .whitespaces).lowercased()] else {
+            if macros.isEmpty { macros = Macros.of(lib.item(for: name)) }
+            return
+        }
+        if ounces == nil { ounces = d.ounces }
+        if sugarCount == nil { sugarCount = d.sugarCount }
+        carriedTags = d.tags
+        items = lib.restore(d.items)
+        macros = items.isEmpty ? d.macros : .of(items)
     }
 }
 
@@ -99,6 +131,9 @@ struct FoodLibrary {
     private(set) var defaults: [String: MealItem] = [:]     // lowercased name → per-serving item
     private(set) var saved: [String: Row] = [:]             // lowercased name → SavedFoodEntry row
     private(set) var savedIds: [String: String] = [:]
+    /// Newest entry per (lowercased) meal / drink name — for "repeat last time".
+    private(set) var lastMeal: [String: MealEntry] = [:]
+    private(set) var lastDrink: [String: DrinkEntry] = [:]
     var names: [String] { defaults.values.map(\.name).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending } }
 
     init() {}
@@ -106,6 +141,10 @@ struct FoodLibrary {
     /// Built from already-decoded entries (cheap); only the few saved foods come as raw rows.
     init(meals: [MealEntry], drinks: [DrinkEntry], savedFoods: [(id: String, row: Row)]) {
         let ms = meals.sorted { $0.time > $1.time }
+        for m in ms { let k = m.description.trimmingCharacters(in: .whitespaces).lowercased(); if !k.isEmpty, lastMeal[k] == nil { lastMeal[k] = m } }
+        for d in drinks.sorted(by: { $0.time > $1.time }) {
+            let k = d.description.trimmingCharacters(in: .whitespaces).lowercased(); if !k.isEmpty, lastDrink[k] == nil { lastDrink[k] = d }
+        }
         let uses = (meals.map { ($0.time, $0.itemsJson) } + drinks.map { ($0.time, $0.itemsJson) })
             .filter { $0.1 != nil }.sorted { $0.0 > $1.0 }
         func put(_ uses: [MealItem]) {
@@ -131,6 +170,11 @@ struct FoodLibrary {
     func item(for name: String) -> MealItem {
         let n = name.trimmingCharacters(in: .whitespaces)
         return defaults[n.lowercased()]?.copy() ?? MealItem(name: n)
+    }
+
+    /// A stored breakdown at one serving each; items that are saved foods use the curated macros.
+    func restore(_ items: [MealItem]) -> [MealItem] {
+        items.map { saved[$0.name.trimmingCharacters(in: .whitespaces).lowercased()] != nil ? item(for: $0.name) : $0.copy() }
     }
 
     func suggest(_ query: String, max: Int = 8) -> [String] {

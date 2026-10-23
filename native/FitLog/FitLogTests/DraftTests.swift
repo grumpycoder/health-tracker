@@ -71,3 +71,35 @@ final class AIParsingTests: XCTestCase {
         XCTAssertEqual(AIClient.servings(drankOunces: 10, servingSize: "1 scoop"), 1)
     }
 }
+
+final class RepeatLastTests: XCTestCase {
+    private func meal(_ json: String) -> MealEntry { try! Wire.decoder.decode(MealEntry.self, from: Data(json.utf8)) }
+    private func drink(_ json: String) -> DrinkEntry { try! Wire.decoder.decode(DrinkEntry.self, from: Data(json.utf8)) }
+
+    func testRepeatingADrinkRestoresAllItsItemsAtOneServing() {
+        let old = drink(#"{"id":"00000000-0000-0000-0000-000000000001","time":"2026-10-20T07:00:00","description":"Protein shake","ounces":14,"tags":"High protein","itemsJson":"[{\"Name\":\"Whey\",\"Calories\":120,\"Portion\":1.5},{\"Name\":\"Almond milk\",\"Calories\":40,\"Portion\":2},{\"Name\":\"Banana\",\"Calories\":105,\"Portion\":1}]"}"#)
+        let saved: Row = ["name": .string("Banana"), "calories": .int(110)]
+        let lib = FoodLibrary(meals: [], drinks: [old], savedFoods: [("s", saved)])
+        var d = DrinkDraft()
+        d.repeatLast("protein shake", from: lib)
+        XCTAssertEqual(d.items.map(\.name), ["Whey", "Almond milk", "Banana"])
+        XCTAssertEqual(d.items.map(\.portion), [1, 1, 1], "one serving each, like the MAUI app")
+        XCTAssertEqual(d.items.last?.calories, 110, "saved-food macros win")
+        XCTAssertEqual(d.macros.calories, 270)
+        XCTAssertEqual(d.ounces, 14)
+        XCTAssertEqual(d.row["tags"], .string("High protein"))
+    }
+
+    func testRepeatingAMealCarriesNoteStarsAndTags_newestWins() {
+        let older = meal(#"{"id":"00000000-0000-0000-0000-000000000002","time":"2026-10-10T08:00:00","mealType":0,"description":"Oatmeal","satiety":0,"calories":200}"#)
+        let newer = meal(#"{"id":"00000000-0000-0000-0000-000000000003","time":"2026-10-20T08:00:00","mealType":0,"description":"Oatmeal","portionNote":"1 cup","tags":"High fiber","satiety":2,"qualityStars":4,"calories":300,"itemsJson":"[{\"Name\":\"Oats\",\"Calories\":150,\"Portion\":1},{\"Name\":\"Milk\",\"Calories\":120,\"Portion\":1}]"}"#)
+        let lib = FoodLibrary(meals: [older, newer], drinks: [], savedFoods: [])
+        var m = MealDraft()
+        m.repeatLast("Oatmeal", from: lib)
+        XCTAssertEqual(m.items.count, 2)
+        XCTAssertEqual(m.macros.calories, 270)
+        XCTAssertEqual(m.portionNote, "1 cup")
+        XCTAssertEqual(m.stars, 4)
+        XCTAssertEqual(m.row["tags"], .string("High fiber"))
+    }
+}

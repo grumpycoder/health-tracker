@@ -16,6 +16,7 @@ struct MealEntry: Decodable, Identifiable {
     let mealType: MealType
     let description: String
     let portionNote: String?
+    let tags: String?
     let satiety: Int
     let qualityStars: Int?
     let calories: Int?
@@ -33,6 +34,7 @@ struct DrinkEntry: Decodable, Identifiable {
     let description: String
     let ounces: Double?
     let sugarCount: Int?
+    let tags: String?
     let calories: Int?
     let proteinG, carbsG, sugarG, fatG, fiberG, addedSugarG: Double?
     let sodiumMg: Int?
