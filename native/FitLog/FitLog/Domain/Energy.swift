@@ -11,7 +11,7 @@ enum Nutrition {
     static func carbs(_ m: [MealEntry], _ d: [DrinkEntry]) -> Double { sum(m, d, \.carbsG, \.carbsG) }
     static func fat(_ m: [MealEntry], _ d: [DrinkEntry]) -> Double { sum(m, d, \.fatG, \.fatG) }
     static func fiber(_ m: [MealEntry], _ d: [DrinkEntry]) -> Double { sum(m, d, \.fiberG, \.fiberG) }
-    static func fluidOz(_ d: [DrinkEntry]) -> Int { Int(d.reduce(0) { $0 + ($1.ounces ?? 0) }.rounded()) }
+    static func fluidOz(_ d: [DrinkEntry]) -> Int { Int(d.reduce(0) { $0 + ($1.ounces ?? 0) }.rounded(.toNearestOrEven)) }
 
     private static func sum(_ m: [MealEntry], _ d: [DrinkEntry], _ mk: KeyPath<MealEntry, Double?>, _ dk: KeyPath<DrinkEntry, Double?>) -> Double {
         m.reduce(0) { $0 + ($1[keyPath: mk] ?? 0) } + d.reduce(0) { $0 + ($1[keyPath: dk] ?? 0) }
@@ -70,13 +70,13 @@ struct EnergyHistory {
         // Estimate: BMR × 1.25 light activity + workout at MET ~5.
         guard let base = bmr ?? lbs.flatMap({ $0 > 0 ? Int($0 * 10) : nil }) else { return nil }
         let w = lbs ?? 0, secs = workoutSeconds[day] ?? 0
-        let workout = (w <= 0 || secs <= 0) ? 0 : Int((Double(secs) / 60 * 5 * 3.5 * (w * 0.453592) / 200).rounded())
-        return EnergyOut(kcal: Int((Double(base) * 1.25).rounded()) + workout, fromHealth: false)
+        let workout = (w <= 0 || secs <= 0) ? 0 : Int((Double(secs) / 60 * 5 * 3.5 * (w * 0.453592) / 200).rounded(.toNearestOrEven))
+        return EnergyOut(kcal: Int((Double(base) * 1.25).rounded(.toNearestOrEven)) + workout, fromHealth: false)
     }
 
     private func typicalResting(_ day: Day) -> Int? {
         let rests = (1...7).compactMap { logs[day.adding(-$0)]?.restingEnergyKcal }.filter { $0 > 0 }
-        return rests.isEmpty ? nil : Int((Double(rests.reduce(0, +)) / Double(rests.count)).rounded())
+        return rests.isEmpty ? nil : Int((Double(rests.reduce(0, +)) / Double(rests.count)).rounded(.toNearestOrEven))
     }
 
     /// Completed days ending on `end` (or yesterday, if `end` is today or later).
@@ -89,7 +89,7 @@ struct EnergyHistory {
         let outs = window(end, days).compactMap(out)
         guard !outs.isEmpty else { return nil }
         let avg = Double(outs.reduce(0) { $0 + $1.kcal }) / Double(outs.count)
-        return RollingAverage(kcal: Int(avg.rounded()), days: outs.count, healthDays: outs.filter(\.fromHealth).count)
+        return RollingAverage(kcal: Int(avg.rounded(.toNearestOrEven)), days: outs.count, healthDays: outs.filter(\.fromHealth).count)
     }
 
     func balance(_ end: Day, _ days: Int, caloriesIn: [Day: Int]) -> RollingBalance? {
@@ -99,6 +99,6 @@ struct EnergyHistory {
         }
         guard !nets.isEmpty else { return nil }
         let total = nets.reduce(0, +)
-        return RollingBalance(avgNet: Int((Double(total) / Double(nets.count)).rounded()), totalNet: total, days: nets.count)
+        return RollingBalance(avgNet: Int((Double(total) / Double(nets.count)).rounded(.toNearestOrEven)), totalNet: total, days: nets.count)
     }
 }

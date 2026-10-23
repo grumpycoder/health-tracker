@@ -5,6 +5,7 @@ struct DayLogView: View {
     @EnvironmentObject private var store: Store
     @EnvironmentObject private var auth: Auth
     @State private var day = Day.today
+    @State private var editor: EditorTarget?
 
     var body: some View {
         NavigationStack {
@@ -17,13 +18,21 @@ struct DayLogView: View {
                     let rows = meals.filter { $0.mealType == type }
                     if !rows.isEmpty {
                         Section {
-                            ForEach(rows) { MealRow(meal: $0) }
+                            ForEach(rows) { m in
+                                Button { if let d = store.meal(m.id) { editor = .meal(d) } } label: { MealRow(meal: m) }
+                                    .buttonStyle(.plain)
+                                    .swipeActions { Button("Delete", role: .destructive) { store.deleteMeal(m.id) } }
+                            }
                         } header: { Label(type.label, systemImage: type.symbol) }
                     }
                 }
                 if !drinks.isEmpty {
                     Section {
-                        ForEach(drinks) { DrinkRow(drink: $0) }
+                        ForEach(drinks) { d in
+                            Button { if let dd = store.drink(d.id) { editor = .drink(dd) } } label: { DrinkRow(drink: d) }
+                                .buttonStyle(.plain)
+                                .swipeActions { Button("Delete", role: .destructive) { store.deleteDrink(d.id) } }
+                        }
                     } header: { Label("Drinks · \(Nutrition.fluidOz(drinks)) oz", systemImage: "drop") }
                 }
                 if meals.isEmpty && drinks.isEmpty {
@@ -37,6 +46,12 @@ struct DayLogView: View {
                     Button { day = day.adding(-1) } label: { Image(systemName: "chevron.left") }
                         .accessibilityLabel("Previous day")
                 }
+                ToolbarItem(placement: .bottomBar) {
+                    Menu {
+                        Button { editor = .meal(newMeal()) } label: { Label("Meal", systemImage: "fork.knife") }
+                        Button { editor = .drink(newDrink()) } label: { Label("Drink", systemImage: "cup.and.saucer") }
+                    } label: { Label("Add", systemImage: "plus.circle.fill").labelStyle(.titleAndIcon).font(.headline) }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack {
                         if day != .today { Button("Today") { day = .today } }
@@ -46,8 +61,23 @@ struct DayLogView: View {
                 }
             }
             .refreshable { await store.refresh(auth: auth) }
+            .sheet(item: $editor) { target in
+                switch target {
+                case .meal(let d): MealEditor(draft: d)
+                case .drink(let d): DrinkEditor(draft: d)
+                }
+            }
         }
     }
+
+    /// New entries default to the viewed day (at the current time of day when back-filling).
+    private func onViewedDay(_ now: Date = Date()) -> Date {
+        guard day != .today else { return now }
+        let t = Calendar.current.dateComponents([.hour, .minute], from: now)
+        return Calendar.current.date(bySettingHour: t.hour!, minute: t.minute!, second: 0, of: day.date) ?? day.date
+    }
+    private func newMeal() -> MealDraft { var d = MealDraft(); d.time = onViewedDay(); d.mealType = .forHour(d.time); return d }
+    private func newDrink() -> DrinkDraft { var d = DrinkDraft(); d.time = onViewedDay(); return d }
 
     private var title: String {
         day == .today ? "Today" : day.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
@@ -132,6 +162,16 @@ struct MacroChips: View {
             Text("\(l) \(Int(v.rounded()))g").font(.caption.weight(.medium)).monospacedDigit()
                 .padding(.horizontal, 7).padding(.vertical, 2)
                 .background(color.opacity(0.15), in: Capsule()).foregroundStyle(color)
+        }
+    }
+}
+
+enum EditorTarget: Identifiable {
+    case meal(MealDraft), drink(DrinkDraft)
+    var id: String {
+        switch self {
+        case .meal(let d): "m-\(d.id ?? "new")"
+        case .drink(let d): "d-\(d.id ?? "new")"
         }
     }
 }

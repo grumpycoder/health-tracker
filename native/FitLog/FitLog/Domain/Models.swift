@@ -4,30 +4,6 @@ import Foundation
 // RowStore (server camelCase JSON). Only modeled fields are read; the raw row keeps the rest for push.
 // Deleted rows are filtered by RowStore.decode, so models don't carry isDeleted.
 
-struct MealItem: Decodable, Hashable {
-    var name: String
-    var calories: Int?
-    var proteinG, carbsG, fatG: Double?
-    var portion: Double
-    enum CodingKeys: String, CodingKey { case name = "Name", calories = "Calories", proteinG = "ProteinG", carbsG = "CarbsG", fatG = "FatG", portion = "Portion" }
-    init(from d: Decoder) throws {
-        let c = try d.container(keyedBy: CodingKeys.self)
-        name = (try? c.decode(String.self, forKey: .name)) ?? ""
-        calories = try? c.decode(Int.self, forKey: .calories)
-        proteinG = try? c.decode(Double.self, forKey: .proteinG)
-        carbsG = try? c.decode(Double.self, forKey: .carbsG)
-        fatG = try? c.decode(Double.self, forKey: .fatG)
-        portion = (try? c.decode(Double.self, forKey: .portion)) ?? 1
-    }
-    var kcal: Int { Int(((Double(calories ?? 0)) * portion).rounded()) }
-
-    /// ItemsJson is serialized by .NET with default (PascalCase) names.
-    static func parse(_ json: String?) -> [MealItem] {
-        guard let json, let data = json.data(using: .utf8) else { return [] }
-        return (try? JSONDecoder().decode([MealItem].self, from: data)) ?? []
-    }
-}
-
 enum MealType: Int, Decodable, CaseIterable {
     case breakfast, lunch, dinner, snack, drink
     var label: String { ["Breakfast", "Lunch", "Dinner", "Snack", "Drink"][rawValue] }

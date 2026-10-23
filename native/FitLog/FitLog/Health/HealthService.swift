@@ -45,7 +45,7 @@ final class HealthService: ObservableObject {
         guard let coll = try? await q.result(for: store) else { return [:] }
         var out: [Day: Int] = [:]
         coll.enumerateStatistics(from: start, to: end) { s, _ in
-            if let kcal = s.sumQuantity()?.doubleValue(for: .kilocalorie()) { out[Day(s.startDate)] = Int(kcal.rounded()) }
+            if let kcal = s.sumQuantity()?.doubleValue(for: .kilocalorie()) { out[Day(s.startDate)] = Int(kcal.rounded(.toNearestOrEven)) }
         }
         return out
     }
