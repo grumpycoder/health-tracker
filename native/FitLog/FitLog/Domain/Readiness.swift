@@ -22,14 +22,18 @@ struct Readiness: Equatable {
     /// Signals with no data in Health (e.g. HRV on a Watch/setup that doesn't record it).
     var missing: [String] = []
 
-    var label: String {
+    var level: String {
+        switch score { case 80...: "Ready"; case 60..<80: "Moderate"; case 40..<60: "Low"; default: "Rest" }
+    }
+    var advice: String {
         switch score {
-        case 80...: "Ready — good day to push"
-        case 60..<80: "Moderate — train as planned"
-        case 40..<60: "Low — keep it light"
-        default: "Rest — prioritize recovery"
+        case 80...: "Good day to push"
+        case 60..<80: "Train as planned"
+        case 40..<60: "Keep it light"
+        default: "Prioritize recovery"
         }
     }
+    var label: String { "\(level) — \(advice.lowercased())" }
 
     /// Recovery 1–10 for the synced RecoveryEntry; fatigue is its inverse.
     var recoveryRating: Int { min(10, max(1, Int((Double(score) / 10).dotnetRounded))) }

@@ -18,7 +18,7 @@ struct SleepView: View {
                 }
                 if let r = store.readiness {
                     Section {
-                        HStack { Text("Readiness today"); Spacer(); Text("\(r.score)").font(.headline.monospacedDigit()); Text("· \(r.label)").foregroundStyle(.secondary).lineLimit(1) }
+                        HStack { Text("Readiness today"); Spacer(); Text("\(r.score)").font(.headline.monospacedDigit()); Text(r.level).foregroundStyle(.secondary) }
                     }
                 }
                 if store.nights.count >= 3 { Section("Trends") { SleepTrends(nights: store.nights) } }

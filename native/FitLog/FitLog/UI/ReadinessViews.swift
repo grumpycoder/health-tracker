@@ -17,7 +17,8 @@ struct ReadinessCard: View {
                     .scaleEffect(1.25)
                     .frame(width: 70, height: 70)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(r.label).font(.headline)
+                        Text(r.level).font(.title2.bold())
+                        Text(r.advice).font(.subheadline).foregroundStyle(.secondary)
                         if r.calibrating { Text("Calibrating — baselines need ~2 weeks of Watch data").font(.caption).foregroundStyle(.secondary) }
                         if !r.missing.isEmpty { Text("No \(r.missing.joined(separator: " or ")) data in Health — scored from the rest").font(.caption).foregroundStyle(.secondary) }
                     }
@@ -26,11 +27,13 @@ struct ReadinessCard: View {
                     Label(f, systemImage: "exclamationmark.triangle.fill").font(.subheadline).foregroundStyle(.orange)
                 }
                 ForEach(r.factors) { f in
-                    HStack {
-                        Text(f.name).font(.subheadline)
-                        Spacer()
-                        Text(f.detail).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
-                        Text("\(f.score)").font(.subheadline.monospacedDigit().weight(.semibold)).foregroundStyle(color(f.score)).frame(width: 34, alignment: .trailing)
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(f.name).font(.subheadline.weight(.medium))
+                            Text(f.detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 8)
+                        Text("\(f.score)").font(.headline.monospacedDigit()).foregroundStyle(color(f.score))
                     }
                 }
                 Divider()
