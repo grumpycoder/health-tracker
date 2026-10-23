@@ -7,6 +7,7 @@ struct MealEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State var draft: MealDraft
     @State private var confirmDelete = false
+    @State private var editingItem: MealItem?
 
     var body: some View {
         NavigationStack {
@@ -24,7 +25,7 @@ struct MealEditor: View {
                     DatePicker("Time", selection: $draft.time)
                     TextField("Portion note (optional)", text: $draft.portionNote)
                 }
-                ItemsSection(items: $draft.items, base: { draft.baseItem }, onChange: { draft.setTotals() },
+                ItemsSection(items: $draft.items, editing: $editingItem, base: { draft.baseItem }, onChange: { draft.setTotals() },
                              onLabel: { f in if draft.description.isEmpty, let d = f.description { draft.description = d } })
                 MacrosSection(macros: $draft.macros, locked: !draft.items.isEmpty)
                 Section("How full?") {
@@ -38,6 +39,9 @@ struct MealEditor: View {
                 if draft.id != nil {
                     Section { Button("Delete meal", role: .destructive) { confirmDelete = true } }
                 }
+            }
+            .itemEditorSheet($editingItem) { updated in
+                if let i = draft.items.firstIndex(where: { $0.id == updated.id }) { draft.items[i] = updated; draft.setTotals() }
             }
             .navigationTitle(draft.id == nil ? "Add meal" : "Edit meal")
             .navigationBarTitleDisplayMode(.inline)
@@ -63,6 +67,7 @@ struct DrinkEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State var draft: DrinkDraft
     @State private var confirmDelete = false
+    @State private var editingItem: MealItem?
 
     var body: some View {
         NavigationStack {
@@ -78,13 +83,16 @@ struct DrinkEditor: View {
                         LabeledContent("Sugar cubes / tsp", value: "\(draft.sugarCount ?? 0)")
                     }
                 }
-                ItemsSection(items: $draft.items, base: { draft.baseItem }, onChange: { draft.setTotals() },
+                ItemsSection(items: $draft.items, editing: $editingItem, base: { draft.baseItem }, onChange: { draft.setTotals() },
                              servings: { AIClient.servings(drankOunces: draft.ounces, servingSize: $0.servingSize) },
                              onLabel: { f in if draft.description.isEmpty, let d = f.description { draft.description = d } })
                 MacrosSection(macros: $draft.macros, locked: !draft.items.isEmpty)
                 if draft.id != nil {
                     Section { Button("Delete drink", role: .destructive) { confirmDelete = true } }
                 }
+            }
+            .itemEditorSheet($editingItem) { updated in
+                if let i = draft.items.firstIndex(where: { $0.id == updated.id }) { draft.items[i] = updated; draft.setTotals() }
             }
             .navigationTitle(draft.id == nil ? "Add drink" : "Edit drink")
             .navigationBarTitleDisplayMode(.inline)
@@ -130,14 +138,14 @@ struct FoodNameField: View {
 struct ItemsSection: View {
     @EnvironmentObject private var store: Store
     @Binding var items: [MealItem]
+    /// Item open in the editor sheet — presented by the parent editor, not from inside the Form.
+    @Binding var editing: MealItem?
     let base: () -> MealItem?
     let onChange: () -> Void
     /// Servings to log for a scanned label (drinks: ounces drunk ÷ label serving); default 1.
     var servings: (AIClient.LabelFacts) -> Double = { _ in 1 }
     var onLabel: (AIClient.LabelFacts) -> Void = { _ in }
     @State private var adding = ""
-    @State private var editing: MealItem?
-    @State private var showCamera = false
     @State private var photo: PhotosPickerItem?
     @State private var scanning = false
     @State private var scanMessage: String?
@@ -162,7 +170,9 @@ struct ItemsSection: View {
                 Button("Add", action: add).disabled(adding.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             HStack {
-                Button { showCamera = true } label: { Label("Scan label", systemImage: "camera") }
+                Button { CameraPresenter.present { image in Task { await scan(image) } } } label: {
+                    Label("Scan label", systemImage: "camera")
+                }
                     .disabled(scanning || !UIImagePickerController.isSourceTypeAvailable(.camera))
                 Spacer()
                 PhotosPicker(selection: $photo, matching: .images) { Label("Photo", systemImage: "photo") }
@@ -186,19 +196,11 @@ struct ItemsSection: View {
         } footer: {
             if !items.isEmpty { Text("Totals below are the sum of these items.") }
         }
-        .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { image in Task { await scan(image) } }.ignoresSafeArea()
-        }
         .onChange(of: photo) { _, item in
             guard let item else { return }
             Task {
                 photo = nil
                 if let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) { await scan(img) }
-            }
-        }
-        .sheet(item: $editing) { it in
-            ItemEditor(item: it) { updated in
-                if let i = items.firstIndex(where: { $0.id == updated.id }) { items[i] = updated; onChange() }
             }
         }
     }
@@ -325,27 +327,47 @@ struct OptionalIntField: View {
     }
 }
 
-/// The system camera, returning one photo.
-struct CameraPicker: UIViewControllerRepresentable {
-    let picked: (UIImage) -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let c = UIImagePickerController()
-        c.sourceType = .camera
-        c.delegate = context.coordinator
-        return c
+extension View {
+    /// The item editor sheet, attached at the editor level.
+    func itemEditorSheet(_ item: Binding<MealItem?>, apply: @escaping (MealItem) -> Void) -> some View {
+        sheet(item: item) { it in ItemEditor(item: it, apply: apply) }
     }
-    func updateUIViewController(_ vc: UIImagePickerController, context: Context) {}
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
+}
 
-    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let parent: CameraPicker
-        init(_ p: CameraPicker) { parent = p }
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            if let img = info[.originalImage] as? UIImage { parent.picked(img) }
-            parent.dismiss()
+/// Presents the system camera imperatively from the top-most view controller. Presenting it
+/// from SwiftUI inside a Form row let a re-render dismiss it before a photo could be taken.
+@MainActor
+enum CameraPresenter {
+    private static var delegate: Delegate?
+
+    static func present(_ picked: @escaping (UIImage) -> Void) {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera), let top = topController() else { return }
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        let d = Delegate { image in
+            picker.dismiss(animated: true)
+            delegate = nil
+            if let image { picked(image) }
         }
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+        delegate = d
+        picker.delegate = d
+        top.present(picker, animated: true)
+    }
+
+    private static func topController() -> UIViewController? {
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+        var top = scene?.windows.first { $0.isKeyWindow }?.rootViewController
+        while let next = top?.presentedViewController { top = next }
+        return top
+    }
+
+    private final class Delegate: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let done: (UIImage?) -> Void
+        init(_ done: @escaping (UIImage?) -> Void) { self.done = done }
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            done(info[.originalImage] as? UIImage)
+        }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { done(nil) }
     }
 }
