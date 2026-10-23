@@ -112,3 +112,15 @@ struct SleepEntry: Decodable, Identifiable {
     let notes: String?
     let scoreEstimated: Bool?
 }
+
+struct RecoveryEntry: Decodable, Identifiable {
+    let id: UUID
+    let date: Day
+    let recoveryRating, fatigueRating: Int?
+    let sorenessLocations: String?
+    let sorenessSeverity: Int?
+    let notes: String?
+    /// Written by the readiness auto-fill (vs a check-in you made yourself).
+    var isAuto: Bool { notes?.hasPrefix(RecoveryEntry.autoMarker) ?? false }
+    static let autoMarker = "Auto · readiness"
+}

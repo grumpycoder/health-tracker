@@ -16,6 +16,11 @@ struct SleepView: View {
                 } else {
                     Section { Text("No sleep from Apple Health yet. Wear your Watch to bed, or check Health access for Sleep.").foregroundStyle(.secondary) }
                 }
+                if let r = store.readiness {
+                    Section {
+                        HStack { Text("Readiness today"); Spacer(); Text("\(r.score)").font(.headline.monospacedDigit()); Text("· \(r.label)").foregroundStyle(.secondary).lineLimit(1) }
+                    }
+                }
                 if store.nights.count >= 3 { Section("Trends") { SleepTrends(nights: store.nights) } }
                 Section("Nights") {
                     ForEach(store.nights.dropFirst()) { n in

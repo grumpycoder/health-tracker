@@ -19,6 +19,8 @@ final class Store: ObservableObject {
     @Published private(set) var sleepEntries: [SleepEntry] = []
     /// Rich nights read live from Apple Health (phone only — not synced).
     @Published private(set) var nights: [SleepNight] = []
+    @Published private(set) var recovery: [RecoveryEntry] = []
+    @Published private(set) var readiness: Readiness?
     @Published private(set) var library = FoodLibrary()
     // Derived once per reload (not per redraw): per-day lookups and the energy history.
     @Published private(set) var energy = EnergyHistory(logs: [], body: [], sessions: [])
@@ -54,7 +56,12 @@ final class Store: ObservableObject {
         error = sync.error
         reload()   // also rebuilds energy with the fresh Health data
         nights = await health.readSleep()
-        if sync.error == nil { importSleep() }   // only after a successful pull, so we see the other app's nights
+        await reloadTask?.value   // readiness uses the freshly loaded sessions/feedback
+        await computeReadiness()
+        if sync.error == nil {   // only after a successful pull, so we see the other app's rows
+            importSleep()
+            autoFillRecovery()
+        }
     }
 
     /// Everything the views read, computed together off the main thread.
@@ -62,7 +69,7 @@ final class Store: ObservableObject {
         var meals: [MealEntry] = [], drinks: [DrinkEntry] = [], logs: [DailyLog] = []
         var body: [BodyMeasurement] = [], sessions: [WorkoutSession] = [], goals: GoalSettings?
         var exercises: [ExerciseDefinition] = [], routines: [WorkoutRoutine] = [], routineExercises: [RoutineExercise] = []
-        var sets: [ExerciseSet] = [], feedback: [ExerciseFeedback] = [], sleep: [SleepEntry] = []
+        var sets: [ExerciseSet] = [], feedback: [ExerciseFeedback] = [], sleep: [SleepEntry] = [], recovery: [RecoveryEntry] = []
         var mealsByDay: [Day: [MealEntry]] = [:], drinksByDay: [Day: [DrinkEntry]] = [:]
         var caloriesByDay: [Day: Int] = [:], library = FoodLibrary()
 
@@ -80,6 +87,7 @@ final class Store: ObservableObject {
             sets = try rows.decode("ExerciseSet")
             feedback = try rows.decode("ExerciseFeedback")
             sleep = (try rows.decode("SleepEntry") as [SleepEntry]).sorted { $0.date > $1.date }
+            recovery = (try rows.decode("RecoveryEntry") as [RecoveryEntry]).sorted { $0.date > $1.date }
             mealsByDay = Dictionary(grouping: meals) { Day($0.time) }.mapValues { $0.sorted { $0.time > $1.time } }
             drinksByDay = Dictionary(grouping: drinks) { Day($0.time) }.mapValues { $0.sorted { $0.time > $1.time } }
             caloriesByDay = Nutrition.caloriesByDay(meals, drinks)
@@ -112,6 +120,7 @@ final class Store: ObservableObject {
         meals = s.meals; drinks = s.drinks; logs = s.logs; body = s.body; sessions = s.sessions; goals = s.goals
         exercises = s.exercises; routines = s.routines; routineExercises = s.routineExercises; sets = s.sets; feedback = s.feedback
         sleepEntries = s.sleep
+        recovery = s.recovery
         mealsByDay = s.mealsByDay; drinksByDay = s.drinksByDay; caloriesByDay = s.caloriesByDay; library = s.library
         rebuildEnergy()
     }
@@ -308,6 +317,51 @@ final class Store: ObservableObject {
                 ])
             }
         }
+    }
+
+    // MARK: readiness
+
+    func computeReadiness() async {
+        var x = Readiness.Inputs()
+        x.hrv = await health.dailyAverages(.heartRateVariabilitySDNN, .secondUnit(with: .milli))
+        x.restingHR = await health.dailyAverages(.restingHeartRate, .count().unitDivided(by: .minute()))
+        x.respiratory = await health.dailyAverages(.respiratoryRate, .count().unitDivided(by: .minute()))
+        x.wristTemp = await health.dailyAverages(.appleSleepingWristTemperature, .degreeCelsius())
+        if let last = nights.first, last.day >= Day.today.adding(-1) {
+            x.sleepHours = last.hours
+            x.deepRemHours = last.hasStages ? (last.deep + last.rem) / 3600 : nil
+            x.efficiency = last.efficiency
+        }
+        x.load = Readiness.load(sessions: sessions, feedback: feedback)
+        readiness = Readiness.compute(x, today: .today)
+    }
+
+    var todaysRecovery: RecoveryEntry? { recovery.first { $0.date == .today } }
+
+    /// Today's synced RecoveryEntry from readiness: created when the day has none, kept current
+    /// while it's still the auto one; a check-in you save yourself is never overwritten.
+    private func autoFillRecovery() {
+        guard let r = readiness else { return }
+        let today = ((try? rows.rows("RecoveryEntry")) ?? []).filter {
+            if case .bool(true) = $0["isDeleted"] { return false }
+            return $0.string("date").map { $0.hasPrefix(Self.dayString(.today)) } ?? false
+        }
+        let note = "\(RecoveryEntry.autoMarker) \(r.score)" + (r.calibrating ? " (calibrating)" : "")
+        let fields: Row = ["recoveryRating": .i(r.recoveryRating), "fatigueRating": .i(r.fatigueRating), "notes": .string(note)]
+        if today.isEmpty {
+            write { try rows.insert("RecoveryEntry", fields.merging(["date": Wire.day(.today), "sorenessSeverity": .int(0)]) { a, _ in a }) }
+        } else if today.count == 1, let row = today.first, let id = row.string("id"), (row.string("notes") ?? "").hasPrefix(RecoveryEntry.autoMarker) {
+            upsert("RecoveryEntry", id, fields)
+        }
+    }
+
+    /// Your check-in for a day: replaces the auto values (and the auto marker) for good.
+    func saveCheckIn(day: Day, recovery rec: Int, fatigue: Int, soreness: [String], severity: Int, notes: String) {
+        let n = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fields: Row = ["date": Wire.day(day), "recoveryRating": .i(rec), "fatigueRating": .i(fatigue),
+                           "sorenessLocations": .s(soreness.isEmpty ? nil : soreness.joined(separator: ",")),
+                           "sorenessSeverity": .i(severity), "notes": .s(n.isEmpty ? nil : n)]
+        upsert("RecoveryEntry", recovery.first { $0.date == day }?.id.uuidString.lowercased(), fields)
     }
 
     func sleepRow(_ id: UUID) -> Row? { (try? rows.row("SleepEntry", id.uuidString.lowercased())) ?? nil }

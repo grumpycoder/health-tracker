@@ -39,6 +39,22 @@ struct SleepNight: Identifiable {
 }
 
 extension HealthService {
+    /// Daily averages for readiness baselines (last `days` days), one query per metric.
+    func dailyAverages(_ id: HKQuantityTypeIdentifier, _ unit: HKUnit, days: Int = 40, scale: Double = 1) async -> [Day: Double] {
+        guard isAvailable else { return [:] }
+        let cal = Calendar.current
+        let end = cal.startOfDay(for: Date()).addingTimeInterval(86_400)
+        let start = cal.date(byAdding: .day, value: -days, to: end)!
+        let pred = HKSamplePredicate.quantitySample(type: HKQuantityType(id), predicate: HKQuery.predicateForSamples(withStart: start, end: end))
+        let q = HKStatisticsCollectionQueryDescriptor(predicate: pred, options: .discreteAverage, anchorDate: start, intervalComponents: DateComponents(day: 1))
+        guard let coll = try? await q.result(for: healthStore) else { return [:] }
+        var out: [Day: Double] = [:]
+        coll.enumerateStatistics(from: start, to: end) { s, _ in
+            if let v = s.averageQuantity()?.doubleValue(for: unit) { out[Day(s.startDate)] = v * scale }
+        }
+        return out
+    }
+
     func readSleep(days: Int = 30) async -> [SleepNight] {
         guard isAvailable else { return [] }
         let start = Calendar.current.date(byAdding: .day, value: -days, to: Date())!

@@ -9,6 +9,7 @@ struct TodayView: View {
             let day = Day.today
             let meals = store.meals(on: day), drinks = store.drinks(on: day)
             List {
+                Section { ReadinessCard() } header: { Text("Readiness") }
                 Section {
                     EnergyCard(day: day, caloriesIn: Nutrition.calories(meals, drinks))
                 } header: { Text("Energy balance") }
