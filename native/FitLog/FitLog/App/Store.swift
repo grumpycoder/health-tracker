@@ -224,6 +224,31 @@ final class Store: ObservableObject {
         return (id, measure)
     }
 
+    /// Create a library exercise; nil + message when the name is taken (the server's Name index is
+    /// unique, case-insensitive, among live rows).
+    func createExercise(_ name: String, measure: ExerciseMeasure) -> String? {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { return "Enter a name." }
+        if exercises.contains(where: { $0.name.caseInsensitiveCompare(n) == .orderedSame }) { return "“\(n)” already exists." }
+        write { _ = try rows.insert("ExerciseDefinition", ["name": .string(n), "measure": .int(Int64(measure.rawValue)), "retired": .bool(false)]) }
+        return nil
+    }
+
+    /// Edit a library exercise (name, video, muscles, retired). Measure can't change — history depends on it.
+    func updateExercise(_ id: UUID, name: String, videoUrl: String, muscles: [String], retired: Bool) -> String? {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { return "Enter a name." }
+        if exercises.contains(where: { $0.id != id && $0.name.caseInsensitiveCompare(n) == .orderedSame }) {
+            return "“\(n)” already exists — pick a different name."
+        }
+        let v = videoUrl.trimmingCharacters(in: .whitespaces)
+        upsert("ExerciseDefinition", id.uuidString.lowercased(), [
+            "name": .string(n), "videoUrl": .s(v.isEmpty ? nil : v),
+            "muscleGroups": .s(muscles.isEmpty ? nil : muscles.joined(separator: ",")), "retired": .bool(retired),
+        ])
+        return nil
+    }
+
     /// Add an exercise to a routine at the end, with the MAUI defaults (3 sets, 10 reps or 30 s, 60 s rest).
     func addExercise(_ name: String, measure: ExerciseMeasure, to routine: UUID) {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }

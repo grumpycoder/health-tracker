@@ -28,6 +28,7 @@ struct WorkoutTab: View {
                     }
                     Section {
                         NavigationLink { RoutinesView() } label: { Label("Routines", systemImage: "list.bullet.rectangle") }
+                        NavigationLink { ExercisesView() } label: { Label("Exercises", systemImage: "dumbbell") }
                         NavigationLink { HistoryView() } label: { Label("History", systemImage: "clock.arrow.circlepath") }
                     }
                 }
