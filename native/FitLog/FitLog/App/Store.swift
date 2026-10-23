@@ -106,8 +106,30 @@ final class Store: ObservableObject {
         return (try? rows.row("DrinkEntry", key)).flatMap { $0 }.map { DrinkDraft(id: key, row: $0) }
     }
 
-    func save(_ d: MealDraft) { write { if let id = d.id { try rows.update("MealEntry", id, d.row) } else { try rows.insert("MealEntry", d.row) } } }
-    func save(_ d: DrinkDraft) { write { if let id = d.id { try rows.update("DrinkEntry", id, d.row) } else { try rows.insert("DrinkEntry", d.row) } } }
+    func save(_ d: MealDraft) { upsert("MealEntry", d.id, d.row) }
+    func save(_ d: DrinkDraft) { upsert("DrinkEntry", d.id, d.row) }
+
+    /// Insert, or update with only the fields that actually changed — so a save doesn't rewrite
+    /// values the user didn't touch (e.g. trimming a time's fractional seconds).
+    private func upsert(_ type: String, _ id: String?, _ fields: Row) {
+        write {
+            guard let id, let current = try rows.row(type, id) else { try rows.insert(type, fields); return }
+            let changed = fields.filter { k, v in !Store.same(current[k], v, key: k) }
+            if !changed.isEmpty { try rows.update(type, id, changed) }
+        }
+    }
+
+    /// Same value as stored? Numbers compare by value (16 == 16.0); times to the second.
+    nonisolated static func same(_ old: JSON?, _ new: JSON, key: String) -> Bool {
+        let o = old ?? .null
+        switch (o, new) {
+        case let (.int(a), .double(b)), let (.double(b), .int(a)): return Double(a) == b
+        case let (.string(a), .string(b)) where key == "time":
+            guard let da = Wire.parse(a), let db = Wire.parse(b) else { return a == b }
+            return abs(da.timeIntervalSince(db)) < 1
+        default: return o == new
+        }
+    }
     func deleteMeal(_ id: UUID) { write { try rows.delete("MealEntry", id.uuidString.lowercased()) } }
     func deleteDrink(_ id: UUID) { write { try rows.delete("DrinkEntry", id.uuidString.lowercased()) } }
 

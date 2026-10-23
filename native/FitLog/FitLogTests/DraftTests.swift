@@ -44,3 +44,13 @@ final class DraftTests: XCTestCase {
         XCTAssertEqual(lib.suggest("mi"), ["milk"])
     }
 }
+
+final class ChangedFieldTests: XCTestCase {
+    func testUnchangedValuesAreNotRewritten() {
+        XCTAssertTrue(Store.same(.string("2026-10-23T06:53:59.4898680"), .string("2026-10-23T06:53:59"), key: "time"))
+        XCTAssertFalse(Store.same(.string("2026-10-23T06:53:59"), .string("2026-10-23T07:53:59"), key: "time"))
+        XCTAssertTrue(Store.same(.int(16), .double(16), key: "ounces"))
+        XCTAssertFalse(Store.same(.int(32), .int(0), key: "calories"))
+        XCTAssertTrue(Store.same(nil, .null, key: "portionNote"))
+    }
+}
