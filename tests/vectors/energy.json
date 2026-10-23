@@ -1,0 +1,81 @@
+{
+  "_comment": "Shared energy-math cases run by BOTH the C# NUnit suite (EnergyVectorTests) and the Swift FitLogTests, so the two ports can't drift. Inputs use the sync wire shape (camelCase).",
+  "cases": [
+    {
+      "name": "completed Health day uses resting + active, never workout burn",
+      "today": "2026-10-22",
+      "logs": [{ "date": "2026-10-21", "restingEnergyKcal": 1900, "activeEnergyKcal": 650 }],
+      "body": [{ "date": "2026-09-22", "basalMetabolicRate": 1852, "weightLbs": 200 }],
+      "sessions": [{ "date": "2026-10-21", "totalSeconds": 3600 }],
+      "expectOut": [{ "day": "2026-10-21", "kcal": 2550, "fromHealth": true, "live": false }]
+    },
+    {
+      "name": "today with Health activity = typical resting (7-day avg) + active so far",
+      "today": "2026-10-22",
+      "logs": [
+        { "date": "2026-10-22", "activeEnergyKcal": 350 },
+        { "date": "2026-10-21", "restingEnergyKcal": 1900, "activeEnergyKcal": 600 },
+        { "date": "2026-10-20", "restingEnergyKcal": 1800, "activeEnergyKcal": 500 }
+      ],
+      "body": [{ "date": "2026-09-22", "basalMetabolicRate": 1852, "weightLbs": 200 }],
+      "sessions": [{ "date": "2026-10-22", "totalSeconds": 3600 }],
+      "expectOut": [{ "day": "2026-10-22", "kcal": 2200, "fromHealth": true, "live": true }]
+    },
+    {
+      "name": "missing active energy falls back to BMR x 1.25 + workout",
+      "today": "2026-10-22",
+      "logs": [{ "date": "2026-10-21", "restingEnergyKcal": 1900 }],
+      "body": [{ "date": "2026-09-22", "basalMetabolicRate": 1852, "weightLbs": 200 }],
+      "sessions": [{ "date": "2026-10-21", "totalSeconds": 3600 }],
+      "expectOut": [{ "day": "2026-10-21", "kcal": 2791, "fromHealth": false, "live": false }]
+    },
+    {
+      "name": "past day with activity only (not re-read after midnight) is an estimate",
+      "today": "2026-10-22",
+      "logs": [{ "date": "2026-10-21", "activeEnergyKcal": 300 }],
+      "body": [{ "date": "2026-10-19", "basalMetabolicRate": 1852 }],
+      "sessions": [],
+      "expectOut": [{ "day": "2026-10-21", "kcal": 2315, "fromHealth": false, "live": false }]
+    },
+    {
+      "name": "estimates use body numbers known as of each day",
+      "today": "2026-10-22",
+      "logs": [],
+      "body": [
+        { "date": "2026-10-12", "basalMetabolicRate": 1600 },
+        { "date": "2026-10-21", "basalMetabolicRate": 2000 }
+      ],
+      "sessions": [],
+      "expectOut": [
+        { "day": "2026-10-17", "kcal": 2000, "fromHealth": false, "live": false },
+        { "day": "2026-10-22", "kcal": 2500, "fromHealth": false, "live": false },
+        { "day": "2026-10-02", "kcal": null }
+      ]
+    },
+    {
+      "name": "rolling average skips today and counts Health days",
+      "today": "2026-10-22",
+      "logs": [
+        { "date": "2026-10-22", "restingEnergyKcal": 500, "activeEnergyKcal": 100 },
+        { "date": "2026-10-21", "restingEnergyKcal": 1900, "activeEnergyKcal": 700 },
+        { "date": "2026-10-20", "restingEnergyKcal": 1900, "activeEnergyKcal": 500 }
+      ],
+      "body": [{ "date": "2026-09-22", "basalMetabolicRate": 1800 }],
+      "sessions": [],
+      "expectAverage": [{ "end": "2026-10-22", "window": 3, "kcal": 2417, "days": 3, "healthDays": 2 }]
+    },
+    {
+      "name": "rolling balance counts only completed days with food logged",
+      "today": "2026-10-22",
+      "logs": [
+        { "date": "2026-10-21", "restingEnergyKcal": 1900, "activeEnergyKcal": 600 },
+        { "date": "2026-10-20", "restingEnergyKcal": 1900, "activeEnergyKcal": 400 },
+        { "date": "2026-10-19", "restingEnergyKcal": 1900, "activeEnergyKcal": 400 }
+      ],
+      "body": [],
+      "sessions": [],
+      "caloriesIn": { "2026-10-22": 500, "2026-10-21": 2000, "2026-10-20": 2500 },
+      "expectBalance": [{ "end": "2026-10-22", "window": 7, "avgNet": -150, "totalNet": -300, "days": 2 }]
+    }
+  ]
+}

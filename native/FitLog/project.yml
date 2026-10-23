@@ -1,0 +1,58 @@
+name: FitLog
+options:
+  bundleIdPrefix: com.mlawrence
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    from: "7.0.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: 36LTV69776
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.2"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  FitLog:
+    type: application
+    platform: iOS
+    sources: [FitLog]
+    dependencies:
+      - package: GRDB
+    entitlements:
+      path: FitLog/FitLog.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mlawrence.fitlog
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "Fit Log N"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSHealthShareUsageDescription: "Fit Log reads resting and active energy to estimate calories out."
+        INFOPLIST_KEY_NSHealthUpdateUsageDescription: "Fit Log can save workouts and weight to Apple Health."
+  FitLogTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - FitLogTests
+      - path: ../../tests/vectors/energy.json
+        buildPhase: resources
+    dependencies:
+      - target: FitLog
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  FitLog:
+    build:
+      targets:
+        FitLog: all
+        FitLogTests: [test]
+    test:
+      targets: [FitLogTests]

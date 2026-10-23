@@ -30,4 +30,9 @@
     <ProjectReference Include="..\..\src\FitRecoveryLog.Data\FitRecoveryLog.Data.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Shared with the Swift app's tests (native/FitLog) so both energy ports agree. -->
+    <None Include="..\vectors\energy.json" Link="vectors\energy.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
