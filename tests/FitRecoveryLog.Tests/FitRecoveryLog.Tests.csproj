@@ -33,6 +33,7 @@
   <ItemGroup>
     <!-- Shared with the Swift app's tests (native/FitLog) so both energy ports agree. -->
     <None Include="..\vectors\energy.json" Link="vectors\energy.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\vectors\goals.json" Link="vectors\goals.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

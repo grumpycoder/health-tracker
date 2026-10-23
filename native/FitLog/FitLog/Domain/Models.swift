@@ -53,10 +53,15 @@ struct DailyLog: Decodable {
     var isActiveDay: Bool { dayType == 1 || dayType == 4 }   // Workout / HighWorkload
 }
 
-struct BodyMeasurement: Decodable {
+struct BodyMeasurement: Decodable, Identifiable {
+    var id: UUID?            // optional so the shared energy test vectors decode
     var date: Day
     var weightLbs: Double?
+    var waistInches, chestInches, hipsInches, armsInches, forearmsInches, thighsInches, shouldersInches, calvesInches: Double?
+    var bodyFatPercent, muscleMassLbs, visceralFat, bodyWaterPercent: Double?
     var basalMetabolicRate: Int?
+    var metabolicAge: Int?
+    var clothingFitNotes: String?
 }
 
 struct WorkoutSession: Decodable, Identifiable {
@@ -74,6 +79,8 @@ struct GoalSettings: Decodable {
     let proteinMin, proteinMax, fatMin, fatMax, fiberMin, fiberMax: Int
     let caloriesRestMin, caloriesRestMax, caloriesActiveMin, caloriesActiveMax: Int
     let carbsRestMin, carbsRestMax, carbsActiveMin, carbsActiveMax: Int
+    let goalWeightLbs, goalWaistInches, goalBodyFatPercent, goalChestInches: Double?
+    let goalShouldersInches, goalArmsInches, goalThighsInches, goalCalvesInches: Double?
 }
 
 /// A calendar day (C# DateOnly, "yyyy-MM-dd") — no time zone games.

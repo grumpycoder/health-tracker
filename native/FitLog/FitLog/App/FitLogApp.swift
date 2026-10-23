@@ -42,6 +42,7 @@ struct RootView: View {
             TodayView().tabItem { Label("Today", systemImage: "house") }
             DayLogView().tabItem { Label("Meals", systemImage: "fork.knife") }
             WorkoutTab().tabItem { Label("Workout", systemImage: "figure.strengthtraining.traditional") }
+            BodyView().tabItem { Label("Body", systemImage: "scalemass") }
             AccountView().tabItem { Label("Account", systemImage: "person.crop.circle") }
         }
     }

@@ -251,6 +251,44 @@ final class Store: ObservableObject {
         }
     }
 
+    // MARK: body measurements
+
+    func measurementRow(_ id: UUID) -> Row? { (try? rows.row("BodyMeasurement", id.uuidString.lowercased())) ?? nil }
+
+    /// Insert or update (changed fields only); weight/waist are then mirrored to Health.
+    func saveMeasurement(id: UUID?, day: Day, fields: Row) {
+        upsert("BodyMeasurement", id?.uuidString.lowercased(), fields)
+        let w = fields.double("weightLbs"), x = fields.double("waistInches")
+        if w != nil || x != nil { Task { await health.mirrorBody(day: day, weightLbs: w, waistInches: x) } }
+    }
+
+    func deleteMeasurement(_ id: UUID) { write { try rows.delete("BodyMeasurement", id.uuidString.lowercased()) } }
+
+    /// Import a year of weight/waist from other Health sources, like the MAUI "Pull from Apple
+    /// Health": a new row per day that has none; on an existing day, only fill a missing waist.
+    func pullBodyFromHealth() async -> String {
+        let (weights, waists) = await health.readBody(since: Date().addingTimeInterval(-365 * 86_400))
+        guard !weights.isEmpty || !waists.isEmpty else {
+            return "Nothing to import. Only entries from other sources (Health app, scale, Watch) are pulled — this app's own are skipped."
+        }
+        var added = 0, filled = 0
+        let byDay = Dictionary(body.compactMap { m in m.id.map { (m.date, ($0, m)) } }, uniquingKeysWith: { a, _ in a })
+        write {
+            for day in Set(weights.keys).union(waists.keys) {
+                if let (id, m) = byDay[day] {
+                    if m.waistInches == nil, let w = waists[day] {
+                        try rows.update("BodyMeasurement", id.uuidString.lowercased(), ["waistInches": .d(w.dotnetRounded(2))]); filled += 1
+                    }
+                    continue
+                }
+                try rows.insert("BodyMeasurement", ["date": Wire.day(day), "weightLbs": .d(weights[day]?.dotnetRounded(1)),
+                                                    "waistInches": .d(waists[day]?.dotnetRounded(2))])
+                added += 1
+            }
+        }
+        return added + filled == 0 ? "Already up to date." : "Imported \(added) day(s)\(filled > 0 ? ", filled waist on \(filled)" : "") from Health."
+    }
+
     // MARK: history
 
     func updateSession(_ id: UUID, _ fields: Row, sets: [(UUID, Row)]) {

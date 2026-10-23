@@ -12,13 +12,15 @@ final class HealthService: ObservableObject {
     private let store = HKHealthStore()
     private let basal = HKQuantityType(.basalEnergyBurned)
     private let active = HKQuantityType(.activeEnergyBurned)
+    private let bodyMass = HKQuantityType(.bodyMass)
+    private let waist = HKQuantityType(.waistCircumference)
 
     var isAvailable: Bool { HKHealthStore.isHealthDataAvailable() }
 
     func requestAccessAndLoad() async {
         guard isAvailable else { return }
         do {
-            try await store.requestAuthorization(toShare: [HKObjectType.workoutType(), active], read: [basal, active, HKObjectType.workoutType()])
+            try await store.requestAuthorization(toShare: [HKObjectType.workoutType(), active, bodyMass, waist], read: [basal, active, HKObjectType.workoutType(), bodyMass, waist])
             await load()
         } catch { }
     }
@@ -48,6 +50,41 @@ final class HealthService: ObservableObject {
             if let kcal = s.sumQuantity()?.doubleValue(for: .kilocalorie()) { out[Day(s.startDate)] = Int(kcal.rounded(.toNearestOrEven)) }
         }
         return out
+    }
+
+    /// Weight (lb) / waist (in) samples from OTHER sources since `since`, latest per local day —
+    /// this app's own samples are skipped so a mirrored value never comes back as an "import".
+    func readBody(since: Date) async -> (weights: [Day: Double], waists: [Day: Double]) {
+        guard isAvailable else { return ([:], [:]) }
+        func read(_ t: HKQuantityType, _ unit: HKUnit) async -> [Day: Double] {
+            let pred = HKQuery.predicateForSamples(withStart: since, end: nil)
+            let q = HKSampleQueryDescriptor(predicates: [.quantitySample(type: t, predicate: pred)],
+                                            sortDescriptors: [SortDescriptor(\.startDate, order: .reverse)])
+            let mine = Bundle.main.bundleIdentifier
+            var out: [Day: Double] = [:]
+            for s in (try? await q.result(for: store)) ?? [] where s.sourceRevision.source.bundleIdentifier != mine {
+                let d = Day(s.startDate)
+                if out[d] == nil { out[d] = s.quantity.doubleValue(for: unit) }   // newest first → latest per day
+            }
+            return out
+        }
+        let w = await read(bodyMass, .pound())
+        let x = await read(waist, .inch())
+        return (w, x)
+    }
+
+    /// Mirror a measurement's weight/waist to Health, replacing this app's own sample for that day
+    /// (so editing doesn't duplicate). Samples are stamped at noon local, like the MAUI app.
+    func mirrorBody(day: Day, weightLbs: Double?, waistInches: Double?) async {
+        guard isAvailable else { return }
+        let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: day.date)!
+        let dayPred = HKQuery.predicateForSamples(withStart: day.date, end: day.adding(1).date)
+        let own = NSCompoundPredicate(andPredicateWithSubpredicates: [dayPred, HKQuery.predicateForObjects(from: .default())])
+        for (type, unit, value) in [(bodyMass, HKUnit.pound(), weightLbs), (waist, HKUnit.inch(), waistInches)] {
+            guard let value else { continue }
+            _ = try? await store.deleteObjects(of: type, predicate: own)
+            try? await store.save(HKQuantitySample(type: type, quantity: HKQuantity(unit: unit, doubleValue: value), start: noon, end: noon))
+        }
     }
 
     /// Save a strength workout with an estimated active-energy sample, like the MAUI app: skipped

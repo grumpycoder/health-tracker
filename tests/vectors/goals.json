@@ -1,0 +1,14 @@
+{
+  "_comment": "Shared GoalProgress.Overview cases run by BOTH the C# NUnit suite (GoalVectorTests) and the Swift FitLogTests.",
+  "goals": { "goalWeightLbs": 200, "goalWaistInches": 34, "goalBodyFatPercent": 20 },
+  "history": [
+    { "date": "2026-09-01", "weightLbs": 220, "waistInches": 36, "bodyFatPercent": 27.1 },
+    { "date": "2026-09-15", "weightLbs": 215 },
+    { "date": "2026-10-01", "weightLbs": 212, "waistInches": 33.9, "bodyFatPercent": 27.2 }
+  ],
+  "expect": [
+    { "label": "Weight", "percent": 40, "met": false, "trend": "toward", "arrow": "↓", "status": "12 lb to go", "achieved": "8 lb lost", "recent": "▼ 3 lb vs last", "recentTrend": "toward" },
+    { "label": "Waist", "percent": 100, "met": true, "trend": "met", "arrow": "↓", "status": "reached ✓", "achieved": "2 in lost", "recent": "▼ 2.1 in vs last", "recentTrend": "toward" },
+    { "label": "Body fat", "percent": 0, "met": false, "trend": "flat", "arrow": "→", "status": "7.2 % to go", "achieved": "", "recent": "▲ 0.1 % vs last", "recentTrend": "away" }
+  ]
+}

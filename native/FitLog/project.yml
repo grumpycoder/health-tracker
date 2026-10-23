@@ -44,6 +44,8 @@ targets:
       - FitLogTests
       - path: ../../tests/vectors/energy.json
         buildPhase: resources
+      - path: ../../tests/vectors/goals.json
+        buildPhase: resources
     dependencies:
       - target: FitLog
     settings:
