@@ -33,7 +33,7 @@ struct ReadinessCard: View {
                             Text(f.detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 8)
-                        Text("\(f.score)").font(.headline.monospacedDigit()).foregroundStyle(color(f.score))
+                        Text("\(f.score)").font(.headline.monospacedDigit()).foregroundStyle(factorColor(f.score))
                     }
                 }
                 Divider()
@@ -55,6 +55,8 @@ struct ReadinessCard: View {
     }
 
     private func color(_ s: Int) -> Color { s >= 80 ? .green : s >= 60 ? .yellow : s >= 40 ? .orange : .red }
+    /// Factors score 75 when AT your norm, so 70+ is healthy (green), not a warning.
+    private func factorColor(_ s: Int) -> Color { s >= 70 ? .green : s >= 45 ? .yellow : s >= 25 ? .orange : .red }
 }
 
 /// Recovery/fatigue pre-filled from readiness; soreness and notes are yours. Saving makes the
