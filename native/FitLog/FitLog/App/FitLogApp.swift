@@ -5,11 +5,14 @@ import SwiftUI
 struct FitLogApp: App {
     @StateObject private var auth: Auth
     @StateObject private var store: Store
+    @StateObject private var workout: WorkoutController
 
     init() {
         let a = Auth()
         _auth = StateObject(wrappedValue: a)
-        _store = StateObject(wrappedValue: Store(auth: a))
+        let st = Store(auth: a)
+        _store = StateObject(wrappedValue: st)
+        _workout = StateObject(wrappedValue: WorkoutController(store: st))
     }
     @Environment(\.scenePhase) private var phase
 
@@ -20,6 +23,7 @@ struct FitLogApp: App {
             }
             .environmentObject(auth)
             .environmentObject(store)
+            .environmentObject(workout)
             .task(id: auth.isSignedIn) {
                 guard auth.isSignedIn else { return }
                 await store.health.requestAccessAndLoad()
@@ -37,6 +41,7 @@ struct RootView: View {
         TabView {
             TodayView().tabItem { Label("Today", systemImage: "house") }
             DayLogView().tabItem { Label("Meals", systemImage: "fork.knife") }
+            WorkoutTab().tabItem { Label("Workout", systemImage: "figure.strengthtraining.traditional") }
             AccountView().tabItem { Label("Account", systemImage: "person.crop.circle") }
         }
     }

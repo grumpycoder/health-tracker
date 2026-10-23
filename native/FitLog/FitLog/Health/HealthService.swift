@@ -18,7 +18,7 @@ final class HealthService: ObservableObject {
     func requestAccessAndLoad() async {
         guard isAvailable else { return }
         do {
-            try await store.requestAuthorization(toShare: [], read: [basal, active])
+            try await store.requestAuthorization(toShare: [HKObjectType.workoutType(), active], read: [basal, active, HKObjectType.workoutType()])
             await load()
         } catch { }
     }
@@ -48,6 +48,30 @@ final class HealthService: ObservableObject {
             if let kcal = s.sumQuantity()?.doubleValue(for: .kilocalorie()) { out[Day(s.startDate)] = Int(kcal.rounded(.toNearestOrEven)) }
         }
         return out
+    }
+
+    /// Save a strength workout with an estimated active-energy sample, like the MAUI app: skipped
+    /// when a workout from another source (e.g. the Watch) overlaps — it already measured this.
+    /// kcal/min = MET 5 × 3.5 × kg / 200 (6.0 when weight is unknown).
+    func saveStrengthWorkout(start: Date, end: Date, name: String, weightLbs: Double?) async {
+        guard isAvailable, end > start else { return }
+        let overlap = HKQuery.predicateForSamples(withStart: start, end: end)
+        let others = try? await HKSampleQueryDescriptor(predicates: [.workout(overlap)], sortDescriptors: [], limit: 10).result(for: store)
+        let mine = Bundle.main.bundleIdentifier
+        if others?.contains(where: { $0.sourceRevision.source.bundleIdentifier != mine }) == true { return }
+
+        let config = HKWorkoutConfiguration(); config.activityType = .traditionalStrengthTraining
+        let builder = HKWorkoutBuilder(healthStore: store, configuration: config, device: .local())
+        do {
+            try await builder.beginCollection(at: start)
+            try? await builder.addMetadata([HKMetadataKeyWorkoutBrandName: name])
+            let perMin = (weightLbs ?? 0) > 0 ? 5.0 * 3.5 * (weightLbs! * 0.453592) / 200 : 6.0
+            let kcal = HKQuantity(unit: .kilocalorie(), doubleValue: end.timeIntervalSince(start) / 60 * perMin)
+            try? await builder.addSamples([HKQuantitySample(type: active, quantity: kcal, start: start, end: end)])
+            try await builder.endCollection(at: end)
+            _ = try await builder.finishWorkout()
+        } catch { }
+        await load()
     }
 
     /// Synced logs with live Health energy laid over them, following the C# import's rules:

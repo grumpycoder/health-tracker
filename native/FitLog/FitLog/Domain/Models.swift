@@ -59,9 +59,14 @@ struct BodyMeasurement: Decodable {
     var basalMetabolicRate: Int?
 }
 
-struct WorkoutSession: Decodable {
+struct WorkoutSession: Decodable, Identifiable {
+    var id: UUID?            // optional so the shared energy test vectors decode
     var date: Day
+    var routineId: UUID?
+    var startedAt: Date?
+    var endedAt: Date?
     var totalSeconds: Int?
+    var notes: String?
 }
 
 struct GoalSettings: Decodable {

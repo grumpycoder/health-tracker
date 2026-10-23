@@ -11,6 +11,11 @@ final class Store: ObservableObject {
     @Published private(set) var body: [BodyMeasurement] = []
     @Published private(set) var sessions: [WorkoutSession] = []
     @Published private(set) var goals: GoalSettings?
+    @Published private(set) var exercises: [ExerciseDefinition] = []
+    @Published private(set) var routines: [WorkoutRoutine] = []
+    @Published private(set) var routineExercises: [RoutineExercise] = []
+    @Published private(set) var sets: [ExerciseSet] = []
+    @Published private(set) var feedback: [ExerciseFeedback] = []
     @Published private(set) var library = FoodLibrary()
     // Derived once per reload (not per redraw): per-day lookups and the energy history.
     @Published private(set) var energy = EnergyHistory(logs: [], body: [], sessions: [])
@@ -51,6 +56,8 @@ final class Store: ObservableObject {
     private struct Snapshot {
         var meals: [MealEntry] = [], drinks: [DrinkEntry] = [], logs: [DailyLog] = []
         var body: [BodyMeasurement] = [], sessions: [WorkoutSession] = [], goals: GoalSettings?
+        var exercises: [ExerciseDefinition] = [], routines: [WorkoutRoutine] = [], routineExercises: [RoutineExercise] = []
+        var sets: [ExerciseSet] = [], feedback: [ExerciseFeedback] = []
         var mealsByDay: [Day: [MealEntry]] = [:], drinksByDay: [Day: [DrinkEntry]] = [:]
         var caloriesByDay: [Day: Int] = [:], library = FoodLibrary()
 
@@ -62,6 +69,11 @@ final class Store: ObservableObject {
             body = try rows.decode("BodyMeasurement")
             sessions = try rows.decode("WorkoutSession")
             goals = (try rows.decode("GoalSettings") as [GoalSettings]).max { $0.updatedAt < $1.updatedAt }
+            exercises = (try rows.decode("ExerciseDefinition") as [ExerciseDefinition]).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            routines = (try rows.decode("WorkoutRoutine") as [WorkoutRoutine]).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            routineExercises = (try rows.decode("RoutineExercise") as [RoutineExercise]).sorted { $0.order < $1.order }
+            sets = try rows.decode("ExerciseSet")
+            feedback = try rows.decode("ExerciseFeedback")
             mealsByDay = Dictionary(grouping: meals) { Day($0.time) }.mapValues { $0.sorted { $0.time > $1.time } }
             drinksByDay = Dictionary(grouping: drinks) { Day($0.time) }.mapValues { $0.sorted { $0.time > $1.time } }
             caloriesByDay = Nutrition.caloriesByDay(meals, drinks)
@@ -92,6 +104,7 @@ final class Store: ObservableObject {
 
     private func apply(_ s: Snapshot) {
         meals = s.meals; drinks = s.drinks; logs = s.logs; body = s.body; sessions = s.sessions; goals = s.goals
+        exercises = s.exercises; routines = s.routines; routineExercises = s.routineExercises; sets = s.sets; feedback = s.feedback
         mealsByDay = s.mealsByDay; drinksByDay = s.drinksByDay; caloriesByDay = s.caloriesByDay; library = s.library
         rebuildEnergy()
     }
@@ -153,6 +166,103 @@ final class Store: ObservableObject {
             else { try rows.insert("SavedFoodEntry", fields) }
         }
     }
+
+    var latestWeightLbs: Double? { body.filter { $0.weightLbs != nil }.max { $0.date < $1.date }?.weightLbs }
+
+    /// Several inserts for one workout; pushed together afterwards.
+    func saveWorkout(_ change: (RowStore) throws -> Void) -> Bool {
+        var ok = true
+        write { do { try change(rows) } catch { ok = false; throw error } }
+        return ok
+    }
+
+    /// Mark `day` a Workout day, like the C# WorkoutCompleted handler: create the DailyLog if the
+    /// day has none, or set Unset → Workout; any other day type is left alone. DailyLog.Date is
+    /// unique on the server, so pull first — if the other app already made today's row, update it
+    /// instead of inserting a second one (which would make the whole push fail).
+    func markWorkoutDay(_ day: Day) async {
+        await sync.sync()
+        let rowsForDay = ((try? rows.rows("DailyLog")) ?? []).filter {
+            if case .bool(true) = $0["isDeleted"] { return false }
+            return $0.string("date").map { $0.hasPrefix(Self.dayString(day)) } ?? false
+        }
+        if let existing = rowsForDay.first, let id = existing.string("id") {
+            if (existing.int("dayType") ?? 0) == 0 { write { try rows.update("DailyLog", id, ["dayType": .int(1)]) } }
+        } else {
+            write { try rows.insert("DailyLog", ["date": Wire.day(day), "dayType": .int(1), "waterOz": .int(0)]) }
+        }
+    }
+
+    // MARK: routines & library (same rules as the C# Routine aggregate / RoutineService)
+
+    @discardableResult
+    func createRoutine(_ name: String) -> String? {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { return nil }
+        var id: String?
+        write { id = try rows.insert("WorkoutRoutine", ["name": .string(n), "archived": .bool(false), "executionMode": .int(0)]) }
+        return id
+    }
+
+    func updateRoutine(_ id: UUID, _ fields: Row) { write { try rows.update("WorkoutRoutine", id.uuidString.lowercased(), fields) } }
+
+    /// Refused when sessions reference it (the C# service does the same) — archive instead.
+    func deleteRoutine(_ id: UUID) -> Bool {
+        guard !sessions.contains(where: { $0.routineId == id }) else { return false }
+        write {
+            for slot in routineExercises where slot.routineId == id { try rows.delete("RoutineExercise", slot.id.uuidString.lowercased()) }
+            try rows.delete("WorkoutRoutine", id.uuidString.lowercased())
+        }
+        return true
+    }
+
+    /// Pick the library exercise by name (case-insensitive — the server's Name index is unique), or create it.
+    func exerciseNamed(_ name: String, measure: ExerciseMeasure) throws -> (id: String, measure: ExerciseMeasure) {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        if let e = exercises.first(where: { $0.name.caseInsensitiveCompare(n) == .orderedSame }) { return (e.id.uuidString.lowercased(), e.measure) }
+        let id = try rows.insert("ExerciseDefinition", ["name": .string(n), "measure": .int(Int64(measure.rawValue)), "retired": .bool(false)])
+        return (id, measure)
+    }
+
+    /// Add an exercise to a routine at the end, with the MAUI defaults (3 sets, 10 reps or 30 s, 60 s rest).
+    func addExercise(_ name: String, measure: ExerciseMeasure, to routine: UUID) {
+        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        write {
+            let ex = try exerciseNamed(name, measure: measure)
+            let next = (routineExercises.filter { $0.routineId == routine }.map(\.order).max() ?? 0) + 1
+            try rows.insert("RoutineExercise", [
+                "routineId": .string(routine.uuidString.lowercased()), "exerciseDefinitionId": .string(ex.id), "order": .i(next),
+                "targetSets": .int(3), "targetReps": ex.measure == .reps ? .int(10) : .null,
+                "targetDurationSeconds": ex.measure == .duration ? .int(30) : .null, "restSeconds": .int(60),
+                "targetWeight": .null, "targetNote": .null,
+            ])
+        }
+    }
+
+    func updateSlot(_ id: UUID, _ fields: Row) { write { try rows.update("RoutineExercise", id.uuidString.lowercased(), fields) } }
+
+    /// Save a new order (or a removal) and renumber 1..N contiguously, like Routine.Normalize.
+    func reorder(_ routine: UUID, _ ordered: [RoutineExercise], removing: [UUID] = []) {
+        write {
+            for id in removing { try rows.delete("RoutineExercise", id.uuidString.lowercased()) }
+            for (i, slot) in ordered.enumerated() where slot.order != i + 1 {
+                try rows.update("RoutineExercise", slot.id.uuidString.lowercased(), ["order": .i(i + 1)])
+            }
+        }
+    }
+
+    // MARK: history
+
+    func updateSession(_ id: UUID, _ fields: Row, sets: [(UUID, Row)]) {
+        write {
+            try rows.update("WorkoutSession", id.uuidString.lowercased(), fields)
+            for (sid, f) in sets { try rows.update("ExerciseSet", sid.uuidString.lowercased(), f) }
+        }
+    }
+
+    func deleteSession(_ id: UUID) { write { try rows.delete("WorkoutSession", id.uuidString.lowercased()) } }
+
+    nonisolated static func dayString(_ d: Day) -> String { String(format: "%04d-%02d-%02d", d.y, d.m, d.d) }
 
     private var pendingSync: Task<Void, Never>?
     private func write(_ change: () throws -> Void) {
