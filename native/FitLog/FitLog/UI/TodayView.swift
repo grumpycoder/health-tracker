@@ -140,6 +140,11 @@ struct MacroSummary: View {
             bar("Carbs", Nutrition.carbs(meals, drinks), " g", active ? g.carbsActiveMin : g.carbsRestMin, active ? g.carbsActiveMax : g.carbsRestMax)
             bar("Fat", Nutrition.fat(meals, drinks), " g", g.fatMin, g.fatMax)
             bar("Fiber", Nutrition.fiber(meals, drinks), " g", g.fiberMin, g.fiberMax)
+            if let max = g.addedSugarMax, max > 0 { ceiling("Added sugar", Nutrition.addedSugar(meals, drinks), " g", max) }
+            ceiling("Sodium", Nutrition.sodium(meals, drinks), " mg", 2300)   // FDA daily value, same as the other apps
+            if let lo = active ? g.waterActiveMin : g.waterRestMin, let hi = active ? g.waterActiveMax : g.waterRestMax, hi > 0 {
+                bar("Fluids", Double(Nutrition.fluidOz(drinks)), " oz", lo, hi)
+            }
         } else {
             Text("Set targets on the Goals page to see progress.").foregroundStyle(.secondary)
         }
@@ -155,6 +160,22 @@ struct MacroSummary: View {
                 .tint(value < Double(low) ? .blue : value > Double(high) ? .orange : .green)
         }
         .padding(.vertical, 2)
+    }
+
+    /// Upper-limit bar (added sugar, sodium): green while under, orange once over.
+    private func ceiling(_ label: String, _ value: Double, _ unit: String, _ max: Int) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                HStack { Text(label); Spacer(); limit(value, unit, max) }
+                VStack(alignment: .leading) { Text(label); limit(value, unit, max) }
+            }
+            ProgressView(value: min(value, Double(max)), total: Double(max)).tint(value > Double(max) ? .orange : .green)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func limit(_ v: Double, _ unit: String, _ max: Int) -> some View {
+        Text("\(Int(v.dotnetRounded))\(unit) / ≤\(max)\(unit)").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
     }
 
     private func amount(_ v: Double, _ unit: String, _ low: Int, _ high: Int) -> some View {

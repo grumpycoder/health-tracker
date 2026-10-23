@@ -79,6 +79,8 @@ struct GoalSettings: Decodable {
     let proteinMin, proteinMax, fatMin, fatMax, fiberMin, fiberMax: Int
     let caloriesRestMin, caloriesRestMax, caloriesActiveMin, caloriesActiveMax: Int
     let carbsRestMin, carbsRestMax, carbsActiveMin, carbsActiveMax: Int
+    let addedSugarMax: Int?
+    let waterRestMin, waterRestMax, waterActiveMin, waterActiveMax: Int?
     let goalWeightLbs, goalWaistInches, goalBodyFatPercent, goalChestInches: Double?
     let goalShouldersInches, goalArmsInches, goalThighsInches, goalCalvesInches: Double?
 }

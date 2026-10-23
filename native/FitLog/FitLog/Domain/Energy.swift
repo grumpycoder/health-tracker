@@ -11,6 +11,13 @@ enum Nutrition {
     static func carbs(_ m: [MealEntry], _ d: [DrinkEntry]) -> Double { sum(m, d, \.carbsG, \.carbsG) }
     static func fat(_ m: [MealEntry], _ d: [DrinkEntry]) -> Double { sum(m, d, \.fatG, \.fatG) }
     static func fiber(_ m: [MealEntry], _ d: [DrinkEntry]) -> Double { sum(m, d, \.fiberG, \.fiberG) }
+    static func sodium(_ m: [MealEntry], _ d: [DrinkEntry]) -> Double {
+        m.reduce(0) { $0 + Double($1.sodiumMg ?? 0) } + d.reduce(0) { $0 + Double($1.sodiumMg ?? 0) }
+    }
+    /// Label added sugar plus coffee's teaspoons/cubes (~4 g each) — C# NutritionMath.AddedSugar.
+    static func addedSugar(_ m: [MealEntry], _ d: [DrinkEntry]) -> Double {
+        m.reduce(0) { $0 + ($1.addedSugarG ?? 0) } + d.reduce(0) { $0 + ($1.addedSugarG ?? 0) + Double($1.sugarCount ?? 0) * 4 }
+    }
     static func fluidOz(_ d: [DrinkEntry]) -> Int { Int(d.reduce(0) { $0 + ($1.ounces ?? 0) }.rounded(.toNearestOrEven)) }
 
     private static func sum(_ m: [MealEntry], _ d: [DrinkEntry], _ mk: KeyPath<MealEntry, Double?>, _ dk: KeyPath<DrinkEntry, Double?>) -> Double {
