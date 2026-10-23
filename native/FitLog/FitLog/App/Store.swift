@@ -324,13 +324,16 @@ final class Store: ObservableObject {
     func computeReadiness() async {
         var x = Readiness.Inputs()
         x.hrv = await health.dailyAverages(.heartRateVariabilitySDNN, .secondUnit(with: .milli))
-        x.restingHR = await health.dailyAverages(.restingHeartRate, .count().unitDivided(by: .minute()))
+        // Resting HR = each night's overnight low, so today and the baseline use the same measure.
+        x.restingHR = Dictionary(nights.compactMap { n in n.vitals.overnightLowHR.map { (n.day, $0) } }, uniquingKeysWith: { a, _ in a })
         x.respiratory = await health.dailyAverages(.respiratoryRate, .count().unitDivided(by: .minute()))
         x.wristTemp = await health.dailyAverages(.appleSleepingWristTemperature, .degreeCelsius())
         if let last = nights.first, last.day >= Day.today.adding(-1) {
             x.sleepHours = last.hours
             x.deepRemHours = last.hasStages ? (last.deep + last.rem) / 3600 : nil
             x.efficiency = last.efficiency
+            x.morningRestingHR = last.vitals.overnightLowHR
+            x.overnightHRV = last.vitals.hrvMs
         }
         x.load = Readiness.load(sessions: sessions, feedback: feedback)
         readiness = Readiness.compute(x, today: .today)

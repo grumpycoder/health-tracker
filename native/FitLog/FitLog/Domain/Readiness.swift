@@ -1,6 +1,9 @@
 import Foundation
 
-/// Daily readiness (0–100) from objective signals, each compared to YOUR own recent baseline:
+/// Morning readiness for the day ahead (0–100). Uses only what's known by the time you wake — last
+/// night's sleep, overnight/morning heart data and the training of the days BEFORE today — so the
+/// score doesn't drift down after today's workout (that shows up in tomorrow's score). Each signal
+/// is compared to YOUR own recent baseline:
 /// HRV (35%), resting HR (20%), last night's sleep (25%), recent training load (15%). Missing
 /// signals drop out and the weights renormalize. A raised wrist temperature or respiratory rate
 /// (possible illness) caps the score at 40.
@@ -34,13 +37,17 @@ struct Readiness: Equatable {
 
     struct Inputs {
         var hrv: [Day: Double] = [:]          // daily average HRV (ms)
-        var restingHR: [Day: Double] = [:]    // daily resting HR (bpm)
+        var restingHR: [Day: Double] = [:]    // overnight low HR per night (bpm), keyed by wake day
         var respiratory: [Day: Double] = [:]  // daily average breaths/min
         var wristTemp: [Day: Double] = [:]    // nightly wrist temperature (°C)
         var sleepHours: Double?
         var deepRemHours: Double?
         var efficiency: Double?
         var load: [Day: Double] = [:]         // daily training load (difficulty-weighted minutes)
+        /// Last night's overnight low HR (Apple's daily resting HR keeps updating all day).
+        var morningRestingHR: Double?
+        /// HRV during last night's sleep, used when there's no daily series for the prior nights.
+        var overnightHRV: Double?
     }
 
     static let minBaselineDays = 10
@@ -57,8 +64,8 @@ struct Readiness: Equatable {
             let sd = (xs.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(xs.count - 1)).squareRoot()
             return (m, sd, xs.count)
         }
-        func recent(_ series: [Day: Double], days: Int) -> Double? {
-            let xs = (0..<days).compactMap { series[today.adding(-$0)] }
+        func recent(_ series: [Day: Double], from: Int = 0, days: Int) -> Double? {
+            let xs = (from..<(from + days)).compactMap { series[today.adding(-$0)] }
             return xs.isEmpty ? nil : xs.reduce(0, +) / Double(xs.count)
         }
         func pct(_ v: Double, _ m: Double) -> String {
@@ -72,17 +79,17 @@ struct Readiness: Equatable {
 
         // HRV: 3-day rolling vs baseline (single nights are noisy). Higher = better.
         let hb = baseline(x.hrv)
-        if let r = recent(x.hrv, days: 3), hb.n >= 2, hb.mean > 0 {
+        if let r = recent(x.hrv, from: 1, days: 3) ?? x.overnightHRV, hb.n >= 2, hb.mean > 0 {
             if hb.n < minBaselineDays { calibrating = true }
             let z = hb.sd > 0 ? (r - hb.mean) / hb.sd : 0
             parts.append((Factor(name: "HRV", score: Int(relative(z).dotnetRounded), detail: "\(Int(r.dotnetRounded)) ms, \(pct(r, hb.mean))"), 0.35))
         } else { missing.append("HRV") }
         // Resting HR: today vs baseline. Lower = better.
         let rb = baseline(x.restingHR)
-        if let r = x.restingHR[today] ?? x.restingHR[today.adding(-1)], rb.n >= 2, rb.mean > 0 {
+        if let r = x.morningRestingHR ?? x.restingHR[today.adding(-1)], rb.n >= 2, rb.mean > 0 {
             if rb.n < minBaselineDays { calibrating = true }
             let z = rb.sd > 0 ? (r - rb.mean) / rb.sd : 0
-            parts.append((Factor(name: "Resting HR", score: Int(relative(-z).dotnetRounded), detail: "\(Int(r.dotnetRounded)) bpm, \(pct(r, rb.mean))"), 0.20))
+            parts.append((Factor(name: "Resting HR", score: Int(relative(-z).dotnetRounded), detail: "\(Int(r.dotnetRounded)) bpm overnight low, \(pct(r, rb.mean))"), 0.20))
         } else { missing.append("resting HR") }
         // Sleep: duration vs 7.5 h (70), deep+REM share vs 40% (15), efficiency vs 90% (15).
         if let h = x.sleepHours, h > 0 {
@@ -92,9 +99,9 @@ struct Readiness: Equatable {
             let m = Int((h * 60).dotnetRounded)
             parts.append((Factor(name: "Sleep", score: Int(clamp(dur + stages + eff).dotnetRounded), detail: "\(m / 60)h \(String(format: "%02d", m % 60))m last night"), 0.25))
         }
-        // Training load: last 3 days vs your typical 3 days over 4 weeks (acute:chronic).
-        let acute = (0..<3).reduce(0.0) { $0 + (x.load[today.adding(-$1)] ?? 0) }
-        let chronic = (0..<28).reduce(0.0) { $0 + (x.load[today.adding(-$1)] ?? 0) } / 28 * 3
+        // Training load: the 3 days BEFORE today vs your typical 3 days over the prior 4 weeks.
+        let acute = (1...3).reduce(0.0) { $0 + (x.load[today.adding(-$1)] ?? 0) }
+        let chronic = (1...28).reduce(0.0) { $0 + (x.load[today.adding(-$1)] ?? 0) } / 28 * 3
         if chronic > 0 || acute > 0 {
             let ratio = chronic > 0 ? acute / chronic : 2
             let s = clamp(100 - (ratio - 0.8) * 100)

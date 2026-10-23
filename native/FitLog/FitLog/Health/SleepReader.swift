@@ -22,6 +22,8 @@ struct SleepNight: Identifiable {
 
     struct Vitals {
         var hrvMs: Double?, restingHR: Double?, respiratoryRate: Double?, wristTempC: Double?, spo2: Double?
+        /// Lowest heart rate during the night — the readiness resting-HR signal (same measure every night).
+        var overnightLowHR: Double?
     }
 
     var hours: Double { asleep / 3600 }
@@ -53,6 +55,15 @@ extension HealthService {
             if let v = s.averageQuantity()?.doubleValue(for: unit) { out[Day(s.startDate)] = v * scale }
         }
         return out
+    }
+
+    /// Average (or the minimum, for a resting-HR proxy) of a metric over a window.
+    func average(_ id: HKQuantityTypeIdentifier, _ unit: HKUnit, from: Date, to: Date, minimum: Bool = false) async -> Double? {
+        guard isAvailable else { return nil }
+        let pred = HKSamplePredicate.quantitySample(type: HKQuantityType(id), predicate: HKQuery.predicateForSamples(withStart: from, end: to))
+        let q = HKStatisticsQueryDescriptor(predicate: pred, options: minimum ? .discreteMin : .discreteAverage)
+        let stats = try? await q.result(for: healthStore)
+        return (minimum ? stats?.minimumQuantity() : stats?.averageQuantity())?.doubleValue(for: unit)
     }
 
     func readSleep(days: Int = 30) async -> [SleepNight] {
@@ -125,6 +136,7 @@ extension HealthService {
         v.respiratoryRate = await avg(.respiratoryRate, .count().unitDivided(by: .minute()), from: n.bedtime, to: n.wake)
         v.spo2 = await avg(.oxygenSaturation, .percent(), from: n.bedtime, to: n.wake).map { $0 * 100 }
         v.wristTempC = await avg(.appleSleepingWristTemperature, .degreeCelsius(), from: n.bedtime.addingTimeInterval(-3600), to: n.wake.addingTimeInterval(3600))
+        v.overnightLowHR = await average(.heartRate, .count().unitDivided(by: .minute()), from: n.bedtime, to: n.wake, minimum: true)
         v.restingHR = await avg(.restingHeartRate, .count().unitDivided(by: .minute()), from: n.day.date, to: n.day.adding(1).date)
         return v
     }

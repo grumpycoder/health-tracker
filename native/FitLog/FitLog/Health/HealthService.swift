@@ -22,7 +22,7 @@ final class HealthService: ObservableObject {
         guard isAvailable else { return }
         do {
             try await store.requestAuthorization(toShare: [HKObjectType.workoutType(), active, bodyMass, waist], read: [basal, active, HKObjectType.workoutType(), bodyMass, waist, HKCategoryType(.sleepAnalysis),
-                     HKQuantityType(.heartRateVariabilitySDNN), HKQuantityType(.restingHeartRate), HKQuantityType(.respiratoryRate),
+                     HKQuantityType(.heartRateVariabilitySDNN), HKQuantityType(.restingHeartRate), HKQuantityType(.heartRate), HKQuantityType(.respiratoryRate),
                      HKQuantityType(.appleSleepingWristTemperature), HKQuantityType(.oxygenSaturation)])
             await load()
         } catch { }

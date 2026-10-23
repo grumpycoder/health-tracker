@@ -9,8 +9,8 @@ final class ReadinessTests: XCTestCase {
 
     func testAtBaselineWithGoodSleepIsModerateToReady() throws {
         var x = Readiness.Inputs()
-        x.hrv = series(50).merging([today: 50, today.adding(-1): 50, today.adding(-2): 50]) { a, _ in a }
-        x.restingHR = series(60).merging([today: 60]) { a, _ in a }
+        x.hrv = series(50).merging([today.adding(-1): 50, today.adding(-2): 50, today.adding(-3): 50]) { a, _ in a }
+        x.restingHR = series(60); x.morningRestingHR = 60
         x.sleepHours = 7.5; x.deepRemHours = 3; x.efficiency = 0.92
         let r = try XCTUnwrap(Readiness.compute(x, today: today))
         // At your norm = 75: HRV 75, RHR 75, sleep 100 → (75×.35 + 75×.20 + 100×.25) / .80 = 82.8
@@ -23,15 +23,24 @@ final class ReadinessTests: XCTestCase {
 
     func testLowHrvHighRestingHrPullsScoreDown() throws {
         var x = Readiness.Inputs()
-        x.hrv = series(50).merging([today: 40, today.adding(-1): 40, today.adding(-2): 40]) { a, _ in a }
-        x.restingHR = series(60).merging([today: 66]) { a, _ in a }
+        x.hrv = series(50).merging([today.adding(-1): 40, today.adding(-2): 40, today.adding(-3): 40]) { a, _ in a }
+        x.restingHR = series(60); x.morningRestingHR = 66
         let r = try XCTUnwrap(Readiness.compute(x, today: today))
         XCTAssertLessThan(r.score, 40, "well below norm on both should still read low")
     }
 
+    func testTodaysWorkoutDoesNotChangeTodaysScore() throws {
+        var x = Readiness.Inputs()
+        for d in 1...28 where d % 2 == 0 { x.load[today.adding(-d)] = 30 }
+        x.sleepHours = 7.5; x.deepRemHours = 3; x.efficiency = 0.9
+        let before = try XCTUnwrap(Readiness.compute(x, today: today)).score
+        x.load[today] = 120   // a big session this morning
+        XCTAssertEqual(try XCTUnwrap(Readiness.compute(x, today: today)).score, before)
+    }
+
     func testNoHrvScoresFromTheRestAndSaysSo() throws {
         var x = Readiness.Inputs()
-        x.restingHR = series(60).merging([today: 60]) { a, _ in a }
+        x.restingHR = series(60); x.morningRestingHR = 60
         x.sleepHours = 7.2; x.deepRemHours = 2.6; x.efficiency = 0.9
         let r = try XCTUnwrap(Readiness.compute(x, today: today))
         XCTAssertEqual(r.missing, ["HRV"])
@@ -49,14 +58,14 @@ final class ReadinessTests: XCTestCase {
 
     func testShortBaselineIsCalibrating() throws {
         var x = Readiness.Inputs()
-        x.hrv = series(50, days: 4...8).merging([today: 50]) { a, _ in a }
+        x.hrv = series(50, days: 4...8).merging([today.adding(-1): 50]) { a, _ in a }
         XCTAssertTrue(try XCTUnwrap(Readiness.compute(x, today: today)).calibrating)
     }
 
     func testHeavyRecentLoadLowersLoadFactor() throws {
         var x = Readiness.Inputs()
         for d in 3..<28 where d % 3 == 0 { x.load[today.adding(-d)] = 60 }   // ~60 min every 3rd day
-        x.load[today] = 90; x.load[today.adding(-1)] = 90; x.load[today.adding(-2)] = 90
+        x.load[today.adding(-1)] = 90; x.load[today.adding(-2)] = 90; x.load[today.adding(-3)] = 90
         let f = try XCTUnwrap(Readiness.compute(x, today: today)?.factors.first { $0.name == "Training load" })
         XCTAssertEqual(f.score, 0)
     }
