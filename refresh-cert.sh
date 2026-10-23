@@ -195,23 +195,28 @@ xcrun devicectl device process launch --device "$DEVICE_ID" "$BUNDLE_ID" >/dev/n
   && echo "    launched ✓" || echo "    (couldn't auto-launch — open Fit Log manually to confirm)"
 
 # ---- Fit Log N (native SwiftUI app, side by side) ----------------------------
-# Same commit, its own free profile (xcodebuild mints/renews it). Best-effort: a
+# Same commit, its own free profiles (xcodebuild mints/renews them — app + widget). Built for
+# the connected iPhone: a free team can only mint a profile for a device it has seen. Best-effort: a
 # failure here is reported but never changes the exit code for the main app.
 NATIVE_BUNDLE_ID="${NATIVE_BUNDLE_ID:-com.mlawrence.fitlog}"
+# The app and its widget extension each have a profile; renew them together so the widget
+# never expires before the app.
+native_id() { local id="$1"; [[ "$id" == *".$NATIVE_BUNDLE_ID" || "$id" == *".$NATIVE_BUNDLE_ID.widget" ]]; }
 NATIVE_DIR="$BUILD_DIR/native/FitLog"
-native_expiry() {      # newest profile expiry (epoch) for the native bundle; 0 if none
-  local best=0 p exp e dir
+native_expiry() {      # soonest expiry (epoch) across the app + widget profiles; 0 if either is missing
+  local app=0 widget=0 p exp e dir id
   for dir in "${PROFILE_DIRS[@]}"; do
     [ -d "$dir" ] || continue
     while IFS= read -r p; do
       [ -n "$p" ] || continue
-      [[ "$(appid_of "$p")" == *".$NATIVE_BUNDLE_ID" ]] || continue
+      id="$(appid_of "$p")"; native_id "$id" || continue
       exp="$(expiry_of "$p")"; [ -n "$exp" ] || continue
       e=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$exp" "+%s" 2>/dev/null || echo 0)
-      [ "$e" -gt "$best" ] && best=$e
+      if [[ "$id" == *".widget" ]]; then [ "$e" -gt "$widget" ] && widget=$e; else [ "$e" -gt "$app" ] && app=$e; fi
     done < <(find "$dir" -name '*.mobileprovision' 2>/dev/null)
   done
-  echo "$best"
+  # Before the widget existed only the app profile mattered.
+  if [ -f "$NATIVE_DIR/FitLogWidget/FitLogWidget.swift" ]; then [ "$app" -lt "$widget" ] && echo "$app" || echo "$widget"; else echo "$app"; fi
 }
 ship_native() {
   [ -f "$NATIVE_DIR/project.yml" ] || return 0          # commit predates the native app
@@ -226,14 +231,14 @@ ship_native() {
       [ -d "$dir" ] || continue
       while IFS= read -r p; do
         [ -n "$p" ] || continue
-        [[ "$(appid_of "$p")" == *".$NATIVE_BUNDLE_ID" ]] || continue
+        native_id "$(appid_of "$p")" || continue
         mkdir -p "$backup/$(basename "$dir")" && mv "$p" "$backup/$(basename "$dir")/"
       done < <(find "$dir" -name '*.mobileprovision' 2>/dev/null)
     done
   fi
   if ! ( cd "$NATIVE_DIR" && xcodegen generate -q \
          && xcodebuild -project FitLog.xcodeproj -scheme FitLog -configuration Release \
-              -destination 'generic/platform=iOS' -derivedDataPath build -allowProvisioningUpdates build \
+              -destination "id=$DEVICE_ID" -derivedDataPath build -allowProvisioningUpdates build \
               >/tmp/refresh-cert-native.log 2>&1 ); then
     if [ -n "$backup" ]; then
       for dir in "${PROFILE_DIRS[@]}"; do

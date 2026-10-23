@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import WidgetKit
 
 /// App data facade for the views: typed rows from RowStore (refreshed after every sync or edit),
 /// live Health energy overlaid for the energy math, and sync status.
@@ -340,6 +341,7 @@ final class Store: ObservableObject {
         }
         x.load = Readiness.load(sessions: sessions, feedback: feedback)
         readiness = Readiness.compute(x, today: .today)
+        publishWidget()
     }
 
     var todaysRecovery: RecoveryEntry? { recovery.first { $0.date == .today } }
@@ -450,5 +452,22 @@ final class Store: ObservableObject {
 
     func meals(on day: Day) -> [MealEntry] { mealsByDay[day] ?? [] }
     func drinks(on day: Day) -> [DrinkEntry] { drinksByDay[day] ?? [] }
-    private func rebuildEnergy() { energy = EnergyHistory(logs: health.overlay(logs), body: body, sessions: sessions) }
+    private func rebuildEnergy() {
+        energy = EnergyHistory(logs: health.overlay(logs), body: body, sessions: sessions)
+        publishWidget()
+    }
+
+    /// Hand the widgets today's numbers (only reloading them when something actually changed).
+    func publishWidget() {
+        let today = Day.today
+        let kin = caloriesByDay[today] ?? 0
+        let snap = WidgetSnapshot(updatedAt: Date(), day: WidgetSnapshot.today(), readiness: readiness?.score,
+                                  level: readiness?.level, advice: readiness?.advice, caloriesIn: kin,
+                                  projectedOut: energy.out(today)?.kcal,
+                                  avg7Net: energy.balance(today, 7, caloriesIn: caloriesByDay)?.avgNet)
+        var old = WidgetSnapshot.load(); old?.updatedAt = snap.updatedAt
+        guard old != snap else { return }
+        snap.save()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
 }
