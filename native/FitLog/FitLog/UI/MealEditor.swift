@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// Add or edit a meal. With items, the totals are their sum; without, totals are typed directly.
@@ -23,7 +24,8 @@ struct MealEditor: View {
                     DatePicker("Time", selection: $draft.time)
                     TextField("Portion note (optional)", text: $draft.portionNote)
                 }
-                ItemsSection(items: $draft.items, base: { draft.baseItem }, onChange: { draft.setTotals() })
+                ItemsSection(items: $draft.items, base: { draft.baseItem }, onChange: { draft.setTotals() },
+                             onLabel: { f in if draft.description.isEmpty, let d = f.description { draft.description = d } })
                 MacrosSection(macros: $draft.macros, locked: !draft.items.isEmpty)
                 Section("How full?") {
                     Picker("Fullness", selection: $draft.satiety) {
@@ -76,7 +78,9 @@ struct DrinkEditor: View {
                         LabeledContent("Sugar cubes / tsp", value: "\(draft.sugarCount ?? 0)")
                     }
                 }
-                ItemsSection(items: $draft.items, base: { draft.baseItem }, onChange: { draft.setTotals() })
+                ItemsSection(items: $draft.items, base: { draft.baseItem }, onChange: { draft.setTotals() },
+                             servings: { AIClient.servings(drankOunces: draft.ounces, servingSize: $0.servingSize) },
+                             onLabel: { f in if draft.description.isEmpty, let d = f.description { draft.description = d } })
                 MacrosSection(macros: $draft.macros, locked: !draft.items.isEmpty)
                 if draft.id != nil {
                     Section { Button("Delete drink", role: .destructive) { confirmDelete = true } }
@@ -128,8 +132,15 @@ struct ItemsSection: View {
     @Binding var items: [MealItem]
     let base: () -> MealItem?
     let onChange: () -> Void
+    /// Servings to log for a scanned label (drinks: ounces drunk ÷ label serving); default 1.
+    var servings: (AIClient.LabelFacts) -> Double = { _ in 1 }
+    var onLabel: (AIClient.LabelFacts) -> Void = { _ in }
     @State private var adding = ""
     @State private var editing: MealItem?
+    @State private var showCamera = false
+    @State private var photo: PhotosPickerItem?
+    @State private var scanning = false
+    @State private var scanMessage: String?
 
     var body: some View {
         Section {
@@ -150,6 +161,16 @@ struct ItemsSection: View {
                 TextField("Add an item (e.g. whole milk)", text: $adding).submitLabel(.done).onSubmit(add)
                 Button("Add", action: add).disabled(adding.trimmingCharacters(in: .whitespaces).isEmpty)
             }
+            HStack {
+                Button { showCamera = true } label: { Label("Scan label", systemImage: "camera") }
+                    .disabled(scanning || !UIImagePickerController.isSourceTypeAvailable(.camera))
+                Spacer()
+                PhotosPicker(selection: $photo, matching: .images) { Label("Photo", systemImage: "photo") }
+                    .disabled(scanning)
+            }
+            .buttonStyle(.borderless)
+            if scanning { HStack { ProgressView(); Text("Reading label…").foregroundStyle(.secondary) } }
+            if let m = scanMessage { Text(m).font(.footnote).foregroundStyle(.secondary) }
             let sug = store.library.suggest(adding)
             if !sug.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -165,10 +186,40 @@ struct ItemsSection: View {
         } footer: {
             if !items.isEmpty { Text("Totals below are the sum of these items.") }
         }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { image in Task { await scan(image) } }.ignoresSafeArea()
+        }
+        .onChange(of: photo) { _, item in
+            guard let item else { return }
+            Task {
+                photo = nil
+                if let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) { await scan(img) }
+            }
+        }
         .sheet(item: $editing) { it in
             ItemEditor(item: it) { updated in
                 if let i = items.firstIndex(where: { $0.id == updated.id }) { items[i] = updated; onChange() }
             }
+        }
+    }
+
+    private func scan(_ image: UIImage) async {
+        scanning = true; scanMessage = nil
+        defer { scanning = false }
+        do {
+            guard let f = try await store.ai.readLabel(image, prompt: store.promptOverride("read_label")) else {
+                scanMessage = "Couldn't read a nutrition label from that photo."; return
+            }
+            let name = (f.description?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 } ?? "Item"
+            let item = f.macros.item(named: name, portion: servings(f))
+            if items.isEmpty, let b = base() { items.append(b) }
+            items.append(item)
+            onChange()
+            onLabel(f)
+            scanMessage = "Added \(name)" + (f.servingSize.map { " (label serving: \($0))" } ?? "") + " ✓"
+            editing = item   // review what was read; "Also update saved food" saves it to the library
+        } catch {
+            scanMessage = "Scan failed: \(error.localizedDescription)"
         }
     }
 
@@ -271,5 +322,30 @@ struct OptionalIntField: View {
             TextField("—", value: $value, format: .number)
                 .keyboardType(.numberPad).multilineTextAlignment(.trailing).monospacedDigit()
         }
+    }
+}
+
+/// The system camera, returning one photo.
+struct CameraPicker: UIViewControllerRepresentable {
+    let picked: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let c = UIImagePickerController()
+        c.sourceType = .camera
+        c.delegate = context.coordinator
+        return c
+    }
+    func updateUIViewController(_ vc: UIImagePickerController, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraPicker
+        init(_ p: CameraPicker) { parent = p }
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let img = info[.originalImage] as? UIImage { parent.picked(img) }
+            parent.dismiss()
+        }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }

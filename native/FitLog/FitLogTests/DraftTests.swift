@@ -54,3 +54,20 @@ final class ChangedFieldTests: XCTestCase {
         XCTAssertTrue(Store.same(nil, .null, key: "portionNote"))
     }
 }
+
+final class AIParsingTests: XCTestCase {
+    func testParsesFencedJsonAndLenientNumbers() {
+        let obj = AIClient.parseObject("```json\n{\"calories\":\"120\",\"proteinG\":\"12g\",\"fatG\":3.5,\"sodiumMg\":null}\n```")
+        XCTAssertEqual(AIClient.int(obj?["calories"]), 120)
+        XCTAssertEqual(AIClient.num(obj?["proteinG"]), 12)
+        XCTAssertEqual(AIClient.num(obj?["fatG"]), 3.5)
+        XCTAssertNil(AIClient.int(obj?["sodiumMg"]))
+    }
+
+    func testDrinkServingsFromLabel() {
+        XCTAssertEqual(AIClient.servings(drankOunces: 16, servingSize: "8 fl oz (240mL)"), 2)
+        XCTAssertEqual(AIClient.servings(drankOunces: 12, servingSize: "355 mL"), 1)   // 12 ÷ 12.0
+        XCTAssertEqual(AIClient.servings(drankOunces: nil, servingSize: "8 fl oz"), 1)
+        XCTAssertEqual(AIClient.servings(drankOunces: 10, servingSize: "1 scoop"), 1)
+    }
+}

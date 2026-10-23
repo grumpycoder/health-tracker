@@ -36,6 +36,7 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_NSHealthShareUsageDescription: "Fit Log reads resting and active energy to estimate calories out."
         INFOPLIST_KEY_NSHealthUpdateUsageDescription: "Fit Log can save workouts and weight to Apple Health."
+        INFOPLIST_KEY_NSCameraUsageDescription: "Fit Log uses the camera to read nutrition labels."
   FitLogTests:
     type: bundle.unit-test
     platform: iOS

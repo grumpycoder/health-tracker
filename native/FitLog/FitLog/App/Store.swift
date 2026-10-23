@@ -22,12 +22,14 @@ final class Store: ObservableObject {
     let rows: RowStore
     let sync: SyncEngine
     let health: HealthService
+    let ai: AIClient
     private var bag: Set<AnyCancellable> = []
 
     init(auth: Auth) {
         do { rows = try RowStore.onDisk() } catch { fatalError("Local database failed to open: \(error)") }
         sync = SyncEngine(store: rows, auth: auth)
         health = HealthService()
+        ai = AIClient(auth: auth)
         sync.onChange = { [weak self] in self?.reload() }
         // Views observe Store; forward the nested objects' changes (sync status, Health data).
         sync.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &bag)
@@ -104,6 +106,14 @@ final class Store: ObservableObject {
     func drink(_ id: UUID) -> DrinkDraft? {
         let key = id.uuidString.lowercased()
         return (try? rows.row("DrinkEntry", key)).flatMap { $0 }.map { DrinkDraft(id: key, row: $0) }
+    }
+
+    /// The user's synced override for a prompt key (Settings → prompts in the other apps), if any.
+    func promptOverride(_ key: String) -> String? {
+        (try? rows.rows("PromptTemplate"))?.first {
+            if case .bool(true) = $0["isDeleted"] { return false }
+            return $0.string("promptKey") == key && !($0.string("text") ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }?.string("text")
     }
 
     func save(_ d: MealDraft) { upsert("MealEntry", d.id, d.row) }
