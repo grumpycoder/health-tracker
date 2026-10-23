@@ -3,12 +3,21 @@ import SwiftUI
 struct TodayView: View {
     @EnvironmentObject private var store: Store
     @EnvironmentObject private var auth: Auth
+    @State private var editor: EditorTarget?
 
     var body: some View {
         NavigationStack {
             let day = Day.today
             let meals = store.meals(on: day), drinks = store.drinks(on: day)
             List {
+                Section {
+                    HStack(spacing: 10) {
+                        quick("Meal", "fork.knife") { var d = MealDraft(); d.time = Date(); editor = .meal(d) }
+                        quick("Drink", "cup.and.saucer") { editor = .drink(DrinkDraft()) }
+                        quick("+16 oz water", "drop.fill") { store.logWater(16) }
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                } header: { Text("Log") }
                 Section { ReadinessCard() } header: { Text("Readiness") }
                 Section {
                     EnergyCard(day: day, caloriesIn: Nutrition.calories(meals, drinks))
@@ -20,8 +29,25 @@ struct TodayView: View {
             .navigationTitle(Date().formatted(.dateTime.weekday(.wide).month().day()))
             .toolbar { NavigationLink { AccountView() } label: { Image(systemName: "person.crop.circle") }.accessibilityLabel("Account & sync") }
             .refreshable { await store.refresh(auth: auth) }
+            .sheet(item: $editor) { t in
+                switch t {
+                case .meal(let d): MealEditor(draft: d)
+                case .drink(let d): DrinkEditor(draft: d)
+                }
+            }
         }
     }
+}
+
+private func quick(_ title: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+        VStack(spacing: 4) {
+            Image(systemName: icon).font(.title3)
+            Text(title).font(.caption).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, minHeight: 52)
+    }
+    .buttonStyle(.bordered)
 }
 
 /// In / out / budget for the day, then one card per rolling window. Grids collapse to stacked

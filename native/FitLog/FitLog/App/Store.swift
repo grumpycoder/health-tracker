@@ -169,6 +169,8 @@ final class Store: ObservableObject {
         default: return o == new
         }
     }
+    /// Quick-add a water drink (same shape as the other apps' quick-add: a "Water" DrinkEntry).
+    func logWater(_ oz: Int) { write { try rows.insert("DrinkEntry", ["time": Wire.local(Date()), "description": .string("Water"), "ounces": .i(oz)]) } }
     func deleteMeal(_ id: UUID) { write { try rows.delete("MealEntry", id.uuidString.lowercased()) } }
     func deleteDrink(_ id: UUID) { write { try rows.delete("DrinkEntry", id.uuidString.lowercased()) } }
 

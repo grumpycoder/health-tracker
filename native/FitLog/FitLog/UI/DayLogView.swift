@@ -42,18 +42,18 @@ struct DayLogView: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // Add sits top-left: a bottom-bar item is hidden behind the tab bar on iOS 26+.
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { day = day.adding(-1) } label: { Image(systemName: "chevron.left") }
-                        .accessibilityLabel("Previous day")
-                }
-                ToolbarItem(placement: .bottomBar) {
                     Menu {
                         Button { editor = .meal(newMeal()) } label: { Label("Meal", systemImage: "fork.knife") }
                         Button { editor = .drink(newDrink()) } label: { Label("Drink", systemImage: "cup.and.saucer") }
-                    } label: { Label("Add", systemImage: "plus.circle.fill").labelStyle(.titleAndIcon).font(.headline) }
+                    } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("Add meal or drink")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack {
+                        Button { day = day.adding(-1) } label: { Image(systemName: "chevron.left") }
+                            .accessibilityLabel("Previous day")
                         if day != .today { Button("Today") { day = .today } }
                         Button { day = day.adding(1) } label: { Image(systemName: "chevron.right") }
                             .disabled(day >= .today).accessibilityLabel("Next day")
