@@ -12,6 +12,10 @@
 # ahead of the server loses data on sync); then it reinstalls the last build it
 # shipped instead, keeping the signing profile fresh.
 #
+# It then builds and installs Fit Log N (native/FitLog, the SwiftUI app) from the same
+# commit, renewing its own profile the same way. That part is best-effort and never
+# changes the exit code below.
+#
 # Exit codes (used by the launchd wrapper to decide whether to notify):
 #   10 = minted a fresh profile AND installed (the weekly renewal)
 #    0 = installed, no mint needed (routine heal) — silent
@@ -189,6 +193,67 @@ mkdir -p "$(dirname "$STATE_FILE")" && echo "$SHIP_COMMIT $need" > "$STATE_FILE"
 
 xcrun devicectl device process launch --device "$DEVICE_ID" "$BUNDLE_ID" >/dev/null 2>&1 \
   && echo "    launched ✓" || echo "    (couldn't auto-launch — open Fit Log manually to confirm)"
+
+# ---- Fit Log N (native SwiftUI app, side by side) ----------------------------
+# Same commit, its own free profile (xcodebuild mints/renews it). Best-effort: a
+# failure here is reported but never changes the exit code for the main app.
+NATIVE_BUNDLE_ID="${NATIVE_BUNDLE_ID:-com.mlawrence.fitlog}"
+NATIVE_DIR="$BUILD_DIR/native/FitLog"
+native_expiry() {      # newest profile expiry (epoch) for the native bundle; 0 if none
+  local best=0 p exp e dir
+  for dir in "${PROFILE_DIRS[@]}"; do
+    [ -d "$dir" ] || continue
+    while IFS= read -r p; do
+      [ -n "$p" ] || continue
+      [[ "$(appid_of "$p")" == *".$NATIVE_BUNDLE_ID" ]] || continue
+      exp="$(expiry_of "$p")"; [ -n "$exp" ] || continue
+      e=$(date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$exp" "+%s" 2>/dev/null || echo 0)
+      [ "$e" -gt "$best" ] && best=$e
+    done < <(find "$dir" -name '*.mobileprovision' 2>/dev/null)
+  done
+  echo "$best"
+}
+ship_native() {
+  [ -f "$NATIVE_DIR/project.yml" ] || return 0          # commit predates the native app
+  command -v xcodegen >/dev/null || { echo "!! Fit Log N skipped — xcodegen not installed (brew install xcodegen)."; return 1; }
+  echo "==> Fit Log N: building…"
+  local nexp backup=""
+  nexp="$(native_expiry)"
+  if [ "$FORCE" = 1 ] || [ "$nexp" -le "$(( now + RENEW_WINDOW_DAYS*86400 ))" ]; then
+    echo "    profile missing or within $RENEW_WINDOW_DAYS days of expiry — minting fresh"
+    backup="$(mktemp -d)"
+    for dir in "${PROFILE_DIRS[@]}"; do
+      [ -d "$dir" ] || continue
+      while IFS= read -r p; do
+        [ -n "$p" ] || continue
+        [[ "$(appid_of "$p")" == *".$NATIVE_BUNDLE_ID" ]] || continue
+        mkdir -p "$backup/$(basename "$dir")" && mv "$p" "$backup/$(basename "$dir")/"
+      done < <(find "$dir" -name '*.mobileprovision' 2>/dev/null)
+    done
+  fi
+  if ! ( cd "$NATIVE_DIR" && xcodegen generate -q \
+         && xcodebuild -project FitLog.xcodeproj -scheme FitLog -configuration Release \
+              -destination 'generic/platform=iOS' -derivedDataPath build -allowProvisioningUpdates build \
+              >/tmp/refresh-cert-native.log 2>&1 ); then
+    if [ -n "$backup" ]; then
+      for dir in "${PROFILE_DIRS[@]}"; do
+        [ -d "$backup/$(basename "$dir")" ] && mv "$backup/$(basename "$dir")"/*.mobileprovision "$dir/" 2>/dev/null
+      done
+    fi
+    echo "!! Fit Log N build failed — see /tmp/refresh-cert-native.log"; tail -5 /tmp/refresh-cert-native.log
+    return 1
+  fi
+  [ -n "$backup" ] && rm -rf "$backup"
+  local app="$NATIVE_DIR/build/Build/Products/Release-iphoneos/FitLog.app" out i
+  for i in 1 2 3 4; do
+    out="$(xcrun devicectl device install app --device "$DEVICE_ID" "$app" 2>&1 || true)"
+    if grep -q "launchServicesIdentifier" <<<"$out"; then echo "    Fit Log N installed ✓"; return 0; fi
+    sleep 5
+  done
+  echo "!! Fit Log N install failed — will retry on the next run."
+  return 1
+}
+ship_native || true
 if [ "$HELD_BACK" = 1 ]; then echo "==> Done — installed the previous build; HEAD is waiting on a server migration."; exit 5; fi
 if [ "$MINTED" = 1 ]; then echo "==> Done — profile refreshed for the week."; exit 10; fi
 echo "==> Done — app up to date (no mint needed)."; exit 0
