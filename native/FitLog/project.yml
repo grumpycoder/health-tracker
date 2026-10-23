@@ -28,6 +28,12 @@ targets:
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access: []
         com.apple.security.application-groups: [group.com.mlawrence.fitlog]
+    info:
+      path: FitLog/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: com.mlawrence.fitlog
+            CFBundleURLSchemes: [fitlogn]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.mlawrence.fitlog

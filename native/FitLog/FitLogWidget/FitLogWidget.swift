@@ -1,5 +1,8 @@
+import AppIntents
 import SwiftUI
 import WidgetKit
+
+let addMealURL = URL(string: "fitlogn://add-meal")!
 
 struct Entry: TimelineEntry {
     let date: Date
@@ -39,6 +42,7 @@ struct FitLogWidgetView: View {
             case .accessoryInline: Text(inline(s))
             case .accessoryRectangular: rectangular(s)
             case .systemMedium: medium(s)
+            case .systemLarge: large(s)
             default: small(s)
             }
         } else {
@@ -74,32 +78,63 @@ struct FitLogWidgetView: View {
             Text(l).font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .widgetURL(addMealURL)
     }
 
+    /// Budget (tap → Add Meal in the app) plus quick-log buttons.
+    /// Budget (tap → Add Meal in the app) plus quick-log buttons.
     private func medium(_ s: WidgetSnapshot) -> some View {
-        let (v, l, c) = budgetLine(s)
-        return HStack(spacing: 14) {
-            VStack(spacing: 6) {
-                gauge(s).frame(width: 56, height: 56)
-                Text(s.level ?? "—").font(.caption.bold())
-                if let a = s.advice { Text(a).font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2) }
+        VStack(alignment: .leading, spacing: 8) {
+            Link(destination: addMealURL) { budgetHeader(s) }
+            quickRow(s, count: 4)
+        }
+    }
+
+    /// Budget, goal bars and quick-log buttons — "where am I today" without opening the app.
+    private func large(_ s: WidgetSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Link(destination: addMealURL) { budgetHeader(s) }
+            if let n = s.avg7Net {
+                Text("7-day: \(n > 0 ? "+" : "")\(n.formatted())/day \(n > 0 ? "surplus" : "deficit")")
+                    .font(.caption).foregroundStyle(n > 0 ? .orange : .green)
             }
-            .frame(width: 96)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(spacing: 5) { ForEach(s.bars.prefix(8)) { BarRow(bar: $0) } }
+            Spacer(minLength: 0)
+            quickRow(s, count: 4)
+        }
+    }
+
+    private func budgetHeader(_ s: WidgetSnapshot) -> some View {
+        let (v, l, c) = budgetLine(s)
+        return HStack(alignment: .center, spacing: 10) {
+            gauge(s).frame(width: 44, height: 44)
+            VStack(alignment: .leading, spacing: 1) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(v).font(.title.bold()).foregroundStyle(c).monospacedDigit().minimumScaleFactor(0.6)
+                    Text(v).font(.title2.bold()).foregroundStyle(c).monospacedDigit().minimumScaleFactor(0.6)
                     Text(l).font(.caption).foregroundStyle(.secondary)
                 }
                 Text("\(s.caloriesIn.formatted()) in" + (s.projectedOut.map { " · \($0.formatted()) projected out" } ?? ""))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
-                if let n = s.avg7Net {
-                    Text("7-day: \(n > 0 ? "+" : "")\(n.formatted())/day \(n > 0 ? "surplus" : "deficit")")
-                        .font(.caption).foregroundStyle(n > 0 ? .orange : .green).lineLimit(1).minimumScaleFactor(0.7)
-                }
-                Spacer(minLength: 0)
-                Text("Updated \(s.updatedAt.formatted(date: .omitted, time: .shortened))").font(.caption2).foregroundStyle(.tertiary)
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
             }
             Spacer(minLength: 0)
+            Image(systemName: "plus.circle.fill").font(.title3).foregroundStyle(.tint)
+        }
+    }
+
+    private func quickRow(_ s: WidgetSnapshot, count: Int) -> some View {
+        HStack(spacing: 6) {
+            ForEach(s.quick.prefix(count)) { q in
+                Button(intent: QuickLogIntent(itemID: q.id)) {
+                    VStack(spacing: 2) {
+                        Image(systemName: q.icon).font(.caption)
+                        Text(q.id == "water" ? "+16 oz" : q.title).font(.caption2).lineLimit(2).multilineTextAlignment(.center)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 36)
+                }
+                .buttonStyle(.bordered)
+                .tint(q.id == "water" ? .cyan : .accentColor)
+            }
         }
     }
 
@@ -131,7 +166,21 @@ struct FitLogWidget: Widget {
             FitLogWidgetView(entry: entry).containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Fit Log today")
-        .description("Readiness and your remaining calorie budget.")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline])
+        .description("Readiness, calories left, goal bars and one-tap logging.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryCircular, .accessoryRectangular, .accessoryInline])
+    }
+}
+
+struct BarRow: View {
+    let bar: WidgetSnapshot.Bar
+    var body: some View {
+        let over = bar.value > bar.high, under = !bar.ceiling && bar.value < bar.low
+        HStack(spacing: 6) {
+            Text(bar.label).font(.caption2).frame(width: 64, alignment: .leading).lineLimit(1).minimumScaleFactor(0.7)
+            ProgressView(value: min(bar.value, bar.high), total: max(bar.high, 1))
+                .tint(over ? .orange : under ? .blue : .green)
+            Text("\(Int(bar.value.rounded()))\(bar.unit == "" ? "" : " \(bar.unit)")").font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary).frame(width: 58, alignment: .trailing).lineLimit(1).minimumScaleFactor(0.7)
+        }
     }
 }

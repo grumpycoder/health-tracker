@@ -103,3 +103,18 @@ final class RepeatLastTests: XCTestCase {
         XCTAssertEqual(m.row["tags"], .string("High fiber"))
     }
 }
+
+final class WidgetSnapshotTests: XCTestCase {
+    func testQuickLogUpdatesCaloriesBudgetAndBars() {
+        var s = WidgetSnapshot(updatedAt: Date(), day: WidgetSnapshot.today(), readiness: 70, level: "Moderate", advice: nil,
+                               caloriesIn: 1000, projectedOut: 2400, avg7Net: nil,
+                               bars: [.init(label: "Protein", value: 80, low: 150, high: 200, ceiling: false, unit: "g", key: "proteinG"),
+                                      .init(label: "Fluids", value: 32, low: 64, high: 100, ceiling: false, unit: "oz", key: "ounces")])
+        let shake = WidgetSnapshot.QuickItem(id: "drink:shake", title: "Protein shake", kind: "drink", icon: "cup.and.saucer.fill",
+                                             row: Data(), macros: ["calories": 270, "proteinG": 40, "ounces": 14])
+        s.apply(shake)
+        XCTAssertEqual(s.caloriesIn, 1270)
+        XCTAssertEqual(s.budget, 1130)
+        XCTAssertEqual(s.bars.map(\.value), [120, 46])
+    }
+}

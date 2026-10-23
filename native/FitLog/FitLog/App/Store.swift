@@ -52,6 +52,7 @@ final class Store: ObservableObject {
     var lastSync: Date? { sync.lastSync }
 
     func refresh(auth: Auth) async {
+        drainQuickLogs()
         await sync.sync()
         await health.load()
         error = sync.error
@@ -460,14 +461,88 @@ final class Store: ObservableObject {
     /// Hand the widgets today's numbers (only reloading them when something actually changed).
     func publishWidget() {
         let today = Day.today
-        let kin = caloriesByDay[today] ?? 0
         let snap = WidgetSnapshot(updatedAt: Date(), day: WidgetSnapshot.today(), readiness: readiness?.score,
-                                  level: readiness?.level, advice: readiness?.advice, caloriesIn: kin,
+                                  level: readiness?.level, advice: readiness?.advice, caloriesIn: caloriesByDay[today] ?? 0,
                                   projectedOut: energy.out(today)?.kcal,
-                                  avg7Net: energy.balance(today, 7, caloriesIn: caloriesByDay)?.avgNet)
+                                  avg7Net: energy.balance(today, 7, caloriesIn: caloriesByDay)?.avgNet,
+                                  bars: widgetBars(), quick: quickItems())
         var old = WidgetSnapshot.load(); old?.updatedAt = snap.updatedAt
         guard old != snap else { return }
         snap.save()
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Today's goal bars, same targets as the Today screen.
+    private func widgetBars() -> [WidgetSnapshot.Bar] {
+        guard let g = goals else { return [] }
+        let m = meals(on: .today), d = drinks(on: .today)
+        let active = energy.log(.today)?.isActiveDay ?? false
+        typealias B = WidgetSnapshot.Bar
+        var bars = [
+            B(label: "Calories", value: Double(Nutrition.calories(m, d)), low: Double(active ? g.caloriesActiveMin : g.caloriesRestMin),
+              high: Double(active ? g.caloriesActiveMax : g.caloriesRestMax), ceiling: false, unit: "", key: "calories"),
+            B(label: "Protein", value: Nutrition.protein(m, d), low: Double(g.proteinMin), high: Double(g.proteinMax), ceiling: false, unit: "g", key: "proteinG"),
+            B(label: "Carbs", value: Nutrition.carbs(m, d), low: Double(active ? g.carbsActiveMin : g.carbsRestMin),
+              high: Double(active ? g.carbsActiveMax : g.carbsRestMax), ceiling: false, unit: "g", key: "carbsG"),
+            B(label: "Fat", value: Nutrition.fat(m, d), low: Double(g.fatMin), high: Double(g.fatMax), ceiling: false, unit: "g", key: "fatG"),
+            B(label: "Fiber", value: Nutrition.fiber(m, d), low: Double(g.fiberMin), high: Double(g.fiberMax), ceiling: false, unit: "g", key: "fiberG"),
+        ]
+        if let max = g.addedSugarMax, max > 0 {
+            bars.append(B(label: "Added sugar", value: Nutrition.addedSugar(m, d), low: 0, high: Double(max), ceiling: true, unit: "g", key: "addedSugarG"))
+        }
+        bars.append(B(label: "Sodium", value: Nutrition.sodium(m, d), low: 0, high: 2300, ceiling: true, unit: "mg", key: "sodiumMg"))
+        if let lo = active ? g.waterActiveMin : g.waterRestMin, let hi = active ? g.waterActiveMax : g.waterRestMax, hi > 0 {
+            bars.append(B(label: "Fluids", value: Double(Nutrition.fluidOz(d)), low: Double(lo), high: Double(hi), ceiling: false, unit: "oz", key: "ounces"))
+        }
+        return bars.filter { $0.high > 0 }
+    }
+
+    /// Water plus your three most-logged meals/drinks of the last 30 days, each as a full repeat
+    /// (items included) ready to insert.
+    private func quickItems() -> [WidgetSnapshot.QuickItem] {
+        func macros(_ m: Macros, ounces: Double? = nil, sugarCount: Int? = nil) -> [String: Double] {
+            var out: [String: Double] = [:]
+            out["calories"] = m.calories.map(Double.init); out["proteinG"] = m.proteinG; out["carbsG"] = m.carbsG
+            out["fatG"] = m.fatG; out["fiberG"] = m.fiberG; out["sodiumMg"] = m.sodiumMg.map(Double.init); out["ounces"] = ounces
+            out["addedSugarG"] = (m.addedSugarG ?? 0) + Double(sugarCount ?? 0) * 4
+            return out.compactMapValues { $0 }
+        }
+        let water: Row = ["description": .string("Water"), "ounces": .int(16)]
+        var items = [WidgetSnapshot.QuickItem(id: "water", title: "Water", kind: "drink", icon: "drop.fill",
+                                              row: (try? water.encoded()) ?? Data(), macros: ["ounces": 16])]
+        let since = Date().addingTimeInterval(-30 * 86_400)
+        var counts: [String: (n: Int, kind: String, name: String)] = [:]
+        for m in meals where m.time >= since {
+            let k = "meal:" + m.description.lowercased(); counts[k] = ((counts[k]?.n ?? 0) + 1, "meal", m.description)
+        }
+        for d in drinks where d.time >= since && d.description.caseInsensitiveCompare("Water") != .orderedSame {
+            let k = "drink:" + d.description.lowercased(); counts[k] = ((counts[k]?.n ?? 0) + 1, "drink", d.description)
+        }
+        for (key, c) in counts.sorted(by: { $0.value.n > $1.value.n }).prefix(3) where c.n >= 2 {
+            if c.kind == "meal" {
+                var dr = MealDraft(); dr.description = c.name; dr.repeatLast(c.name, from: library)
+                var row = dr.row; row.removeValue(forKey: "time"); row.removeValue(forKey: "mealType")
+                items.append(.init(id: key, title: c.name, kind: "meal", icon: "fork.knife", row: (try? row.encoded()) ?? Data(), macros: macros(dr.macros)))
+            } else {
+                var dr = DrinkDraft(); dr.description = c.name; dr.repeatLast(c.name, from: library)
+                var row = dr.row; row.removeValue(forKey: "time")
+                items.append(.init(id: key, title: c.name, kind: "drink", icon: "cup.and.saucer.fill", row: (try? row.encoded()) ?? Data(),
+                                   macros: macros(dr.macros, ounces: dr.ounces, sugarCount: dr.sugarCount)))
+            }
+        }
+        return items
+    }
+
+    /// Insert what was logged from the widget (time = when you tapped), then sync.
+    func drainQuickLogs() {
+        var any = false
+        WidgetSnapshot.drain { p in
+            var row = try Row.decode(p.row)
+            row["time"] = Wire.local(p.at)
+            if p.kind == "meal" { row["mealType"] = .int(Int64(MealType.forHour(p.at).rawValue)) }
+            _ = try rows.insert(p.kind == "meal" ? "MealEntry" : "DrinkEntry", row, now: p.at)
+            any = true
+        }
+        if any { write { } }   // reload + push like any other edit
     }
 }

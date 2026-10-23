@@ -4,6 +4,7 @@ struct TodayView: View {
     @EnvironmentObject private var store: Store
     @EnvironmentObject private var auth: Auth
     @State private var editor: EditorTarget?
+    @EnvironmentObject private var router: Router
 
     var body: some View {
         NavigationStack {
@@ -29,6 +30,11 @@ struct TodayView: View {
             .navigationTitle(Date().formatted(.dateTime.weekday(.wide).month().day()))
             .toolbar { NavigationLink { AccountView() } label: { Image(systemName: "person.crop.circle") }.accessibilityLabel("Account & sync") }
             .refreshable { await store.refresh(auth: auth) }
+            .onChange(of: router.addMeal, initial: true) { _, go in
+                guard go else { return }
+                router.addMeal = false
+                var d = MealDraft(); d.time = Date(); editor = .meal(d)
+            }
             .sheet(item: $editor) { t in
                 switch t {
                 case .meal(let d): MealEditor(draft: d)

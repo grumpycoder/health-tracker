@@ -6,6 +6,7 @@ struct FitLogApp: App {
     @StateObject private var auth: Auth
     @StateObject private var store: Store
     @StateObject private var workout: WorkoutController
+    @StateObject private var router = Router()
 
     init() {
         let a = Auth()
@@ -24,6 +25,8 @@ struct FitLogApp: App {
             .environmentObject(auth)
             .environmentObject(store)
             .environmentObject(workout)
+            .environmentObject(router)
+            .onOpenURL { router.open($0) }
             .task(id: auth.isSignedIn) {
                 guard auth.isSignedIn else { return }
                 await store.health.requestAccessAndLoad()
@@ -36,14 +39,26 @@ struct FitLogApp: App {
     }
 }
 
+/// Where a deep link (e.g. the widget's budget → fitlogn://add-meal) should take you.
+@MainActor
+final class Router: ObservableObject {
+    @Published var tab = 0
+    @Published var addMeal = false
+    func open(_ url: URL) {
+        guard url.scheme == "fitlogn" else { return }
+        if url.host == "add-meal" { tab = 0; addMeal = true }
+    }
+}
+
 struct RootView: View {
+    @EnvironmentObject private var router: Router
     var body: some View {
-        TabView {
-            TodayView().tabItem { Label("Today", systemImage: "house") }
-            DayLogView().tabItem { Label("Meals", systemImage: "fork.knife") }
-            WorkoutTab().tabItem { Label("Workout", systemImage: "figure.strengthtraining.traditional") }
-            BodyView().tabItem { Label("Body", systemImage: "scalemass") }
-            SleepView().tabItem { Label("Sleep", systemImage: "bed.double") }
+        TabView(selection: $router.tab) {
+            TodayView().tabItem { Label("Today", systemImage: "house") }.tag(0)
+            DayLogView().tabItem { Label("Meals", systemImage: "fork.knife") }.tag(1)
+            WorkoutTab().tabItem { Label("Workout", systemImage: "figure.strengthtraining.traditional") }.tag(2)
+            BodyView().tabItem { Label("Body", systemImage: "scalemass") }.tag(3)
+            SleepView().tabItem { Label("Sleep", systemImage: "bed.double") }.tag(4)
         }
     }
 }
