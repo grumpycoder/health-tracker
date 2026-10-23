@@ -13,11 +13,12 @@ final class ReadinessTests: XCTestCase {
         x.restingHR = series(60).merging([today: 60]) { a, _ in a }
         x.sleepHours = 7.5; x.deepRemHours = 3; x.efficiency = 0.92
         let r = try XCTUnwrap(Readiness.compute(x, today: today))
-        // HRV 50, RHR 50, sleep 100 → (50×.35 + 50×.20 + 100×.25) / .80 = 65.6
-        XCTAssertEqual(r.score, 66)
+        // At your norm = 75: HRV 75, RHR 75, sleep 100 → (75×.35 + 75×.20 + 100×.25) / .80 = 82.8
+        XCTAssertEqual(r.score, 83)
         XCTAssertFalse(r.calibrating)
-        XCTAssertEqual(r.recoveryRating, 7)
-        XCTAssertEqual(r.fatigueRating, 4)
+        XCTAssertEqual(r.recoveryRating, 8)
+        XCTAssertEqual(r.fatigueRating, 3)
+        XCTAssertTrue(r.missing.isEmpty)
     }
 
     func testLowHrvHighRestingHrPullsScoreDown() throws {
@@ -25,7 +26,16 @@ final class ReadinessTests: XCTestCase {
         x.hrv = series(50).merging([today: 40, today.adding(-1): 40, today.adding(-2): 40]) { a, _ in a }
         x.restingHR = series(60).merging([today: 66]) { a, _ in a }
         let r = try XCTUnwrap(Readiness.compute(x, today: today))
-        XCTAssertLessThan(r.score, 20)
+        XCTAssertLessThan(r.score, 40, "well below norm on both should still read low")
+    }
+
+    func testNoHrvScoresFromTheRestAndSaysSo() throws {
+        var x = Readiness.Inputs()
+        x.restingHR = series(60).merging([today: 60]) { a, _ in a }
+        x.sleepHours = 7.2; x.deepRemHours = 2.6; x.efficiency = 0.9
+        let r = try XCTUnwrap(Readiness.compute(x, today: today))
+        XCTAssertEqual(r.missing, ["HRV"])
+        XCTAssertGreaterThanOrEqual(r.score, 75, "a normal day without HRV reads as ready, not low")
     }
 
     func testFeverSignalCapsScore() throws {

@@ -19,6 +19,7 @@ struct ReadinessCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(r.label).font(.headline)
                         if r.calibrating { Text("Calibrating — baselines need ~2 weeks of Watch data").font(.caption).foregroundStyle(.secondary) }
+                        if !r.missing.isEmpty { Text("No \(r.missing.joined(separator: " or ")) data in Health — scored from the rest").font(.caption).foregroundStyle(.secondary) }
                     }
                 }
                 ForEach(r.flags, id: \.self) { f in

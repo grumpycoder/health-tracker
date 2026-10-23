@@ -16,6 +16,8 @@ struct Readiness: Equatable {
     let factors: [Factor]
     let flags: [String]
     let calibrating: Bool
+    /// Signals with no data in Health (e.g. HRV on a Watch/setup that doesn't record it).
+    var missing: [String] = []
 
     var label: String {
         switch score {
@@ -64,21 +66,24 @@ struct Readiness: Equatable {
             return p == 0 ? "at your norm" : "\(abs(p))% \(p > 0 ? "above" : "below") your norm"
         }
         func clamp(_ v: Double) -> Double { min(100, max(0, v)) }
+        // Baseline-relative signals: AT your norm = 75 (a normal day is a ready day), ±20 per SD.
+        func relative(_ z: Double) -> Double { clamp(75 + 20 * z) }
+        var missing: [String] = []
 
         // HRV: 3-day rolling vs baseline (single nights are noisy). Higher = better.
         let hb = baseline(x.hrv)
         if let r = recent(x.hrv, days: 3), hb.n >= 2, hb.mean > 0 {
             if hb.n < minBaselineDays { calibrating = true }
             let z = hb.sd > 0 ? (r - hb.mean) / hb.sd : 0
-            parts.append((Factor(name: "HRV", score: Int(clamp(50 + 25 * z).dotnetRounded), detail: "\(Int(r.dotnetRounded)) ms, \(pct(r, hb.mean))"), 0.35))
-        }
+            parts.append((Factor(name: "HRV", score: Int(relative(z).dotnetRounded), detail: "\(Int(r.dotnetRounded)) ms, \(pct(r, hb.mean))"), 0.35))
+        } else { missing.append("HRV") }
         // Resting HR: today vs baseline. Lower = better.
         let rb = baseline(x.restingHR)
         if let r = x.restingHR[today] ?? x.restingHR[today.adding(-1)], rb.n >= 2, rb.mean > 0 {
             if rb.n < minBaselineDays { calibrating = true }
             let z = rb.sd > 0 ? (r - rb.mean) / rb.sd : 0
-            parts.append((Factor(name: "Resting HR", score: Int(clamp(50 - 25 * z).dotnetRounded), detail: "\(Int(r.dotnetRounded)) bpm, \(pct(r, rb.mean))"), 0.20))
-        }
+            parts.append((Factor(name: "Resting HR", score: Int(relative(-z).dotnetRounded), detail: "\(Int(r.dotnetRounded)) bpm, \(pct(r, rb.mean))"), 0.20))
+        } else { missing.append("resting HR") }
         // Sleep: duration vs 7.5 h (70), deep+REM share vs 40% (15), efficiency vs 90% (15).
         if let h = x.sleepHours, h > 0 {
             let dur = min(1, h / 7.5) * 70
@@ -113,7 +118,7 @@ struct Readiness: Equatable {
         }
         if !flags.isEmpty { score = min(score, 40) }
 
-        return Readiness(score: score, factors: parts.map(\.0), flags: flags, calibrating: calibrating)
+        return Readiness(score: score, factors: parts.map(\.0), flags: flags, calibrating: calibrating, missing: missing)
     }
 
     /// Daily load: session minutes, weighted by how hard you rated it (Hard ×1.3, Very hard ×1.6).
