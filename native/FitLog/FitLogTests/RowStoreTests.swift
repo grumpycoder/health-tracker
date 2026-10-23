@@ -71,3 +71,13 @@ final class RowStoreTests: XCTestCase {
         XCTAssertTrue(again.contains("\"calories\":2200"), again)
     }
 }
+
+final class JSONFidelityTests: XCTestCase {
+    func testZeroAndOneStayNumbers_trueFalseStayBools() throws {
+        let row = try Row.decode(Data(#"{"mealType":1,"satiety":0,"isDeleted":false,"flag":true}"#.utf8))
+        XCTAssertEqual(row["mealType"], .int(1))
+        XCTAssertEqual(row["satiety"], .int(0))
+        XCTAssertEqual(row["isDeleted"], .bool(false))
+        XCTAssertEqual(row["flag"], .bool(true))
+    }
+}
