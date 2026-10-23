@@ -13,6 +13,7 @@ public class DailyLog : EntityBase
     /// the day is over; null = not available (no Health data, or day not yet recorded).</summary>
     public int? RestingEnergyKcal { get; set; }
     /// <summary>Apple Health active energy for the day, kcal (already includes workouts — the
-    /// Watch's, or this app's own estimate written with each session).</summary>
+    /// Watch's, or this app's own estimate written with each session). For today it's the
+    /// activity so far, refreshed whenever the app opens.</summary>
     public int? ActiveEnergyKcal { get; set; }
 }

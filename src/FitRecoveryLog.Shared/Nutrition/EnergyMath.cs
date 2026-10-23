@@ -5,7 +5,8 @@ namespace FitRecoveryLog.Data;
 /// BMR (Hume, else weight×10) × 1.25 light activity + workout burn at MET ~5.</summary>
 public static class EnergyMath
 {
-    public readonly record struct EnergyOut(int Kcal, bool FromHealth);
+    /// <param name="Live">Today's projection from Health: typical full-day resting + active so far.</param>
+    public readonly record struct EnergyOut(int Kcal, bool FromHealth, bool Live = false);
 
     public static EnergyOut? Out(DailyLog? day, DateOnly today, int? bmr, double? weightLbs, int workoutSeconds)
     {

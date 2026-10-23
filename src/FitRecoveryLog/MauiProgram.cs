@@ -123,9 +123,15 @@ public static class MauiProgram
 		builder.ConfigureLifecycleEvents(events =>
 			events.AddiOS(ios => ios.WillEnterForeground(app =>
 			{
-				var sync = IPlatformApplication.Current?.Services?.GetService<FitRecoveryLog.Infrastructure.Sync.CloudSyncService>();
-				if (sync is not null)
-					_ = Task.Run(() => sync.SyncAsync(allowInteractive: false));
+				var services = IPlatformApplication.Current?.Services;
+				var energy = services?.GetService<FitRecoveryLog.Services.HealthEnergyImport>();
+				var sync = services?.GetService<FitRecoveryLog.Infrastructure.Sync.CloudSyncService>();
+				_ = Task.Run(async () =>
+				{
+					// Today's Health activity first, so the sync carries it to the web.
+					if (energy is not null) { try { await energy.RunAsync(); } catch { } }
+					if (sync is not null) await sync.SyncAsync(allowInteractive: false);
+				});
 			})));
 #endif
 

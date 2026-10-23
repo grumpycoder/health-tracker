@@ -457,11 +457,11 @@
     [JSInvokable]
     public async Task OnAppResumed()
     {
-        if (_today == DateOnly.FromDateTime(DateTime.Now)) return; // same day, nothing to do
-        await LoadForToday();
+        if (_today != DateOnly.FromDateTime(DateTime.Now)) await LoadForToday();   // resumed after midnight
         if (Health.IsAvailable)
         {
             try { _steps = await Health.ReadStepsAsync(_today); } catch { }
+            // Today's activity so far (e.g. a walk) moves the projected burn and budget.
             try { await EnergyImport.RunAsync(); _energyVersion++; } catch { }
         }
         StateHasChanged();

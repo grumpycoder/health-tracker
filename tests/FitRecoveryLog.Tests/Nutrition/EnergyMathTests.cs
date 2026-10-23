@@ -103,3 +103,52 @@ public class EnergyBalanceTests
         });
     }
 }
+
+[TestFixture]
+public class EnergyProjectionTests
+{
+    private static readonly DateOnly Today = new(2026, 10, 22);
+
+    [Test]
+    public void Today_WithHealthActivity_UsesTypicalRestingPlusActiveSoFar_WithoutWorkoutBurn()
+    {
+        var logs = new[]
+        {
+            new DailyLog { Date = Today, ActiveEnergyKcal = 350 },
+            new DailyLog { Date = Today.AddDays(-1), RestingEnergyKcal = 1900, ActiveEnergyKcal = 600 },
+            new DailyLog { Date = Today.AddDays(-2), RestingEnergyKcal = 1800, ActiveEnergyKcal = 500 },
+        };
+        var body = new[] { new BodyMeasurement { Date = Today.AddDays(-30), BasalMetabolicRate = 1852, WeightLbs = 200 } };
+        var sessions = new[] { new WorkoutSession { Date = Today, TotalSeconds = 3600 } };
+        var h = new EnergyHistory(logs, body, sessions, Today);
+
+        Assert.That(h.For(Today), Is.EqualTo(new EnergyMath.EnergyOut(1850 + 350, true, Live: true)));
+    }
+
+    [Test]
+    public void Today_WithoutHealthRestingHistory_FallsBackToBmrForResting()
+    {
+        var logs = new[] { new DailyLog { Date = Today, ActiveEnergyKcal = 200 } };
+        var body = new[] { new BodyMeasurement { Date = Today.AddDays(-3), BasalMetabolicRate = 1852 } };
+        var h = new EnergyHistory(logs, body, [], Today);
+        Assert.That(h.For(Today), Is.EqualTo(new EnergyMath.EnergyOut(1852 + 200, true, Live: true)));
+    }
+
+    [Test]
+    public void PastDay_WithActivityOnly_IsNotTreatedAsCompleteHealthDay()
+    {
+        // Written as "today" yesterday, not yet re-read after midnight: no resting value.
+        var logs = new[] { new DailyLog { Date = Today.AddDays(-1), ActiveEnergyKcal = 300 } };
+        var body = new[] { new BodyMeasurement { Date = Today.AddDays(-3), BasalMetabolicRate = 1852 } };
+        var h = new EnergyHistory(logs, body, [], Today);
+        Assert.That(h.For(Today.AddDays(-1)), Is.EqualTo(new EnergyMath.EnergyOut(2315, false)));
+    }
+
+    [Test]
+    public void Today_WithoutHealthActivity_KeepsBmrEstimate()
+    {
+        var body = new[] { new BodyMeasurement { Date = Today.AddDays(-3), BasalMetabolicRate = 1852 } };
+        var h = new EnergyHistory([], body, [], Today);
+        Assert.That(h.For(Today), Is.EqualTo(new EnergyMath.EnergyOut(2315, false)));
+    }
+}

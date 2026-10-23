@@ -79,7 +79,7 @@ else
             {
                 var net = caloriesIn - d.Kcal;
                 var projected = date >= DateOnly.FromDateTime(DateTime.Now);   // day not over: out is a full-day estimate
-                <div class="muted" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em">This day · @(projected ? "projected full day" : d.FromHealth ? "Apple Health" : "estimated burn")</div>
+                <div class="muted" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em">This day · @(projected ? (d.Live ? "projected · Health activity so far" : "projected full day") : d.FromHealth ? "Apple Health" : "estimated burn")</div>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.4rem;margin:0.2rem 0 0.6rem">
                     @Stat(caloriesIn.ToString("N0"), "in", null)
                     @Stat(d.Kcal.ToString("N0"), projected ? "projected out" : "out", null)

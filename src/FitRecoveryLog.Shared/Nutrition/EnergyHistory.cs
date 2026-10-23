@@ -38,8 +38,29 @@ public sealed class EnergyHistory
             if (b.BasalMetabolicRate != null) bmr = b;
             if (b.WeightLbs != null) weight = b;
         }
+
+        // Today (not over yet) with Health activity so far: a full day of typical resting burn
+        // plus the active energy already recorded — so a walk raises today's budget as soon as
+        // Health logs it. Active energy already includes workouts, so none are added on top.
+        if (day >= _today && Log(day)?.ActiveEnergyKcal is { } activeSoFar)
+        {
+            var resting = TypicalResting(day)
+                ?? bmr?.BasalMetabolicRate
+                ?? (weight?.WeightLbs is { } w and > 0 ? (int)(w * 10) : null);
+            if (resting is { } rest) return new(rest + activeSoFar, true, Live: true);
+        }
+
         return EnergyMath.Out(Log(day), _today, bmr?.BasalMetabolicRate, weight?.WeightLbs,
             _workoutSeconds.GetValueOrDefault(day));
+    }
+
+    /// <summary>Average Health resting energy over the 7 days before <paramref name="day"/>
+    /// (days that have it); null if none.</summary>
+    private int? TypicalResting(DateOnly day)
+    {
+        var rests = Enumerable.Range(1, 7).Select(i => Log(day.AddDays(-i))?.RestingEnergyKcal)
+            .Where(r => r is > 0).Select(r => r!.Value).ToList();
+        return rests.Count == 0 ? null : (int)Math.Round(rests.Average());
     }
 
     /// <summary>Average calories out over the <paramref name="days"/> completed days ending on
