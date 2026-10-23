@@ -15,7 +15,7 @@ public sealed class CloudDbContext : AppDbContext
 {
     public CloudDbContext(DbContextOptions<CloudDbContext> options) : base(options) { }
 
-    protected override void StampTimestamps()
+    protected override bool StampTimestamps()
     {
         // Server owns the clock: every accepted insert/update gets a fresh server UTC
         // stamp so the cursor is monotonic in server-arrival order. Deletes are still
@@ -26,6 +26,6 @@ public sealed class CloudDbContext : AppDbContext
             if (entry.State is EntityState.Added or EntityState.Modified)
                 entry.Entity.UpdatedAt = now;
         }
-        base.StampTimestamps();
+        return base.StampTimestamps();
     }
 }
