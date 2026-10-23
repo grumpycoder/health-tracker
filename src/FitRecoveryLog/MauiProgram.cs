@@ -58,6 +58,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Sync.IAccessTokenProvider, FitRecoveryLog.Services.MsalAuthService>();
 		builder.Services.AddSingleton<FitRecoveryLog.Application.Sync.ISyncStateStore, FitRecoveryLog.Services.PreferencesSyncStateStore>();
 		builder.Services.AddSingleton<FitRecoveryLog.Infrastructure.Sync.CloudSyncService>();
+		builder.Services.AddSingleton<FitRecoveryLog.Services.SyncOnSave>();
 
 		// AI: provider-agnostic LLM transport (swap Gemini -> another LLM = swap this adapter)
 		// + the Keychain-backed key store. The key lives behind the port; callers never pass it.
@@ -188,6 +189,9 @@ public static class MauiProgram
 			}
 			catch { /* surfaced on manual sync in Settings */ }
 		});
+
+		// Push edits ~5s after they're saved (not just on launch/foreground).
+		app.Services.GetRequiredService<FitRecoveryLog.Services.SyncOnSave>().Start();
 
 		return app;
 	}

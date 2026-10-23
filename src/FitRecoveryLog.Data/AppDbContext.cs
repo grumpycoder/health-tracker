@@ -94,15 +94,24 @@ public class AppDbContext : DbContext
 
     public override int SaveChanges()
     {
-        StampTimestamps();
-        return base.SaveChanges();
+        var local = StampTimestamps();
+        var n = base.SaveChanges();
+        if (local) LocalChangesSaved?.Invoke();
+        return n;
     }
 
-    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken ct = default)
+    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken ct = default)
     {
-        StampTimestamps();
-        return base.SaveChangesAsync(acceptAllChangesOnSuccess, ct);
+        var local = StampTimestamps();
+        var n = await base.SaveChangesAsync(acceptAllChangesOnSuccess, ct);
+        if (local) LocalChangesSaved?.Invoke();
+        return n;
     }
+
+    /// <summary>Raised after a save that wrote local (non-sync) changes to synced entities, so the
+    /// phone can push them soon instead of waiting for the next launch/foreground sync. Not raised
+    /// for rows applied from a pull (<see cref="SuppressTimestamps"/>), so syncing can't loop.</summary>
+    public static event Action? LocalChangesSaved;
 
     /// <summary>When true, SaveChanges does not stamp <c>UpdatedAt</c> or convert deletes to
     /// tombstones. The sync client sets this while applying rows pulled from the cloud so it
@@ -110,12 +119,15 @@ public class AppDbContext : DbContext
     /// locally-modified and echo straight back on the next push.</summary>
     public bool SuppressTimestamps { get; set; }
 
-    protected virtual void StampTimestamps()
+    /// <returns>True when local changes to synced entities are about to be saved.</returns>
+    protected virtual bool StampTimestamps()
     {
-        if (SuppressTimestamps) return;
+        if (SuppressTimestamps) return false;
 
+        var any = false;
         foreach (var entry in ChangeTracker.Entries<EntityBase>())
         {
+            if (entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted) any = true;
             if (entry.State == EntityState.Modified)
             {
                 entry.Entity.UpdatedAt = DateTime.UtcNow;
@@ -132,5 +144,6 @@ public class AppDbContext : DbContext
             // Added rows keep their constructor UTC stamps (or, on restore, the values
             // from the backup) — don't overwrite them here.
         }
+        return any;
     }
 }
