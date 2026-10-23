@@ -147,6 +147,42 @@ final class Store: ObservableObject {
         }?.string("text")
     }
 
+    /// Tags you've used on meals — the vocabulary the AI is told to prefer.
+    var tagVocabulary: [String] {
+        Array(Set(meals.compactMap(\.tags).flatMap { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
+            .filter { !$0.isEmpty })).sorted()
+    }
+
+    /// Macro targets + today's context, in the same shape as the C# prompt helpers.
+    func plateContext() -> String {
+        var t = ""
+        if let g = goals {
+            t += "DAILY MACRO/HYDRATION TARGETS (ranges are goals, not hard limits — a day slightly under/over is fine; flag only consistent misses). Calories, carbs, and water have separate rest-day and workout-day ranges — use the one matching today's day type:\n"
+            if g.proteinMax > 0 { t += "  - Protein: \(g.proteinMin)-\(g.proteinMax) g\n" }
+            if g.fatMax > 0 { t += "  - Fat: \(g.fatMin)-\(g.fatMax) g\n" }
+            if g.fiberMax > 0 { t += "  - Fiber: \(g.fiberMin)-\(g.fiberMax) g\n" }
+            if let a = g.addedSugarMax { t += "  - Added sugar: stay under \(a) g (less is better)\n" }
+            t += "  - Calories: rest-day \(g.caloriesRestMin)-\(g.caloriesRestMax), workout-day \(g.caloriesActiveMin)-\(g.caloriesActiveMax)\n"
+            t += "  - Carbohydrates: rest-day \(g.carbsRestMin)-\(g.carbsRestMax) g, workout-day \(g.carbsActiveMin)-\(g.carbsActiveMax) g\n"
+        }
+        let now = Date()
+        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd HH:mm (EEEE)"
+        t += "NOW: \(f.string(from: now))\n"
+        let dt = ["(not set)", "Workout", "Recovery", "ActiveRecovery", "HighWorkload"]
+        t += "PLANNED DAY TYPE: \(dt[min(4, max(0, energy.log(.today)?.dayType ?? 0))])\n"
+        t += "MEALS TODAY:\n"
+        let today = meals(on: .today).sorted { $0.time < $1.time }
+        if today.isEmpty { t += "(none yet)\n" }
+        let hm = DateFormatter(); hm.dateFormat = "HH:mm"
+        for m in today {
+            t += "  \(hm.string(from: m.time)) \(m.mealType.label) \"\(m.description)\"" + (m.calories.map { " \($0) cal" } ?? "")
+                + (m.proteinG.map { ", \(Int($0))g protein" } ?? "") + (m.carbsG.map { ", \(Int($0))g carbs" } ?? "") + "\n"
+        }
+        let d = drinks(on: .today), m = meals(on: .today)
+        t += "TODAY'S TOTALS SO FAR: \(Nutrition.calories(m, d)) cal, \(Int(Nutrition.protein(m, d)))g protein, \(Int(Nutrition.carbs(m, d)))g carbs, \(Int(Nutrition.fat(m, d)))g fat, \(Int(Nutrition.addedSugar(m, d)))g added sugar, \(Int(Nutrition.sodium(m, d)))mg sodium\n"
+        return t
+    }
+
     func save(_ d: MealDraft) { upsert("MealEntry", d.id, d.row) }
     func save(_ d: DrinkDraft) { upsert("DrinkEntry", d.id, d.row) }
 

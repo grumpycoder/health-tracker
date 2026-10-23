@@ -24,6 +24,7 @@ struct MealEditor: View {
                     DatePicker("Time", selection: $draft.time)
                     TextField("Portion note (optional)", text: $draft.portionNote)
                 }
+                PlateScanSection(draft: $draft)
                 ItemsSection(items: $draft.items, editing: $editingItem, base: { draft.baseItem }, onChange: { draft.setTotals() },
                              onLabel: { f in if draft.description.isEmpty, let d = f.description { draft.description = d } })
                 MacrosSection(macros: $draft.macros, locked: !draft.items.isEmpty)
@@ -368,5 +369,77 @@ enum CameraPresenter {
             done(info[.originalImage] as? UIImage)
         }
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { done(nil) }
+    }
+}
+
+/// 📷 Plate photo → the AI's per-item estimate, added as items (one serving each — adjust per item),
+/// with tags/stars for a new meal and optional portion advice you can apply.
+struct PlateScanSection: View {
+    @EnvironmentObject private var store: Store
+    @Binding var draft: MealDraft
+    @State private var hint = ""
+    @State private var photo: PhotosPickerItem?
+    @State private var busy = false
+    @State private var message: String?
+    @State private var advice: AIClient.PlateEstimate?
+
+    var body: some View {
+        Section {
+            HStack {
+                Button { CameraPresenter.present { img in Task { await estimate(img) } } } label: { Label("Plate photo", systemImage: "camera.viewfinder") }
+                    .disabled(busy || !UIImagePickerController.isSourceTypeAvailable(.camera))
+                Spacer()
+                PhotosPicker(selection: $photo, matching: .images) { Label("Photo", systemImage: "photo") }.disabled(busy)
+            }
+            .buttonStyle(.borderless)
+            TextField("Correction (optional) — e.g. half the rice, no butter", text: $hint, axis: .vertical)
+            if busy { HStack { ProgressView(); Text("Estimating…").foregroundStyle(.secondary) } }
+            if let m = message { Text(m).font(.footnote).foregroundStyle(.secondary) }
+            if let a = advice, a.adviceNeeded {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let msg = a.adviceMessage, !msg.isEmpty { Label(msg, systemImage: "lightbulb").font(.subheadline) }
+                    if let sug = a.adviceSuggestion, !sug.isEmpty { Text(sug).font(.subheadline).foregroundStyle(.secondary) }
+                    if let adj = a.adjusted, !adj.isEmpty {
+                        Button("Apply trim (\(adj.calories.map { "\($0) cal" } ?? "adjusted"))") {
+                            draft.items = []; draft.macros = adj; advice = nil
+                            message = "Applied the trimmed totals (items cleared — the totals no longer match them)."
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        } header: { Text("Estimate from a photo") } footer: {
+            Text("AI estimate — photo estimates run high, so check portions. Adds onto anything already on the meal.")
+        }
+        .onChange(of: photo) { _, item in
+            guard let item else { return }
+            Task {
+                photo = nil
+                if let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) { await estimate(img) }
+            }
+        }
+    }
+
+    private func estimate(_ image: UIImage) async {
+        busy = true; message = nil; advice = nil
+        defer { busy = false }
+        do {
+            guard let e = try await store.ai.estimatePlate(image, hint: hint, template: store.promptOverride("estimate_photo"),
+                                                           rules: store.promptOverride("meal_tagging_rules"), vocabulary: store.tagVocabulary,
+                                                           context: store.plateContext(), mealType: draft.mealType.label) else {
+                message = "Couldn't estimate a meal from that photo."; return
+            }
+            let items = e.items.isEmpty ? [e.totals.item(named: e.description ?? "Plate")] : e.items
+            if draft.items.isEmpty, let b = draft.baseItem { draft.items.append(b) }
+            draft.items.append(contentsOf: items)
+            draft.setTotals()
+            if draft.description.isEmpty, let d = e.description { draft.description = d }
+            if draft.stars == nil { draft.stars = e.stars }
+            if draft.id == nil, !e.tags.isEmpty, draft.carriedTags == nil { draft.carriedTags = e.tags.joined(separator: ",") }
+            advice = e
+            message = "Estimated \(items.count) item\(items.count == 1 ? "" : "s") — set servings for each if needed."
+        } catch {
+            message = "Estimate failed: \(error.localizedDescription)"
+        }
     }
 }
