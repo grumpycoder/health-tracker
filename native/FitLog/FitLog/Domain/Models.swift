@@ -23,6 +23,8 @@ struct MealEntry: Decodable, Identifiable {
     let sodiumMg: Int?
     let itemsJson: String?
     var items: [MealItem] { MealItem.parse(itemsJson) }
+    var macros: Macros { Macros(calories: calories, proteinG: proteinG, carbsG: carbsG, sugarG: sugarG, addedSugarG: addedSugarG,
+                                fatG: fatG, sodiumMg: sodiumMg, fiberG: fiberG) }
 }
 
 struct DrinkEntry: Decodable, Identifiable {
@@ -36,6 +38,8 @@ struct DrinkEntry: Decodable, Identifiable {
     let sodiumMg: Int?
     let itemsJson: String?
     var items: [MealItem] { MealItem.parse(itemsJson) }
+    var macros: Macros { Macros(calories: calories, proteinG: proteinG, carbsG: carbsG, sugarG: sugarG, addedSugarG: addedSugarG,
+                                fatG: fatG, sodiumMg: sodiumMg, fiberG: fiberG) }
 }
 
 // Energy inputs: everything but the date is optional so the shared test vectors (which only

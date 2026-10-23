@@ -57,15 +57,30 @@ extension Row {
 /// Wire formats .NET reads and writes: local DateTime without a zone ("2026-10-23T12:30:00"),
 /// UTC with "Z", and DateOnly ("2026-10-23").
 enum Wire {
-    static func local(_ d: Date) -> JSON { .string(format(d, "yyyy-MM-dd'T'HH:mm:ss", .current)) }
-    static func utc(_ d: Date) -> JSON { .string(format(d, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", TimeZone(identifier: "UTC")!)) }
+    static func local(_ d: Date) -> JSON { .string(localWriter.string(from: d)) }
+    static func utc(_ d: Date) -> JSON { .string(utcWriter.string(from: d)) }
     static func day(_ d: Day) -> JSON { .string(String(format: "%04d-%02d-%02d", d.y, d.m, d.d)) }
 
-    private static func format(_ d: Date, _ pattern: String, _ tz: TimeZone) -> String {
+    private static func writer(_ pattern: String, _ tz: TimeZone) -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = tz; f.dateFormat = pattern
-        return f.string(from: d)
+        return f
     }
+    private static let localWriter = writer("yyyy-MM-dd'T'HH:mm:ss", .current)
+    private static let utcWriter = writer("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", TimeZone(identifier: "UTC")!)
+
+    // Creating a DateFormatter is expensive (ICU setup) — build each once and reuse
+    // (DateFormatter is thread-safe for parsing). A per-call formatter froze launch long
+    // enough for the iOS watchdog to kill the app.
+    private static func parser(_ tz: TimeZone) -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
+        f.timeZone = tz
+        return f
+    }
+    private static let localParser = parser(.current)
+    private static let utcParser = parser(TimeZone(identifier: "UTC")!)
 
     /// Parses .NET DateTime: optional 1–7 fractional digits, optional "Z" / offset-less local.
     static func parse(_ s: String) -> Date? {
@@ -75,11 +90,7 @@ enum Wire {
             let frac = str[str.index(after: dot)...].prefix(3)
             str = String(str[..<dot]) + "." + frac.padding(toLength: 3, withPad: "0", startingAt: 0)
         } else { str += ".000" }
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS"
-        f.timeZone = utc ? TimeZone(identifier: "UTC") : .current
-        return f.date(from: str)
+        return (utc ? utcParser : localParser).date(from: str)
     }
 
     static let decoder: JSONDecoder = {

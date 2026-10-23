@@ -51,11 +51,15 @@ final class RowStore {
         }.map(Row.decode)
     }
 
-    /// Live (non-deleted) rows decoded as `T`. Rows that fail to decode are skipped, not fatal.
+    /// Live (non-deleted) rows decoded as `T` straight from the stored JSON (one pass — no
+    /// detour through `Row`). Rows that fail to decode are skipped, not fatal.
     func decode<T: Decodable>(_ type: String, as: T.Type = T.self) throws -> [T] {
-        try rows(type).compactMap { row in
-            if case .bool(true) = row["isDeleted"] { return nil }
-            return try? Wire.decoder.decode(T.self, from: row.encoded())
+        let blobs = try db.read { db in
+            try Data.fetchAll(db, sql: "SELECT json FROM syncRow WHERE type = ?", arguments: [type])
+        }
+        return blobs.compactMap { data in
+            guard let live = try? Wire.decoder.decode(Live<T>.self, from: data), !live.deleted else { return nil }
+            return live.value
         }
     }
 
@@ -150,6 +154,17 @@ final class RowStore {
 }
 
 typealias SQLiteRow = GRDB.Row
+
+/// Decodes a row's `isDeleted` flag and the model from the same JSON in one pass.
+private struct Live<T: Decodable>: Decodable {
+    let deleted: Bool
+    let value: T
+    private enum K: String, CodingKey { case isDeleted }
+    init(from d: Decoder) throws {
+        deleted = (try? d.container(keyedBy: K.self).decode(Bool.self, forKey: .isDeleted)) ?? false
+        value = try T(from: d)
+    }
+}
 
 enum StoreError: LocalizedError {
     case missing(String, String)

@@ -34,8 +34,8 @@ final class DraftTests: XCTestCase {
     }
 
     func testLibraryPrefersSavedFoods() {
-        let meal: Row = ["time": .string("2026-10-21T09:00:00"), "description": .string("Bowl"),
-                         "itemsJson": .string(#"[{"Name":"Milk","Calories":90,"Portion":2}]"#)]
+        let json = #"{"id":"00000000-0000-0000-0000-000000000001","time":"2026-10-21T09:00:00","mealType":0,"description":"Bowl","satiety":0,"itemsJson":"[{\"Name\":\"Milk\",\"Calories\":90,\"Portion\":2}]"}"#
+        let meal = try! Wire.decoder.decode(MealEntry.self, from: Data(json.utf8))
         let saved: Row = ["name": .string("milk"), "calories": .int(110)]
         let lib = FoodLibrary(meals: [meal], drinks: [], savedFoods: [("s1", saved)])
         let it = lib.item(for: "Milk")

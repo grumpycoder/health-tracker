@@ -12,6 +12,11 @@ final class Store: ObservableObject {
     @Published private(set) var sessions: [WorkoutSession] = []
     @Published private(set) var goals: GoalSettings?
     @Published private(set) var library = FoodLibrary()
+    // Derived once per reload (not per redraw): per-day lookups and the energy history.
+    @Published private(set) var energy = EnergyHistory(logs: [], body: [], sessions: [])
+    @Published private(set) var caloriesByDay: [Day: Int] = [:]
+    private var mealsByDay: [Day: [MealEntry]] = [:]
+    private var drinksByDay: [Day: [DrinkEntry]] = [:]
     @Published var error: String?
 
     let rows: RowStore
@@ -37,29 +42,56 @@ final class Store: ObservableObject {
         await sync.sync()
         await health.load()
         error = sync.error
-        reload()
+        reload()   // also rebuilds energy with the fresh Health data
     }
 
-    func reload() {
-        do {
+    /// Everything the views read, computed together off the main thread.
+    private struct Snapshot {
+        var meals: [MealEntry] = [], drinks: [DrinkEntry] = [], logs: [DailyLog] = []
+        var body: [BodyMeasurement] = [], sessions: [WorkoutSession] = [], goals: GoalSettings?
+        var mealsByDay: [Day: [MealEntry]] = [:], drinksByDay: [Day: [DrinkEntry]] = [:]
+        var caloriesByDay: [Day: Int] = [:], library = FoodLibrary()
+
+        init() {}
+        init(_ rows: RowStore) throws {
             meals = try rows.decode("MealEntry")
             drinks = try rows.decode("DrinkEntry")
             logs = try rows.decode("DailyLog")
             body = try rows.decode("BodyMeasurement")
             sessions = try rows.decode("WorkoutSession")
             goals = (try rows.decode("GoalSettings") as [GoalSettings]).max { $0.updatedAt < $1.updatedAt }
-            library = FoodLibrary(meals: try live("MealEntry").map { $0.row }, drinks: try live("DrinkEntry").map { $0.row },
-                                  savedFoods: try live("SavedFoodEntry"))
-        } catch { self.error = error.localizedDescription }
+            mealsByDay = Dictionary(grouping: meals) { Day($0.time) }.mapValues { $0.sorted { $0.time > $1.time } }
+            drinksByDay = Dictionary(grouping: drinks) { Day($0.time) }.mapValues { $0.sorted { $0.time > $1.time } }
+            caloriesByDay = Nutrition.caloriesByDay(meals, drinks)
+            let saved = try rows.rows("SavedFoodEntry").compactMap { r -> (id: String, row: Row)? in
+                if case .bool(true) = r["isDeleted"] { return nil }
+                return r.string("id").map { ($0.lowercased(), r) }
+            }
+            library = FoodLibrary(meals: meals, drinks: drinks, savedFoods: saved)
+        }
     }
 
-    /// Raw, non-deleted rows with their ids.
-    private func live(_ type: String) throws -> [(id: String, row: Row)] {
-        try rows.rows(type).compactMap { r in
-            if case .bool(true) = r["isDeleted"] { return nil }
-            guard let id = r.string("id") else { return nil }
-            return (id.lowercased(), r)
+    private var reloadTask: Task<Void, Never>?
+
+    /// Re-read everything in the background, then publish on the main thread. Overlapping
+    /// reloads collapse: only the newest result is applied.
+    func reload() {
+        reloadTask?.cancel()
+        let rows = self.rows
+        reloadTask = Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) { Result { try Snapshot(rows) } }.value
+            guard !Task.isCancelled, let self else { return }
+            switch result {
+            case .success(let s): self.apply(s)
+            case .failure(let e): self.error = e.localizedDescription
+            }
         }
+    }
+
+    private func apply(_ s: Snapshot) {
+        meals = s.meals; drinks = s.drinks; logs = s.logs; body = s.body; sessions = s.sessions; goals = s.goals
+        mealsByDay = s.mealsByDay; drinksByDay = s.drinksByDay; caloriesByDay = s.caloriesByDay; library = s.library
+        rebuildEnergy()
     }
 
     // MARK: edits — saved locally, then pushed a few seconds later (several quick edits → one sync)
@@ -104,7 +136,7 @@ final class Store: ObservableObject {
         }
     }
 
-    func meals(on day: Day) -> [MealEntry] { meals.filter { Day($0.time) == day }.sorted { $0.time > $1.time } }
-    func drinks(on day: Day) -> [DrinkEntry] { drinks.filter { Day($0.time) == day }.sorted { $0.time > $1.time } }
-    var energy: EnergyHistory { EnergyHistory(logs: health.overlay(logs), body: body, sessions: sessions) }
+    func meals(on day: Day) -> [MealEntry] { mealsByDay[day] ?? [] }
+    func drinks(on day: Day) -> [DrinkEntry] { drinksByDay[day] ?? [] }
+    private func rebuildEnergy() { energy = EnergyHistory(logs: health.overlay(logs), body: body, sessions: sessions) }
 }

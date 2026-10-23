@@ -32,7 +32,7 @@ struct EnergyCard: View {
 
     var body: some View {
         let energy = store.energy
-        let kin = Nutrition.caloriesByDay(store.meals, store.drinks)
+        let kin = store.caloriesByDay
         let projected = day >= .today
         VStack(alignment: .leading, spacing: 14) {
             if let out = energy.out(day), caloriesIn > 0 {

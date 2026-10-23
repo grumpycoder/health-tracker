@@ -103,9 +103,11 @@ struct FoodLibrary {
 
     init() {}
 
-    init(meals: [Row], drinks: [Row], savedFoods: [(id: String, row: Row)]) {
-        func newestFirst(_ rows: [Row]) -> [Row] { rows.sorted { ($0.date("time") ?? .distantPast) > ($1.date("time") ?? .distantPast) } }
-        let ms = newestFirst(meals), ds = newestFirst(drinks)
+    /// Built from already-decoded entries (cheap); only the few saved foods come as raw rows.
+    init(meals: [MealEntry], drinks: [DrinkEntry], savedFoods: [(id: String, row: Row)]) {
+        let ms = meals.sorted { $0.time > $1.time }
+        let uses = (meals.map { ($0.time, $0.itemsJson) } + drinks.map { ($0.time, $0.itemsJson) })
+            .filter { $0.1 != nil }.sorted { $0.0 > $1.0 }
         func put(_ uses: [MealItem]) {
             var seen = Set<String>()
             for u in uses {
@@ -115,8 +117,8 @@ struct FoodLibrary {
                 defaults[n.lowercased()] = c
             }
         }
-        put(ms.map { Macros($0).item(named: $0.string("description") ?? "") })
-        put(newestFirst(ms + ds).flatMap { MealItem.parse($0.string("itemsJson")) })
+        put(ms.map { $0.macros.item(named: $0.description) })
+        put(uses.flatMap { MealItem.parse($0.1) })
         for (id, r) in savedFoods {
             guard let name = r.string("name")?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { continue }
             saved[name.lowercased()] = r
