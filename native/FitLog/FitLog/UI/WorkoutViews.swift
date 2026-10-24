@@ -134,8 +134,8 @@ struct LiveWorkoutView: View {
                 }
             }
             LabeledContent("Weight (lb)") {
-                TextField("Bodyweight", value: weightBinding(step), format: .number.precision(.fractionLength(0...1)))
-                    .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+                PadNumberField("Bodyweight", value: weightBinding(step))
+                    .multilineTextAlignment(.trailing)
             }
             Button { workout.mutate { $0.completeCurrent() } } label: {
                 Text(set.completed ? "Completed ✓ — next" : "Complete set").frame(maxWidth: .infinity).font(.headline)

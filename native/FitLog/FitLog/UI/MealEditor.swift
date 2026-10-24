@@ -309,8 +309,8 @@ struct OptionalNumberField: View {
     init(_ label: String, value: Binding<Double?>) { self.label = label; _value = value }
     var body: some View {
         LabeledContent(label) {
-            TextField("—", value: $value, format: .number.precision(.fractionLength(0...1)))
-                .keyboardType(.decimalPad).multilineTextAlignment(.trailing).monospacedDigit()
+            PadNumberField("—", value: $value)
+                .multilineTextAlignment(.trailing).monospacedDigit()
         }
     }
 }
@@ -321,8 +321,8 @@ struct OptionalIntField: View {
     init(_ label: String, value: Binding<Int?>) { self.label = label; _value = value }
     var body: some View {
         LabeledContent(label) {
-            TextField("—", value: $value, format: .number)
-                .keyboardType(.numberPad).multilineTextAlignment(.trailing).monospacedDigit()
+            PadNumberField("—", value: $value)
+                .multilineTextAlignment(.trailing).monospacedDigit()
         }
     }
 }

@@ -97,14 +97,12 @@ struct SessionDetailView: View {
         HStack {
             Text("Set \(s.setNumber)").foregroundStyle(.secondary)
             Spacer()
-            TextField(isDuration ? "sec" : "reps", value: Binding(get: { isDuration ? e.duration : e.reps },
-                                                                   set: { v in var x = e; if isDuration { x.duration = v } else { x.reps = v }; edits[s.id] = x }),
-                      format: .number)
-                .keyboardType(.numberPad).multilineTextAlignment(.trailing).frame(width: 56)
+            PadNumberField(isDuration ? "sec" : "reps", value: Binding(get: { isDuration ? e.duration : e.reps },
+                                                                        set: { v in var x = e; if isDuration { x.duration = v } else { x.reps = v }; edits[s.id] = x }))
+                .multilineTextAlignment(.trailing).frame(width: 56)
             Text(isDuration ? "s" : "reps").font(.caption).foregroundStyle(.secondary)
-            TextField("lb", value: Binding(get: { e.weight }, set: { v in var x = e; x.weight = v; edits[s.id] = x }),
-                      format: .number.precision(.fractionLength(0...1)))
-                .keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 56)
+            PadNumberField("lb", value: Binding(get: { e.weight }, set: { v in var x = e; x.weight = v; edits[s.id] = x }))
+                .multilineTextAlignment(.trailing).frame(width: 56)
             Text("lb").font(.caption).foregroundStyle(.secondary)
             Toggle("Done", isOn: Binding(get: { e.done }, set: { v in var x = e; x.done = v; edits[s.id] = x })).labelsHidden()
         }

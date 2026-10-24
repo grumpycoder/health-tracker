@@ -144,8 +144,8 @@ struct SlotEditor: View {
                 }
                 Stepper(value: $rest, in: 0...600, step: 15) { LabeledContent("Rest", value: "\(rest) s") }
                 LabeledContent("Weight (lb)") {
-                    TextField("Bodyweight", value: $weight, format: .number.precision(.fractionLength(0...1)))
-                        .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+                    PadNumberField("Bodyweight", value: $weight)
+                        .multilineTextAlignment(.trailing)
                 }
                 TextField("Note (e.g. 10-12, each side)", text: $note)
             }
