@@ -1,9 +1,10 @@
 import Foundation
 import HealthKit
 
-/// One night from Apple Health, keyed by the day you woke up. Built from ONE source per night (the
-/// one with stage data and the most sleep — usually the Watch) so overlapping sources are never
-/// added together, with each stage's intervals merged so overlaps within a source don't count twice.
+/// One night from Apple Health, keyed by the day the main sleep ENDED (in the time zone it was
+/// recorded in). Built from ONE source's main sleep session (the one with stage data and the most
+/// sleep — usually the Watch) so overlapping sources are never added together and naps stay out,
+/// with each stage's intervals merged so overlaps within a source don't count twice.
 struct SleepNight: Identifiable {
     enum Stage: Int, CaseIterable { case awake, rem, core, deep, unspecified
         var label: String { ["Awake", "REM", "Core", "Deep", "Asleep"][rawValue] }
@@ -21,14 +22,30 @@ struct SleepNight: Identifiable {
     var vitals = Vitals()
 
     struct Vitals {
-        var hrvMs: Double?, restingHR: Double?, respiratoryRate: Double?, wristTempC: Double?, spo2: Double?
-        /// Lowest heart rate during the night — the readiness resting-HR signal (same measure every night).
-        var overnightLowHR: Double?
+        /// Overnight HRV: geometric mean of Watch HRV readings taken while asleep (the readiness value).
+        var hrvMs: Double?
+        var hrvSamples = 0
+        /// Mean Watch heart rate while asleep (the readiness heart-rate signal).
+        var sleepingHR: Double?
+        var hrSamples = 0
+        /// Apple's daily resting HR for the wake day — shown on the Sleep tab, not used by readiness.
+        var restingHR: Double?
+        var respiratoryRate: Double?, wristTempC: Double?, spo2: Double?
     }
 
     var hours: Double { asleep / 3600 }
     var inBed: TimeInterval { wake.timeIntervalSince(bedtime) }
     var efficiency: Double? { inBed > 0 ? min(1, asleep / inBed) : nil }
+    /// Merged asleep (non-awake) spans — the only time overnight HRV and heart rate are taken from.
+    var asleepSpans: [(Date, Date)] { HealthService.union(segments.filter { $0.stage != .awake }.map { ($0.start, $0.end) }) }
+
+    /// The numbers readiness and the Sleep tab share for this night.
+    var metrics: NightMetrics {
+        NightMetrics(day: day, source: source, bedtime: bedtime, wake: wake, sleepHours: hours,
+                     deepRemHours: hasStages ? (deep + rem) / 3600 : nil, efficiency: efficiency,
+                     hrvMs: vitals.hrvMs, hrvSamples: vitals.hrvSamples, sleepingHR: vitals.sleepingHR, hrSamples: vitals.hrSamples,
+                     respiratory: vitals.respiratoryRate, wristTempC: vitals.wristTempC)
+    }
 
     /// The MAUI app's estimate (kept identical so synced scores stay comparable): duration vs 7.5h
     /// (70 pts), continuity (20, −3 per awakening), deep+REM share vs ~40% (10).
@@ -49,64 +66,75 @@ extension HealthService {
         return Set(all.filter { $0.bundleIdentifier.hasPrefix("com.apple.health.") })
     }
 
-    /// Samples in [from, to), limited to the Watch when it has written this metric.
-    private func watchPredicate(_ id: HKQuantityTypeIdentifier, from: Date, to: Date) async -> NSPredicate {
-        let window = HKQuery.predicateForSamples(withStart: from, end: to)
-        let watches = await watchSources(id)
-        guard !watches.isEmpty else { return window }
-        return NSCompoundPredicate(andPredicateWithSubpredicates: [window, HKQuery.predicateForObjects(from: watches)])
-    }
-
-    /// Daily averages for readiness baselines (last `days` days), one query per metric, Watch only.
-    func dailyAverages(_ id: HKQuantityTypeIdentifier, _ unit: HKUnit, days: Int = 40, scale: Double = 1) async -> [Day: Double] {
-        guard isAvailable else { return [:] }
-        let cal = Calendar.current
-        let end = cal.startOfDay(for: Date()).addingTimeInterval(86_400)
-        let start = cal.date(byAdding: .day, value: -days, to: end)!
-        let pred = HKSamplePredicate.quantitySample(type: HKQuantityType(id), predicate: await watchPredicate(id, from: start, to: end))
-        let q = HKStatisticsCollectionQueryDescriptor(predicate: pred, options: .discreteAverage, anchorDate: start, intervalComponents: DateComponents(day: 1))
-        guard let coll = try? await q.result(for: healthStore) else { return [:] }
-        var out: [Day: Double] = [:]
-        coll.enumerateStatistics(from: start, to: end) { s, _ in
-            if let v = s.averageQuantity()?.doubleValue(for: unit) { out[Day(s.startDate)] = v * scale }
+    /// Readings in [from, to) from `sources` (all sources when empty). Heart-rate readings the Watch
+    /// tagged as taken while moving are dropped — they aren't resting-state values.
+    func readings(_ id: HKQuantityTypeIdentifier, _ unit: HKUnit, from: Date, to: Date, sources: Set<HKSource>) async -> [Reading] {
+        guard isAvailable else { return [] }
+        var p: NSPredicate = HKQuery.predicateForSamples(withStart: from, end: to)
+        if !sources.isEmpty { p = NSCompoundPredicate(andPredicateWithSubpredicates: [p, HKQuery.predicateForObjects(from: sources)]) }
+        let q = HKSampleQueryDescriptor(predicates: [.quantitySample(type: HKQuantityType(id), predicate: p)], sortDescriptors: [SortDescriptor(\.startDate)])
+        let ss = (try? await q.result(for: healthStore)) ?? []
+        return ss.compactMap { s in
+            if (s.metadata?[HKMetadataKeyHeartRateMotionContext] as? NSNumber)?.intValue == HKHeartRateMotionContext.active.rawValue { return nil }
+            return Reading(start: s.startDate, end: s.endDate, value: s.quantity.doubleValue(for: unit))
         }
-        return out
     }
 
-    /// Average (or the minimum, for a resting-HR proxy) of a metric over a window.
-    func average(_ id: HKQuantityTypeIdentifier, _ unit: HKUnit, from: Date, to: Date, minimum: Bool = false) async -> Double? {
-        guard isAvailable else { return nil }
-        let pred = HKSamplePredicate.quantitySample(type: HKQuantityType(id), predicate: await watchPredicate(id, from: from, to: to))
-        let q = HKStatisticsQueryDescriptor(predicate: pred, options: minimum ? .discreteMin : .discreteAverage)
-        let stats = try? await q.result(for: healthStore)
-        return (minimum ? stats?.minimumQuantity() : stats?.averageQuantity())?.doubleValue(for: unit)
-    }
-
-    func readSleep(days: Int = 30) async -> [SleepNight] {
+    /// Nights for the Sleep tab and readiness (40 days covers readiness's 3-night window + 28-night baseline).
+    func readSleep(days: Int = 40) async -> [SleepNight] {
         guard isAvailable else { return [] }
         let start = Calendar.current.date(byAdding: .day, value: -days, to: Date())!
         let pred = HKQuery.predicateForSamples(withStart: start, end: nil)
         let q = HKSampleQueryDescriptor(predicates: [.categorySample(type: HKCategoryType(.sleepAnalysis), predicate: pred)],
                                         sortDescriptors: [SortDescriptor(\.startDate)])
         guard let samples = try? await q.result(for: healthStore) else { return [] }
+        var nights = Self.mainNights(samples)
+        let hrvSources = await watchSources(.heartRateVariabilitySDNN), hrSources = await watchSources(.heartRate)
+        for i in nights.indices { nights[i].vitals = await vitals(nights[i], hrvSources: hrvSources, hrSources: hrSources) }
+        return nights
+    }
 
-        // Wake-day key: a sample ending in the evening belongs to the next morning's night.
-        func night(_ s: HKCategorySample) -> Day {
-            let end = s.endDate
-            return Day(Calendar.current.component(.hour, from: end) >= 18 ? end.addingTimeInterval(86_400) : end)
+    /// A break this long between samples ends one sleep session and starts another.
+    nonisolated static let sessionGap: TimeInterval = 2 * 3600
+
+    /// Sleep samples → one main night per wake day, newest first. Each source's samples are split
+    /// into sessions at 2 h+ gaps; a session belongs to the day it ends (one ending after 6 PM to the
+    /// next morning), in the time zone it was recorded in. Only a session that covers part of
+    /// midnight–6 AM, or is 3 h+ asleep between 6 PM and noon, counts as a night — shorter
+    /// daytime/evening sleeps are naps and are left out. Ties pick the same source every time.
+    nonisolated static func mainNights(_ samples: [HKCategorySample]) -> [SleepNight] {
+        func zone(_ s: HKCategorySample) -> TimeZone {
+            (s.metadata?[HKMetadataKeyTimeZone] as? String).flatMap(TimeZone.init(identifier:)) ?? .current
         }
-        var nights: [SleepNight] = []
-        for (day, daySamples) in Dictionary(grouping: samples, by: night) {
-            let bySource = Dictionary(grouping: daySamples) { $0.sourceRevision.source.bundleIdentifier }
-            let candidates = bySource.compactMap { src, ss in Self.build(day, src, ss) }
-            // Prefer stage-tracking sources, then the most sleep.
-            if let best = candidates.max(by: { ($0.hasStages ? 1 : 0, $0.asleep) < ($1.hasStages ? 1 : 0, $1.asleep) }) {
-                nights.append(best)
+        func rank(_ n: SleepNight) -> (Int, Double, String) { (n.hasStages ? 1 : 0, n.asleep, n.source) }
+        var best: [Day: SleepNight] = [:]
+        for (src, ss) in Dictionary(grouping: samples, by: { $0.sourceRevision.source.bundleIdentifier }) {
+            var sessions: [[HKCategorySample]] = []
+            var end = Date.distantPast
+            for s in ss.sorted(by: { ($0.startDate, $0.endDate) < ($1.startDate, $1.endDate) }) {
+                if sessions.isEmpty || s.startDate.timeIntervalSince(end) >= sessionGap { sessions.append([s]) } else { sessions[sessions.count - 1].append(s) }
+                end = max(end, s.endDate)
+            }
+            for sess in sessions {
+                let last = sess.max { $0.endDate < $1.endDate }!
+                let tz = zone(last)
+                var cal = Calendar(identifier: .gregorian); cal.timeZone = tz
+                let endDay = Day(last.endDate, in: tz)
+                let day = cal.component(.hour, from: last.endDate) >= 18 ? endDay.adding(1) : endDay
+                guard let n = build(day, src, sess) else { continue }
+                let dayStart = cal.date(from: DateComponents(year: day.y, month: day.m, day: day.d))!
+                let core = (dayStart, cal.date(byAdding: .hour, value: 6, to: dayStart)!)
+                let window = (cal.date(byAdding: .hour, value: -6, to: dayStart)!, cal.date(byAdding: .hour, value: 12, to: dayStart)!)
+                let spans = n.asleepSpans
+                func overlap(_ w: (Date, Date)) -> TimeInterval {
+                    spans.reduce(0) { $0 + max(0, min($1.1, w.1).timeIntervalSince(max($1.0, w.0))) }
+                }
+                guard overlap(core) > 0 || overlap(window) >= 3 * 3600 else { continue }   // a nap
+                if let cur = best[day], rank(cur) >= rank(n) { continue }
+                best[day] = n
             }
         }
-        nights.sort { $0.day > $1.day }
-        for i in nights.indices { nights[i].vitals = await vitals(nights[i]) }
-        return nights
+        return best.values.sorted { $0.day > $1.day }
     }
 
     nonisolated static func build(_ day: Day, _ source: String, _ ss: [HKCategorySample]) -> SleepNight? {
@@ -140,19 +168,23 @@ extension HealthService {
         return out
     }
 
-    /// Averages over the night window (resting HR is the wake day's daily value).
-    private func vitals(_ n: SleepNight) async -> SleepNight.Vitals {
+    /// Overnight HRV and heart rate from asleep segments only (Watch readings); the other vitals are
+    /// averages over the whole night window, and resting HR is Apple's daily value for the wake day.
+    private func vitals(_ n: SleepNight, hrvSources: Set<HKSource>, hrSources: Set<HKSource>) async -> SleepNight.Vitals {
         func avg(_ id: HKQuantityTypeIdentifier, _ unit: HKUnit, from: Date, to: Date) async -> Double? {
             let pred = HKSamplePredicate.quantitySample(type: HKQuantityType(id), predicate: HKQuery.predicateForSamples(withStart: from, end: to))
             let q = HKStatisticsQueryDescriptor(predicate: pred, options: .discreteAverage)
             return (try? await q.result(for: healthStore))?.averageQuantity()?.doubleValue(for: unit)
         }
         var v = SleepNight.Vitals()
-        v.hrvMs = await average(.heartRateVariabilitySDNN, .secondUnit(with: .milli), from: n.bedtime, to: n.wake)
+        let spans = n.asleepSpans
+        let hrv = Overnight.hrv(await readings(.heartRateVariabilitySDNN, .secondUnit(with: .milli), from: n.bedtime, to: n.wake, sources: hrvSources), asleep: spans)
+        v.hrvMs = hrv.value; v.hrvSamples = hrv.n
+        let hr = Overnight.heartRate(await readings(.heartRate, .count().unitDivided(by: .minute()), from: n.bedtime, to: n.wake, sources: hrSources), asleep: spans)
+        v.sleepingHR = hr.value; v.hrSamples = hr.n
         v.respiratoryRate = await avg(.respiratoryRate, .count().unitDivided(by: .minute()), from: n.bedtime, to: n.wake)
         v.spo2 = await avg(.oxygenSaturation, .percent(), from: n.bedtime, to: n.wake).map { $0 * 100 }
         v.wristTempC = await avg(.appleSleepingWristTemperature, .degreeCelsius(), from: n.bedtime.addingTimeInterval(-3600), to: n.wake.addingTimeInterval(3600))
-        v.overnightLowHR = await average(.heartRate, .count().unitDivided(by: .minute()), from: n.bedtime, to: n.wake, minimum: true)
         v.restingHR = await avg(.restingHeartRate, .count().unitDivided(by: .minute()), from: n.day.date, to: n.day.adding(1).date)
         return v
     }

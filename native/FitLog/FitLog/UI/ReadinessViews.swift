@@ -20,8 +20,10 @@ struct ReadinessCard: View {
                         Text(r.level).font(.title2.bold())
                         Text(r.advice).font(.subheadline).foregroundStyle(.secondary)
                         if r.calibrating { Text("Calibrating — baselines need ~2 weeks of Watch data").font(.caption).foregroundStyle(.secondary) }
-                        if !r.missing.isEmpty { Text("No \(r.missing.joined(separator: " or ")) data in Health — scored from the rest").font(.caption).foregroundStyle(.secondary) }
                     }
+                }
+                ForEach(r.issues, id: \.self) { i in
+                    Label(i, systemImage: "exclamationmark.circle").font(.caption).foregroundStyle(.secondary)
                 }
                 ForEach(r.flags, id: \.self) { f in
                     Label(f, systemImage: "exclamationmark.triangle.fill").font(.subheadline).foregroundStyle(.orange)
@@ -35,6 +37,9 @@ struct ReadinessCard: View {
                         Spacer(minLength: 8)
                         Text("\(f.score)").font(.headline.monospacedDigit()).foregroundStyle(factorColor(f.score))
                     }
+                }
+                if let snap = store.todaysReadinessSnapshot {
+                    NavigationLink { ReadinessDetailView(snapshot: snap) } label: { Text("How this score was worked out") }
                 }
                 Divider()
                 let entry = store.todaysRecovery
@@ -54,10 +59,13 @@ struct ReadinessCard: View {
         }
     }
 
-    private func color(_ s: Int) -> Color { s >= 80 ? .green : s >= 60 ? .yellow : s >= 40 ? .orange : .red }
-    /// Factors score 75 when AT your norm, so 70+ is healthy (green), not a warning.
-    private func factorColor(_ s: Int) -> Color { s >= 70 ? .green : s >= 45 ? .yellow : s >= 25 ? .orange : .red }
+    private func color(_ s: Int) -> Color { readinessColor(s) }
+    private func factorColor(_ s: Int) -> Color { readinessFactorColor(s) }
 }
+
+func readinessColor(_ s: Int) -> Color { s >= 80 ? .green : s >= 60 ? .yellow : s >= 40 ? .orange : .red }
+/// Factors score 75 when AT your norm, so 70+ is healthy (green), not a warning.
+func readinessFactorColor(_ s: Int) -> Color { s >= 70 ? .green : s >= 45 ? .yellow : s >= 25 ? .orange : .red }
 
 /// Recovery/fatigue pre-filled from readiness; soreness and notes are yours. Saving makes the
 /// day's entry your own (the auto-fill won't touch it again).

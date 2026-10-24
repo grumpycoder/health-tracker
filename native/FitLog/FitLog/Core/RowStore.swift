@@ -29,6 +29,15 @@ final class RowStore {
                 t.column("value", .text)
             }
         }
+        // Local only (not synced): one readiness calculation per (day, algorithm version).
+        m.registerMigration("v2-readiness") { db in
+            try db.create(table: "readinessSnapshot") { t in
+                t.column("day", .text).notNull()
+                t.column("version", .integer).notNull()
+                t.column("json", .blob).notNull()
+                t.primaryKey(["day", "version"])
+            }
+        }
         try m.migrate(db)
     }
 
@@ -150,6 +159,30 @@ final class RowStore {
 
     func setMeta(_ key: String, _ value: String?) throws {
         try db.write { try $0.execute(sql: "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", arguments: [key, value]) }
+    }
+}
+
+// MARK: readiness snapshots
+
+extension RowStore {
+    /// Default JSONEncoder dates (seconds as a Double) so stored inputs decode bit-for-bit.
+    private static let snapEncoder: JSONEncoder = { let e = JSONEncoder(); e.outputFormatting = .sortedKeys; return e }()
+
+    func readinessSnapshot(_ day: Day, version: Int = Readiness.algorithmVersion) throws -> ReadinessSnapshot? {
+        try db.read { try Data.fetchOne($0, sql: "SELECT json FROM readinessSnapshot WHERE day = ? AND version = ?", arguments: [day.iso, version]) }
+            .map { try JSONDecoder().decode(ReadinessSnapshot.self, from: $0) }
+    }
+
+    /// Writes only this snapshot's (day, version) row — other days and versions are never touched.
+    func saveReadinessSnapshot(_ s: ReadinessSnapshot) throws {
+        let data = try Self.snapEncoder.encode(s)
+        try db.write { try $0.execute(sql: "INSERT OR REPLACE INTO readinessSnapshot (day, version, json) VALUES (?, ?, ?)", arguments: [s.day.iso, s.algorithmVersion, data]) }
+    }
+
+    /// All stored snapshots, newest day first (then newest version). Unreadable rows are skipped.
+    func readinessSnapshots() throws -> [ReadinessSnapshot] {
+        try db.read { try Data.fetchAll($0, sql: "SELECT json FROM readinessSnapshot ORDER BY day DESC, version DESC") }
+            .compactMap { try? JSONDecoder().decode(ReadinessSnapshot.self, from: $0) }
     }
 }
 

@@ -59,14 +59,18 @@ struct SleepView: View {
         }
     }
 
-    /// 14-night averages (excluding the night shown) for vitals comparisons.
+    /// Comparisons for the night shown: overnight HRV and sleeping HR vs the same norms readiness
+    /// uses; the other vitals vs the 14 nights before it.
     private func baseline(excluding day: Day) -> SleepNight.Vitals {
-        let ns = store.nights.filter { $0.day != day }.prefix(14)
+        let ns = store.nights.filter { $0.day < day }.prefix(14)
         func avg(_ f: (SleepNight.Vitals) -> Double?) -> Double? {
             let xs = ns.compactMap { f($0.vitals) }; return xs.isEmpty ? nil : xs.reduce(0, +) / Double(xs.count)
         }
-        return .init(hrvMs: avg(\.hrvMs), restingHR: avg(\.restingHR), respiratoryRate: avg(\.respiratoryRate),
-                     wristTempC: avg(\.wristTempC), spo2: avg(\.spo2))
+        let byDay = Dictionary(store.nights.map { ($0.day, $0.metrics) }, uniquingKeysWith: { a, _ in a })
+        var v = SleepNight.Vitals(restingHR: avg(\.restingHR), respiratoryRate: avg(\.respiratoryRate), wristTempC: avg(\.wristTempC), spo2: avg(\.spo2))
+        v.hrvMs = Overnight.hrvBaseline(byDay, for: day).map { exp($0.center) }
+        v.sleepingHR = Overnight.heartRateBaseline(byDay, for: day)?.center
+        return v
     }
 }
 
@@ -99,12 +103,13 @@ struct NightCard: View {
                 }
             }
             let v = night.vitals
-            if v.hrvMs != nil || v.restingHR != nil || v.respiratoryRate != nil || v.wristTempC != nil || v.spo2 != nil {
+            if v.hrvMs != nil || v.sleepingHR != nil || v.restingHR != nil || v.respiratoryRate != nil || v.wristTempC != nil || v.spo2 != nil {
                 Divider()
                 Text("Overnight").font(.caption).foregroundStyle(.secondary).textCase(.uppercase)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 260 : 140), alignment: .leading)], alignment: .leading, spacing: 10) {
-                    vital("HRV", v.hrvMs, baseline.hrvMs, "ms", higherIsBetter: true)
-                    vital("Resting HR", v.restingHR, baseline.restingHR, "bpm", higherIsBetter: false)
+                    vital("HRV while asleep", v.hrvMs, baseline.hrvMs, "ms", higherIsBetter: true, vs: "norm")
+                    vital("Avg HR asleep", v.sleepingHR, baseline.sleepingHR, "bpm", higherIsBetter: false, vs: "norm")
+                    vital("Resting HR (Apple)", v.restingHR, baseline.restingHR, "bpm", higherIsBetter: false)
                     vital("Respiratory", v.respiratoryRate, baseline.respiratoryRate, "br/min", higherIsBetter: nil)
                     vital("Blood oxygen", v.spo2, baseline.spo2, "%", higherIsBetter: true)
                     if let t = v.wristTempC, let b = baseline.wristTempC {
@@ -132,12 +137,12 @@ struct NightCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder private func vital(_ label: String, _ v: Double?, _ base: Double?, _ unit: String, higherIsBetter: Bool?) -> some View {
+    @ViewBuilder private func vital(_ label: String, _ v: Double?, _ base: Double?, _ unit: String, higherIsBetter: Bool?, vs: String = "avg") -> some View {
         if let v {
             let delta = base.map { v - $0 }
             let good = delta.flatMap { d in higherIsBetter.map { $0 ? d > 0 : d < 0 } }
             VitalTile(label: label, value: "\(GoalProgress.f1(v)) \(unit)",
-                      note: delta.map { "\($0 >= 0 ? "▲" : "▼") \(GoalProgress.f1(abs($0))) vs avg" } ?? "",
+                      note: delta.map { "\($0 >= 0 ? "▲" : "▼") \(GoalProgress.f1(abs($0))) vs \(vs)" } ?? "",
                       color: good == nil ? .secondary : good! ? .green : .orange)
         }
     }

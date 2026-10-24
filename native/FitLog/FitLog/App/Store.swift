@@ -22,6 +22,8 @@ final class Store: ObservableObject {
     @Published private(set) var nights: [SleepNight] = []
     @Published private(set) var recovery: [RecoveryEntry] = []
     @Published private(set) var readiness: Readiness?
+    /// Stored daily readiness calculations (local only), newest first.
+    @Published private(set) var readinessHistory: [ReadinessSnapshot] = []
     @Published private(set) var library = FoodLibrary()
     // Derived once per reload (not per redraw): per-day lookups and the energy history.
     @Published private(set) var energy = EnergyHistory(logs: [], body: [], sessions: [])
@@ -362,23 +364,25 @@ final class Store: ObservableObject {
     // MARK: readiness
 
     func computeReadiness() async {
-        var x = Readiness.Inputs()
-        x.hrv = await health.dailyAverages(.heartRateVariabilitySDNN, .secondUnit(with: .milli))
-        x.hrvSource = await health.watchSources(.heartRateVariabilitySDNN).isEmpty ? nil : "Apple Watch"
-        // Resting HR = each night's overnight low, so today and the baseline use the same measure.
-        x.restingHR = Dictionary(nights.compactMap { n in n.vitals.overnightLowHR.map { (n.day, $0) } }, uniquingKeysWith: { a, _ in a })
-        x.respiratory = await health.dailyAverages(.respiratoryRate, .count().unitDivided(by: .minute()))
-        x.wristTemp = await health.dailyAverages(.appleSleepingWristTemperature, .degreeCelsius())
-        if let last = nights.first, last.day >= Day.today.adding(-1) {
-            x.sleepHours = last.hours
-            x.deepRemHours = last.hasStages ? (last.deep + last.rem) / 3600 : nil
-            x.efficiency = last.efficiency
-            x.morningRestingHR = last.vitals.overnightLowHR
-            x.overnightHRV = last.vitals.hrvMs
+        let today = Day.today
+        let source = await health.watchSources(.heartRateVariabilitySDNN).isEmpty ? nil : "Apple Watch"
+        let x = Readiness.inputs(nights: nights.map(\.metrics), load: Readiness.load(sessions: sessions, feedback: feedback),
+                                 vitalsSource: source, today: today)
+        readiness = Readiness.compute(x, today: today)
+        if let r = readiness {
+            do {
+                if let s = ReadinessSnapshot.next(after: try rows.readinessSnapshot(today), day: today, inputs: x, result: r, now: Date()) {
+                    try rows.saveReadinessSnapshot(s)
+                }
+            } catch { self.error = "Couldn't save today's readiness details: \(error.localizedDescription)" }
         }
-        x.load = Readiness.load(sessions: sessions, feedback: feedback)
-        readiness = Readiness.compute(x, today: .today)
+        readinessHistory = (try? rows.readinessSnapshots()) ?? []
         publishWidget()
+    }
+
+    /// Today's stored calculation (current algorithm), for the details screen.
+    var todaysReadinessSnapshot: ReadinessSnapshot? {
+        readinessHistory.first { $0.day == .today && $0.algorithmVersion == Readiness.algorithmVersion }
     }
 
     var todaysRecovery: RecoveryEntry? { recovery.first { $0.date == .today } }

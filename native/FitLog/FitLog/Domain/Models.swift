@@ -107,6 +107,33 @@ struct Day: Hashable, Comparable, Decodable {
     static func < (a: Day, b: Day) -> Bool { (a.y, a.m, a.d) < (b.y, b.m, b.d) }
 }
 
+/// The calendar day `date` falls on in `tz` (a sample's recorded time zone, so travel doesn't re-key nights).
+extension Day {
+    init(_ date: Date, in tz: TimeZone) {
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = tz
+        let c = cal.dateComponents([.year, .month, .day], from: date)
+        self.init(y: c.year!, m: c.month!, d: c.day!)
+    }
+    var iso: String { String(format: "%04d-%02d-%02d", y, m, d) }
+}
+
+/// Encoded as "yyyy-MM-dd", and as a plain object key in dictionaries (readiness snapshots).
+extension Day: Encodable, CodingKeyRepresentable {
+    func encode(to encoder: Encoder) throws { var c = encoder.singleValueContainer(); try c.encode(iso) }
+    private struct Key: CodingKey {
+        let stringValue: String
+        init(stringValue: String) { self.stringValue = stringValue }
+        var intValue: Int? { nil }
+        init?(intValue: Int) { nil }
+    }
+    var codingKey: CodingKey { Key(stringValue: iso) }
+    init?<T: CodingKey>(codingKey: T) {
+        let p = codingKey.stringValue.split(separator: "-").compactMap { Int($0) }
+        guard p.count == 3 else { return nil }
+        self.init(y: p[0], m: p[1], d: p[2])
+    }
+}
+
 struct SleepEntry: Decodable, Identifiable {
     let id: UUID
     let date: Day
