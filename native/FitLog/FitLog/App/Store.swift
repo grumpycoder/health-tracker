@@ -236,6 +236,47 @@ final class Store: ObservableObject {
         library.hidden = hiddenFoods
     }
 
+    /// Meals/drinks that use `name` (as their name or an item) — shown before a rename.
+    func foodUseCount(_ name: String) -> Int {
+        ["MealEntry", "DrinkEntry"].reduce(0) { n, type in
+            n + ((try? rows.rows(type)) ?? []).filter { r in
+                if case .bool(true) = r["isDeleted"] { return false }
+                return FoodRename.changes(r, from: name, to: name + "\u{0}") != nil
+            }.count
+        }
+    }
+
+    /// Rename a food in every meal and drink that uses it, then move its saved macros (if the new
+    /// name already has saved macros, those win and the old entry is removed — a merge). `macros`,
+    /// when given, are saved for the new name. Hidden stays hidden. Returns how many logs changed.
+    @discardableResult
+    func renameFood(_ old: String, to new: String, macros: Macros? = nil) -> Int {
+        let target = new.trimmingCharacters(in: .whitespaces)
+        guard !target.isEmpty, target != old else { return 0 }
+        var changed = 0
+        write {
+            for type in ["MealEntry", "DrinkEntry"] {
+                for r in try rows.rows(type) {
+                    if case .bool(true) = r["isDeleted"] { continue }
+                    guard let id = r.string("id"), let c = FoodRename.changes(r, from: old, to: target) else { continue }
+                    try rows.update(type, id, c); changed += 1
+                }
+            }
+            let oldKey = old.trimmingCharacters(in: .whitespaces).lowercased(), newKey = target.lowercased()
+            let oldId = library.savedIds[oldKey], newId = oldKey == newKey ? oldId : library.savedIds[newKey]
+            if let oldId, let newId, oldId != newId { try rows.delete("SavedFoodEntry", oldId) }
+            let keep = newId ?? oldId
+            if let keep { try rows.update("SavedFoodEntry", keep, ["name": .string(target)].merging(macros?.row ?? [:]) { a, _ in a }) }
+            else if let macros { try rows.insert("SavedFoodEntry", macros.row.merging(["name": .string(target)]) { a, _ in a }) }
+        }
+        if hiddenFoods.remove(old.trimmingCharacters(in: .whitespaces).lowercased()) != nil {
+            hiddenFoods.insert(target.lowercased())
+            UserDefaults.standard.set(hiddenFoods.sorted(), forKey: "hiddenFoods")
+            library.hidden = hiddenFoods
+        }
+        return changed
+    }
+
     /// Drop a food's saved macros so it goes back to its most recent log (no-op if it has none).
     func resetFood(_ name: String) {
         guard let id = library.savedIds[name.trimmingCharacters(in: .whitespaces).lowercased()] else { return }

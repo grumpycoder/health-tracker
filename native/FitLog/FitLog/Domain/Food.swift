@@ -149,3 +149,30 @@ extension JSON {
     static func d(_ v: Double?) -> JSON { v.map { .double($0) } ?? .null }
     static func s(_ v: String?) -> JSON { v.map { .string($0) } ?? .null }
 }
+
+/// Renaming a food everywhere it's used, like the web Saved Foods rename: a meal's or drink's
+/// name and any item in its breakdown, matched trimmed and case-insensitively (so variants such
+/// as "Coke zero" / "Coke Zero" merge). Works on the raw row so nothing else is touched.
+enum FoodRename {
+    static func matches(_ name: String?, _ old: String) -> Bool {
+        name?.trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(old.trimmingCharacters(in: .whitespaces)) == .orderedSame
+    }
+
+    /// The fields to change on a MealEntry/DrinkEntry row, or nil when it doesn't use `old`.
+    static func changes(_ row: Row, from old: String, to new: String) -> Row? {
+        var out: Row = [:]
+        if matches(row.string("description"), old) { out["description"] = .string(new) }
+        if let json = row.string("itemsJson"), let data = json.data(using: .utf8),
+           case .array(let items)? = try? JSONDecoder().decode(JSON.self, from: data) {
+            var hit = false
+            let renamed: [JSON] = items.map { it in
+                guard case .object(var o) = it, case .string(let n)? = o["Name"], matches(n, old) else { return it }
+                hit = true; o["Name"] = .string(new); return .object(o)
+            }
+            if hit, let d = try? JSONEncoder().encode(JSON.array(renamed)), let s = String(data: d, encoding: .utf8) {
+                out["itemsJson"] = .string(s)
+            }
+        }
+        return out.isEmpty ? nil : out
+    }
+}

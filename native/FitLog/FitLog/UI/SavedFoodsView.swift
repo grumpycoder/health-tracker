@@ -53,16 +53,31 @@ struct SavedFoodsView: View {
     }
 }
 
-/// Per-serving macros for one food; Save stores them as the food's saved macros.
+/// One food's name and per-serving macros. Saving macros stores them as the food's saved macros;
+/// changing the name renames it in every log that uses it (after a confirmation).
 private struct FoodMacrosSheet: View {
     @EnvironmentObject private var store: Store
     @Environment(\.dismiss) private var dismiss
     let item: MealItem
     @State private var macros = Macros()
+    @State private var name = ""
+    @State private var confirmRename = false
+    @State private var uses = 0
+
+    private var newName: String { name.trimmingCharacters(in: .whitespaces) }
+    private var renaming: Bool { !newName.isEmpty && newName != item.name }
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    TextField("Name", text: $name).autocorrectionDisabled()
+                } header: { Text("Name") } footer: {
+                    if renaming {
+                        let merge = store.library.allNames.contains { $0.caseInsensitiveCompare(newName) == .orderedSame && $0.caseInsensitiveCompare(item.name) != .orderedSame }
+                        Text(merge ? "“\(newName)” already exists — the two will be merged into one food." : "Renames it in every meal and drink that uses it.")
+                    }
+                }
                 Section { MacroFields(macros: $macros) } header: { Text("Per serving") } footer: {
                     Text("Used next time you log this food or add it to a meal. Past logs aren't changed.")
                 }
@@ -78,13 +93,26 @@ private struct FoodMacrosSheet: View {
             }
             .navigationTitle(item.name)
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear { macros = .of(item) }
+            .onAppear { macros = .of(item); name = item.name }
+            .confirmationDialog(renameTitle, isPresented: $confirmRename, titleVisibility: .visible) {
+                Button("Rename") {
+                    store.renameFood(item.name, to: newName, macros: macros == .of(item) ? nil : macros)
+                    dismiss()
+                }
+            } message: { Text("Past logs are updated to the new name. This can't be undone.") }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { store.saveFood(macros.item(named: item.name)); dismiss() }
+                    Button("Save") {
+                        if renaming { uses = store.foodUseCount(item.name); confirmRename = true } else { store.saveFood(macros.item(named: item.name)); dismiss() }
+                    }
+                    .disabled(newName.isEmpty)
                 }
             }
         }
+    }
+
+    private var renameTitle: String {
+        "Rename “\(item.name)” to “\(newName)”? This changes \(uses) log\(uses == 1 ? "" : "s")."
     }
 }

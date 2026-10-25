@@ -85,6 +85,20 @@ final class RepeatLastTests: XCTestCase {
         XCTAssertEqual(lib.item(for: "coke zero").calories, 0)
     }
 
+    func testRenameTouchesNameAndItemsOnlyAndKeepsOtherFields() throws {
+        let row: Row = ["id": .string("m1"), "description": .string(" coke zero "), "calories": .int(0),
+                        "itemsJson": .string(#"[{"Name":"Coke Zero","Calories":0,"Portion":1,"Extra":"keep"},{"Name":"Ice","Portion":2}]"#)]
+        let c = try XCTUnwrap(FoodRename.changes(row, from: "Coke Zero", to: "Diet Coke"))
+        XCTAssertEqual(Set(c.keys), ["description", "itemsJson"])
+        XCTAssertEqual(c["description"], .string("Diet Coke"))
+        let items = try JSONDecoder().decode(JSON.self, from: Data(try XCTUnwrap(c.string("itemsJson")).utf8))
+        guard case .array(let a) = items, case .object(let first) = a[0], case .object(let second) = a[1] else { return XCTFail() }
+        XCTAssertEqual(first["Name"], .string("Diet Coke"))
+        XCTAssertEqual(first["Extra"], .string("keep"), "fields this app doesn't model survive")
+        XCTAssertEqual(second["Name"], .string("Ice"))
+        XCTAssertNil(FoodRename.changes(["description": .string("Water")], from: "Coke Zero", to: "Diet Coke"))
+    }
+
     func testHiddenFoodsAreLeftOutOfSuggestionsOnly() {
         let coke = drink(#"{"id":"00000000-0000-0000-0000-000000000004","time":"2026-10-20T12:00:00","description":"Coke Zero","ounces":12}"#)
         var lib = FoodLibrary(meals: [], drinks: [coke], savedFoods: [])
