@@ -80,6 +80,8 @@ enum Coach {
         var body: [BodyMeasurement] = []
         /// This morning's readiness (Today check-in only).
         var readinessToday: Readiness?
+        /// Today's notes only (Today check-in) — past days' notes are never sent, like the other apps.
+        var notesToday: [NoteEntry] = []
     }
 
     static func prompt(template: String?, _ d: Inputs) -> String {
@@ -134,6 +136,8 @@ enum Coach {
     becoming unnecessarily large as much as an overshoot. Projected out is partial until the day ends.
     - Recovery: raise a concern only when last night's HRV / sleeping heart rate / sleep is clearly off the person's \
     norm or soreness is high — not for ordinary variation.
+    - Use TODAY'S NOTES for how the person feels and what the day holds (travel, busy day, hunger, soreness, \
+    energy). Let them shape the advice — e.g. a heavy-legs note on a workout day matters more than a small readiness dip.
     - Use LAST 7 DAYS to tell a one-off from a pattern.
     - Zero-sugar drinks are not sugary drinks. A small treat is normal. Coach moderation, never elimination.
     Be concise and calm. If they're on track, say so and give no tips.
@@ -180,6 +184,9 @@ enum Coach {
             if let lo = active ? g.waterActiveMin : g.waterRestMin, let hi = active ? g.waterActiveMax : g.waterRestMax, hi > 0 { t += ", fluids \(lo)-\(hi) oz" }
             t += "\n"
         }
+        t += "\nTODAY'S NOTES (the person's own words):\n"
+        if d.notesToday.isEmpty { t += "(none)\n" }
+        for n in d.notesToday.sorted(by: { $0.time < $1.time }) { t += "  \(n.time.formatted(.dateTime.hour().minute())) \"\(n.text)\"\n" }
         let m = (d.meals[day] ?? []).sorted { $0.time < $1.time }, dr = (d.drinks[day] ?? []).sorted { $0.time < $1.time }
         t += "\nLOGGED TODAY:\n"
         if m.isEmpty && dr.isEmpty { t += "(nothing logged yet)\n" }

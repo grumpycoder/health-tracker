@@ -140,6 +140,13 @@ extension Day: Encodable, CodingKeyRepresentable {
     }
 }
 
+/// A timestamped freeform note ("not hungry at lunch", "felt great after workout").
+struct NoteEntry: Decodable, Identifiable {
+    let id: UUID
+    let time: Date
+    let text: String
+}
+
 struct SleepEntry: Decodable, Identifiable {
     let id: UUID
     let date: Day

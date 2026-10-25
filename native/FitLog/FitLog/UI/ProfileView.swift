@@ -138,7 +138,7 @@ struct AIPrivacyView: View {
                 Text("Your coaching goals and targets, 28 days of daily food totals and energy in/out, sleep, HRV, sleeping heart rate and readiness, 8 weeks of workouts (sets and difficulty), your check-ins and body measurements.")
             }
             Section("Never sent") {
-                Text("Medications, labs, cessation data, notes, photos other than scans, or anything identifying.")
+                Text("Medications, labs, cessation data, past days' notes (only today's go to the Today check-in), photos other than scans, or anything identifying.")
             }
             Section {
                 Text("AI requests go through Fit Log's own server; the provider's free tier may use submitted text to improve its models, which is why medication and lab data are excluded by design.")

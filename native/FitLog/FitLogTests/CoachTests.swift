@@ -47,6 +47,7 @@ final class CoachTests: XCTestCase {
         XCTAssertTrue(p.contains("CURRENT TIME OF DAY: the afternoon on Sunday"))
         XCTAssertTrue(p.contains("USER'S COACHING GOALS (verbatim)"))
         XCTAssertTrue(p.contains("TOTALS SO FAR: 500 kcal, 40 g protein"))
+        XCTAssertTrue(p.contains("TODAY'S NOTES (the person's own words):\n(none)"))
         XCTAssertTrue(p.contains("net so far -2000 kcal"))
         XCTAssertTrue(p.contains("7-DAY AVERAGE NET: -500 kcal/day over 1 logged days"))
         XCTAssertTrue(p.contains("2026-10-23 Fri | unset | not logged"))

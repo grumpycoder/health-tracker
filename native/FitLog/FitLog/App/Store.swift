@@ -30,6 +30,8 @@ final class Store: ObservableObject {
     @Published private(set) var coaching = false
     /// The last Today check-in (shown only on the day it was made).
     @Published private(set) var dailyCheck: Coach.DailyCheck?
+    /// Notes, newest first.
+    @Published private(set) var notes: [NoteEntry] = []
     @Published private(set) var medSchedules: [MedicationSchedule] = []
     /// Logged doses, newest first.
     @Published private(set) var doses: [MedicationEntry] = []
@@ -95,6 +97,7 @@ final class Store: ObservableObject {
         var caloriesByDay: [Day: Int] = [:], library = FoodLibrary()
         var medSchedules: [MedicationSchedule] = [], doses: [MedicationEntry] = [], reminderSettings: [ReminderSetting] = []
         var reminderDone: [String: Day] = [:]
+        var notes: [NoteEntry] = []
 
         init() {}
         init(_ rows: RowStore) throws {
@@ -119,6 +122,7 @@ final class Store: ObservableObject {
                 return r.string("id").map { ($0.lowercased(), r) }
             }
             library = FoodLibrary(meals: meals, drinks: drinks, savedFoods: saved)
+            notes = (try rows.decode("NoteEntry") as [NoteEntry]).sorted { $0.time > $1.time }
             medSchedules = (try rows.decode("MedicationSchedule") as [MedicationSchedule]).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             doses = (try rows.decode("MedicationEntry") as [MedicationEntry]).sorted { $0.takenAt > $1.takenAt }
             reminderSettings = (try rows.decode("ReminderSetting") as [ReminderSetting]).sorted { $0.order < $1.order }
@@ -160,6 +164,7 @@ final class Store: ObservableObject {
         recovery = s.recovery
         mealsByDay = s.mealsByDay; drinksByDay = s.drinksByDay; caloriesByDay = s.caloriesByDay; library = s.library
         library.hidden = hiddenFoods
+        notes = s.notes
         medSchedules = s.medSchedules; doses = s.doses; reminderSettings = s.reminderSettings; reminderDone = s.reminderDone
         rebuildEnergy()
         rescheduleReminders()
@@ -622,8 +627,26 @@ final class Store: ObservableObject {
             sets: sets, feedback: feedback, nights: nights.map(\.metrics),
             readiness: Dictionary(readinessHistory.filter { $0.algorithmVersion == Readiness.algorithmVersion }.map { ($0.day, $0.result.score) },
                                   uniquingKeysWith: { a, _ in a }),
-            checkIns: recovery, body: body, readinessToday: readiness)
+            checkIns: recovery, body: body, readinessToday: readiness, notesToday: notes(on: .today))
     }
+
+    // MARK: notes
+
+    func notes(on day: Day) -> [NoteEntry] { notes.filter { Day($0.time) == day } }
+
+    func addNote(_ text: String, at time: Date = Date()) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        write { try rows.insert("NoteEntry", ["time": Wire.local(time), "text": .string(t)]) }
+    }
+
+    func updateNote(_ id: UUID, text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        upsert("NoteEntry", id.uuidString.lowercased(), ["text": .string(t)])
+    }
+
+    func deleteNote(_ id: UUID) { write { try rows.delete("NoteEntry", id.uuidString.lowercased()) } }
 
     // MARK: goals
 

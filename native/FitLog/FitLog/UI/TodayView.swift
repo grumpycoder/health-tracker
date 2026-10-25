@@ -28,6 +28,7 @@ struct TodayView: View {
                 } header: { Text("Today's goals") }
                 Section { ReadinessCard() } header: { Text("Readiness") }
                 CoachSection()
+                NotesSection()
                 MedsTodaySection(siteFor: $siteFor)
             }
             .navigationTitle(Date().formatted(.dateTime.weekday(.wide).month().day()))

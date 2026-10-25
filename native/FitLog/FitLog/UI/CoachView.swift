@@ -66,7 +66,7 @@ struct CoachView: View {
                 }
             } footer: {
                 Text(mode == 0
-                     ? "Sends your coaching goals, today's targets and day type, today's meals and drinks, energy in/out, last night's sleep, HRV, sleeping heart rate and readiness, recent workouts and the last 7 days' totals."
+                     ? "Sends your coaching goals, today's notes, today's targets and day type, today's meals and drinks, energy in/out, last night's sleep, HRV, sleeping heart rate and readiness, recent workouts and the last 7 days' totals."
                      : "Sends your coaching goals, targets, 28 days of food totals and energy, sleep, HRV and sleeping heart rate, 8 weeks of workouts, your check-ins and body measurements.")
                 + Text(" Never medications, labs, notes or photos.")
             }
