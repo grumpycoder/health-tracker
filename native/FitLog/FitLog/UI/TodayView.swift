@@ -27,6 +27,7 @@ struct TodayView: View {
                     MacroSummary(meals: meals, drinks: drinks, active: store.energy.log(day)?.isActiveDay ?? false)
                 } header: { Text("Today's goals") }
                 Section { ReadinessCard() } header: { Text("Readiness") }
+                CoachSection()
                 MedsTodaySection(siteFor: $siteFor)
             }
             .navigationTitle(Date().formatted(.dateTime.weekday(.wide).month().day()))

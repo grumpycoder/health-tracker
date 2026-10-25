@@ -78,6 +78,11 @@ final class AIClient {
                              adjusted: (adv?["adjusted"] as? [String: Any]).map(macros))
     }
 
+    /// The coaching review (prompt built by Coach.prompt).
+    func coach(_ prompt: String) async throws -> Coach.Report? {
+        Self.parseObject(try await generate(prompt, jpeg: nil)).flatMap { Coach.Report.parse($0, at: Date()) }
+    }
+
     private func generate(_ prompt: String, jpeg: Data?) async throws -> String {
         var req = URLRequest(url: URL(string: "api/v1/ai/generate", relativeTo: Config.apiBase)!)
         req.httpMethod = "POST"

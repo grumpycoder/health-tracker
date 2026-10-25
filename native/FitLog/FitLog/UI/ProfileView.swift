@@ -61,9 +61,9 @@ struct GoalsView: View {
     var body: some View {
         Form {
             Section {
-                TextField("One goal or preference per line", text: $coaching, axis: .vertical).lineLimit(3...8)
+                TextField("Your goals, priorities and coaching style", text: $coaching, axis: .vertical).lineLimit(4...30)
             } header: { Text("Coaching goals") } footer: {
-                Text("Tells the AI what you're aiming for, so it coaches toward your targets.")
+                Text("The Coach review (on Today) uses this as its success criteria and coaching style.")
             }
             Section {
                 ForEach(Self.daily, id: \.0) { range($0.1, "\($0.0)Min", "\($0.0)Max") }
@@ -134,8 +134,11 @@ struct AIPrivacyView: View {
             Section("Sent") {
                 Text("Label and plate photos you choose to scan, plus any hint you type. Plate estimates also include today's meals and totals, your macro targets, today's planned day type and your meal tags.")
             }
+            Section("Coach review (only when you run one)") {
+                Text("Your coaching goals and targets, 28 days of daily food totals and energy in/out, sleep, HRV, sleeping heart rate and readiness, 8 weeks of workouts (sets and difficulty), your check-ins and body measurements.")
+            }
             Section("Never sent") {
-                Text("Medications, labs, sleep details, body measurements, notes, or anything identifying.")
+                Text("Medications, labs, cessation data, notes, photos other than scans, or anything identifying.")
             }
             Section {
                 Text("AI requests go through Fit Log's own server; the provider's free tier may use submitted text to improve its models, which is why medication and lab data are excluded by design.")

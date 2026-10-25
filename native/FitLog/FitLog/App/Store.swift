@@ -25,6 +25,9 @@ final class Store: ObservableObject {
     /// Stored daily readiness calculations (local only), newest first.
     @Published private(set) var readinessHistory: [ReadinessSnapshot] = []
     @Published private(set) var library = FoodLibrary()
+    /// The last coaching review (kept on this device until the next one).
+    @Published private(set) var coachReport: Coach.Report?
+    @Published private(set) var coaching = false
     @Published private(set) var medSchedules: [MedicationSchedule] = []
     /// Logged doses, newest first.
     @Published private(set) var doses: [MedicationEntry] = []
@@ -57,6 +60,7 @@ final class Store: ObservableObject {
         sync.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &bag)
         health.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &bag)
         reminders.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &bag)
+        coachReport = (try? rows.meta("coachReport")).flatMap { $0 }.flatMap { try? JSONDecoder().decode(Coach.Report.self, from: Data($0.utf8)) }
         reload()
     }
 
@@ -570,6 +574,31 @@ final class Store: ObservableObject {
             }
         }
         return added + filled == 0 ? "Already up to date." : "Imported \(added) day(s)\(filled > 0 ? ", filled waist on \(filled)" : "") from Health."
+    }
+
+    // MARK: coach
+
+    /// Run a coaching review over the current data; returns an error message, or nil on success.
+    func runCoach() async -> String? {
+        coaching = true
+        defer { coaching = false }
+        let data = Coach.Inputs(
+            today: .today, goals: goals, coachingGoals: goalsRow()?.row.string("coachingGoals"),
+            meals: mealsByDay, drinks: drinksByDay, energy: energy, sessions: sessions,
+            routines: Dictionary(routines.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),
+            exercises: Dictionary(exercises.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }),
+            sets: sets, feedback: feedback, nights: nights.map(\.metrics),
+            readiness: Dictionary(readinessHistory.filter { $0.algorithmVersion == Readiness.algorithmVersion }.map { ($0.day, $0.result.score) },
+                                  uniquingKeysWith: { a, _ in a }),
+            checkIns: recovery, body: body)
+        let template = promptOverride(Coach.promptKey)
+        let prompt = await Task.detached { Coach.prompt(template: template, data) }.value
+        do {
+            guard let r = try await ai.coach(prompt) else { return "The AI's reply couldn't be read. Try again." }
+            coachReport = r
+            if let json = try? JSONEncoder().encode(r) { try? rows.setMeta("coachReport", String(decoding: json, as: UTF8.self)) }
+            return nil
+        } catch { return error.localizedDescription }
     }
 
     // MARK: goals

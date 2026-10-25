@@ -78,6 +78,7 @@ struct WorkoutSession: Decodable, Identifiable {
 
 struct GoalSettings: Decodable {
     let updatedAt: Date
+    var coachingGoals: String?
     let proteinMin, proteinMax, fatMin, fatMax, fiberMin, fiberMax: Int
     let caloriesRestMin, caloriesRestMax, caloriesActiveMin, caloriesActiveMax: Int
     let carbsRestMin, carbsRestMax, carbsActiveMin, carbsActiveMax: Int
