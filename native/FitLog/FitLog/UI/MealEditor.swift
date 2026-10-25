@@ -379,7 +379,8 @@ enum CameraPresenter {
 }
 
 /// 📷 Plate photo → the AI's per-item estimate, added as items (one serving each — adjust per item),
-/// with tags/stars for a new meal and optional portion advice you can apply.
+/// with tags/stars for a new meal and optional portion advice you can apply. Re-estimate sends the
+/// same photo again with the correction and replaces the previous estimate instead of adding to it.
 struct PlateScanSection: View {
     @EnvironmentObject private var store: Store
     @Binding var draft: MealDraft
@@ -388,6 +389,12 @@ struct PlateScanSection: View {
     @State private var busy = false
     @State private var message: String?
     @State private var advice: AIClient.PlateEstimate?
+    @State private var lastImage: UIImage?
+    @State private var undo: Undo?
+
+    /// The draft as it was before the last estimate, and what the estimate filled in (cleared on
+    /// re-estimate only if still unchanged, so your own edits stay).
+    private struct Undo { var items: [MealItem]; var macros: Macros; var description: String?; var stars: Int?; var tags: String? }
 
     var body: some View {
         Section {
@@ -399,6 +406,12 @@ struct PlateScanSection: View {
             }
             .buttonStyle(.borderless)
             TextField("Correction (optional) — e.g. half the rice, no butter", text: $hint, axis: .vertical)
+            if let img = lastImage, !busy {
+                Button { Task { await estimate(img, redo: true) } } label: {
+                    Label("Re-estimate with correction", systemImage: "arrow.clockwise")
+                }
+                .disabled(hint.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
             if busy { HStack { ProgressView(); Text("Estimating…").foregroundStyle(.secondary) } }
             if let m = message { Text(m).font(.footnote).foregroundStyle(.secondary) }
             if let a = advice, a.adviceNeeded {
@@ -415,7 +428,7 @@ struct PlateScanSection: View {
                 .padding(.vertical, 4)
             }
         } header: { Text("Estimate from a photo") } footer: {
-            Text("AI estimate — photo estimates run high, so check portions. Adds onto anything already on the meal.")
+            Text("AI estimate — photo estimates run high, so check portions. Adds onto anything already on the meal. To fix an estimate, type a correction and tap Re-estimate.")
         }
         .onChange(of: photo) { _, item in
             guard let item else { return }
@@ -426,9 +439,10 @@ struct PlateScanSection: View {
         }
     }
 
-    private func estimate(_ image: UIImage) async {
+    private func estimate(_ image: UIImage, redo: Bool = false) async {
         busy = true; message = nil; advice = nil
         defer { busy = false }
+        lastImage = image
         do {
             guard let e = try await store.ai.estimatePlate(image, hint: hint, template: store.promptOverride("estimate_photo"),
                                                            rules: store.promptOverride("meal_tagging_rules"), vocabulary: store.tagVocabulary,
@@ -436,6 +450,15 @@ struct PlateScanSection: View {
                 message = "Couldn't estimate a meal from that photo."; return
             }
             let items = e.items.isEmpty ? [e.totals.item(named: e.description ?? "Plate")] : e.items
+            if redo, let u = undo {
+                draft.items = u.items; draft.macros = u.macros
+                if let d = u.description, draft.description == d { draft.description = "" }
+                if let st = u.stars, draft.stars == st { draft.stars = nil }
+                if let t = u.tags, draft.carriedTags == t { draft.carriedTags = nil }
+            }
+            undo = Undo(items: draft.items, macros: draft.macros, description: draft.description.isEmpty ? e.description : nil,
+                        stars: draft.stars == nil ? e.stars : nil,
+                        tags: draft.id == nil && !e.tags.isEmpty && draft.carriedTags == nil ? e.tags.joined(separator: ",") : nil)
             if draft.items.isEmpty, let b = draft.baseItem { draft.items.append(b) }
             draft.items.append(contentsOf: items)
             draft.setTotals()
@@ -443,7 +466,7 @@ struct PlateScanSection: View {
             if draft.stars == nil { draft.stars = e.stars }
             if draft.id == nil, !e.tags.isEmpty, draft.carriedTags == nil { draft.carriedTags = e.tags.joined(separator: ",") }
             advice = e
-            message = "Estimated \(items.count) item\(items.count == 1 ? "" : "s") — set servings for each if needed."
+            message = "\(redo ? "Re-estimated" : "Estimated") \(items.count) item\(items.count == 1 ? "" : "s") — set servings for each if needed."
         } catch {
             message = "Estimate failed: \(error.localizedDescription)"
         }
