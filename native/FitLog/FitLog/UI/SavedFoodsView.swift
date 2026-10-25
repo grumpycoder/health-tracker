@@ -6,6 +6,7 @@ struct SavedFoodsView: View {
     @EnvironmentObject private var store: Store
     @State private var filter = ""
     @State private var editing: MealItem?
+    @State private var showHidden = false
 
     private var foods: [String] {
         let q = filter.trimmingCharacters(in: .whitespaces)
@@ -13,17 +14,27 @@ struct SavedFoodsView: View {
     }
 
     var body: some View {
+        let shown = foods.filter { !store.hiddenFoods.contains($0.lowercased()) }
+        let hidden = foods.filter { store.hiddenFoods.contains($0.lowercased()) }
         List {
-            if foods.isEmpty { Text(filter.isEmpty ? "No foods logged yet." : "No matches.").foregroundStyle(.secondary) }
-            ForEach(foods, id: \.self) { name in
-                let hidden = store.hiddenFoods.contains(name.lowercased())
-                Button { editing = store.library.item(for: name) } label: { row(name, hidden: hidden) }
-                    .swipeActions(edge: .trailing) {
-                        Button(hidden ? "Show" : "Hide") { store.toggleHidden(name) }.tint(hidden ? .blue : .gray)
-                        if store.library.isSaved(name) {
-                            Button("Reset", role: .destructive) { store.resetFood(name) }
+            Section {
+                if shown.isEmpty { Text(filter.isEmpty ? "No foods logged yet." : "No matches.").foregroundStyle(.secondary) }
+                ForEach(shown, id: \.self) { foodRow($0, hidden: false) }
+            } header: { Text("In suggestions") }
+            if !hidden.isEmpty {
+                Section {
+                    if showHidden || !filter.isEmpty { ForEach(hidden, id: \.self) { foodRow($0, hidden: true) } }
+                } header: {
+                    Button { withAnimation { showHidden.toggle() } } label: {
+                        HStack {
+                            Text("Hidden (\(hidden.count))")
+                            Spacer()
+                            Image(systemName: "chevron.right").rotationEffect(.degrees(showHidden || !filter.isEmpty ? 90 : 0))
                         }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .searchable(text: $filter, prompt: "Filter foods")
@@ -33,6 +44,16 @@ struct SavedFoodsView: View {
             Text("Tap to edit macros · swipe to hide from suggestions or reset to the last log")
                 .font(.caption).foregroundStyle(.secondary).padding(8).frame(maxWidth: .infinity).background(.bar)
         }
+    }
+
+    private func foodRow(_ name: String, hidden: Bool) -> some View {
+        Button { editing = store.library.item(for: name) } label: { row(name, hidden: hidden) }
+            .swipeActions(edge: .trailing) {
+                Button(hidden ? "Show" : "Hide") { store.toggleHidden(name) }.tint(hidden ? .blue : .gray)
+                if store.library.isSaved(name) {
+                    Button("Reset", role: .destructive) { store.resetFood(name) }
+                }
+            }
     }
 
     private func row(_ name: String, hidden: Bool) -> some View {
