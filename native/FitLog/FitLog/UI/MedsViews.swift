@@ -70,7 +70,6 @@ struct MedsView: View {
     @State private var editing: MedTarget?
     @State private var editingDose: MedTarget?
     @State private var siteFor: MedicationSchedule?
-    @State private var logged: String?
 
     var body: some View {
         List {
@@ -79,43 +78,92 @@ struct MedsView: View {
                 if active.isEmpty { Text("No saved medications yet. Add one to log it with one tap and get reminders.").foregroundStyle(.secondary) }
                 ForEach(active) { s in
                     HStack {
-                        Button { editing = .edit(s.id) } label: {
+                        NavigationLink { MedHistoryView(name: s.name) } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("\(s.form.glyph) \(s.name)").font(.headline)
-                                Text([s.dose, "\(s.repeat.label) \(s.reminderTime.label)",
-                                      s.endDate.map { "until \($0.date.formatted(.dateTime.month(.abbreviated).day()))" }]
-                                    .compactMap { $0 }.joined(separator: " · "))
-                                    .font(.caption).foregroundStyle(.secondary)
+                                Text(s.summary).font(.caption).foregroundStyle(.secondary)
+                                LastTakenText(name: s.name)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
-                        Button("Log") {
-                            if s.form == .injection { siteFor = s } else { store.logDose(s); logged = "Logged \(s.name)" }
-                        }
-                        .buttonStyle(.bordered)
+                        Button("Log") { if s.form == .injection { siteFor = s } else { store.logDose(s) } }
+                            .buttonStyle(.bordered)
                     }
                     .swipeActions { Button("Delete", role: .destructive) { store.deleteMedSchedule(s.id) } }
                 }
                 Button { editing = .new } label: { Label("Add medication", systemImage: "plus.circle.fill") }
-                if let logged { Text("\(logged) ✓").font(.footnote).foregroundStyle(.green) }
             } header: { Text("My medications") }
 
+            // Logged by name but with no saved schedule (one-offs, or a schedule since removed).
+            let scheduled = Set(store.medSchedules.filter(\.active).map { $0.name.lowercased() })
+            let others = Dictionary(grouping: store.doses.filter { !scheduled.contains($0.name.lowercased()) }) { $0.name.lowercased() }
+                .values.compactMap(\.first).sorted { $0.takenAt > $1.takenAt }
             Section {
+                ForEach(others) { d in
+                    NavigationLink { MedHistoryView(name: d.name) } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(d.name).font(.headline)
+                            LastTakenText(name: d.name)
+                        }
+                    }
+                }
                 Button { editingDose = .new } label: { Label("Log a one-off dose", systemImage: "square.and.pencil") }
-            }
+            } header: { Text("Other medications") }
+        }
+        .navigationTitle("Medications")
+        .injectionSitePicker(for: $siteFor)
+        .sheet(item: $editing) { MedScheduleEditor(target: $0) }
+        .sheet(item: $editingDose) { DoseEditor(target: $0) }
+    }
+}
 
-            Section("Recent doses") {
-                if store.doses.isEmpty { Text("No medications logged yet.").foregroundStyle(.secondary) }
-                ForEach(store.doses.prefix(20)) { d in
-                    Button { editingDose = .edit(d.id) } label: { DoseRow(d: d) }
+/// "Last taken Oct 22, 8:00 AM · Left glute · 14 doses" for a medication (by name).
+private struct LastTakenText: View {
+    @EnvironmentObject private var store: Store
+    let name: String
+    var body: some View {
+        let mine = store.doses.filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        if let last = mine.first {   // doses are newest first
+            Text((["Last taken \(last.takenAt.formatted(.dateTime.month(.abbreviated).day().hour().minute()))", last.injectionSite]
+                  .compactMap { $0 } + ["\(mine.count) dose\(mine.count == 1 ? "" : "s")"]).joined(separator: " · "))
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text("Not logged yet").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// One medication: its schedule (if any) and every dose logged under its name.
+struct MedHistoryView: View {
+    @EnvironmentObject private var store: Store
+    let name: String
+    @State private var editing: MedTarget?
+    @State private var editingDose: MedTarget?
+    @State private var siteFor: MedicationSchedule?
+
+    var body: some View {
+        let schedule = store.medSchedules.first { $0.active && $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        let doses = store.doses.filter { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        List {
+            if let s = schedule {
+                Section {
+                    LabeledContent("Schedule", value: s.summary)
+                    if s.form == .injection { LabeledContent("Next site", value: Meds.suggestedSite(for: s.name, doses: store.doses)) }
+                    Button { if s.form == .injection { siteFor = s } else { store.logDose(s) } } label: {
+                        Label("Log dose now", systemImage: "checkmark.circle")
+                    }
+                }
+            }
+            Section {
+                if doses.isEmpty { Text("Not logged yet.").foregroundStyle(.secondary) }
+                ForEach(doses) { d in
+                    Button { editingDose = .edit(d.id) } label: { DoseRow(d: d, showName: false) }
                         .buttonStyle(.plain)
                         .swipeActions { Button("Delete", role: .destructive) { store.deleteDose(d.id) } }
                 }
-            }
+            } header: { Text("History") }
         }
-        .navigationTitle("Medications")
+        .navigationTitle(schedule.map { "\($0.form.glyph) \($0.name)" } ?? name)
+        .toolbar { if let s = schedule { Button("Edit") { editing = .edit(s.id) } } }
         .injectionSitePicker(for: $siteFor)
         .sheet(item: $editing) { MedScheduleEditor(target: $0) }
         .sheet(item: $editingDose) { DoseEditor(target: $0) }
@@ -130,13 +178,20 @@ enum MedTarget: Identifiable {
 
 struct DoseRow: View {
     let d: MedicationEntry
+    var showName = true
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text(d.name).font(.headline)
-                if let dose = d.dose { Text(dose).foregroundStyle(.secondary) }
-                Spacer()
-                Text(d.takenAt.formatted(.dateTime.month(.abbreviated).day().hour().minute())).font(.caption).foregroundStyle(.secondary)
+                if showName {
+                    Text(d.name).font(.headline)
+                    if let dose = d.dose { Text(dose).foregroundStyle(.secondary) }
+                    Spacer()
+                    Text(d.takenAt.formatted(.dateTime.month(.abbreviated).day().hour().minute())).font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text(d.takenAt.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year().hour().minute()))
+                    Spacer()
+                    if let dose = d.dose { Text(dose).font(.caption).foregroundStyle(.secondary) }
+                }
             }
             let bits = [d.injectionSite.map { "@ \($0)" }, d.reactionNotes].compactMap { $0 }.filter { !$0.isEmpty }
             if !bits.isEmpty { Text(bits.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary) }

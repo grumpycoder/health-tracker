@@ -53,6 +53,12 @@ struct MedicationSchedule: Decodable, Identifiable {
     let reminderTime: ClockTime
     let notificationId: Int
 
+    /// "100mg · Weekly 9:00 AM · until Dec 1"
+    var summary: String {
+        [dose, "\(self.repeat.label) \(reminderTime.label)",
+         endDate.map { "until \($0.date.formatted(.dateTime.month(.abbreviated).day()))" }].compactMap { $0 }.joined(separator: " · ")
+    }
+
     /// Active and not past its end date (the MAUI Reminders filter).
     func current(today: Day = .today) -> Bool { active && (endDate.map { $0 >= today } ?? true) }
 }
