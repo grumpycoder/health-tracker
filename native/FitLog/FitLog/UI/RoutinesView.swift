@@ -59,7 +59,7 @@ struct RoutineDetailView: View {
                         Button { editing = s } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(exName(s)).foregroundStyle(.primary)
-                                Text(prescription(s)).font(.caption).foregroundStyle(.secondary)
+                                Text(s.prescription).font(.caption).foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -110,11 +110,15 @@ struct RoutineDetailView: View {
         addName = ""
     }
 
-    private func prescription(_ s: RoutineExercise) -> String {
-        var p = ["\(s.targetSets ?? 1) × " + (s.targetDurationSeconds.map { "\($0)s" } ?? "\(s.targetReps ?? 0)")]
-        if let w = s.targetWeight { p.append("\(w.formatted()) lb") }
-        if let r = s.restSeconds { p.append("rest \(r)s") }
-        if let n = s.targetNote, !n.isEmpty { p.append(n) }
+}
+
+extension RoutineExercise {
+    /// "3 × 10 · 25 lb · rest 60s · each side"
+    var prescription: String {
+        var p = ["\(targetSets ?? 1) × " + (targetDurationSeconds.map { "\($0)s" } ?? "\(targetReps ?? 0)")]
+        if let w = targetWeight { p.append("\(w.formatted()) lb") }
+        if let r = restSeconds { p.append("rest \(r)s") }
+        if let n = targetNote, !n.isEmpty { p.append(n) }
         return p.joined(separator: " · ")
     }
 }

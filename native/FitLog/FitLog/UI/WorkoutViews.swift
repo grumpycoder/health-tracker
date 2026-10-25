@@ -10,22 +10,27 @@ struct WorkoutTab: View {
                 LiveWorkoutView()
             } else {
                 List {
-                    Section("Start a routine") {
+                    Section {
                         let active = store.routines.filter { !$0.isArchived }
                         if active.isEmpty { Text("No routines yet.").foregroundStyle(.secondary) }
                         ForEach(active) { r in
-                            Button { workout.start(r) } label: {
+                            // Tap the row to see its exercises; the play button starts it straight away.
+                            NavigationLink { RoutinePreviewView(routineId: r.id) } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(r.name).foregroundStyle(.primary)
                                         Text(summary(r)).font(.caption).foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(.tint)
+                                    Button { workout.start(r) } label: {
+                                        Image(systemName: "play.circle.fill").font(.title2).foregroundStyle(.tint)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .accessibilityLabel("Start \(r.name)")
                                 }
                             }
                         }
-                    }
+                    } header: { Text("Routines") }
                     Section {
                         NavigationLink { RoutinesView() } label: { Label("Routines", systemImage: "list.bullet.rectangle") }
                         NavigationLink { ExercisesView() } label: { Label("Exercises", systemImage: "dumbbell") }
@@ -41,6 +46,56 @@ struct WorkoutTab: View {
         let n = store.routineExercises.filter { $0.routineId == r.id }.count
         let done = store.sessions.filter { $0.routineId == r.id }.count
         return "\(n) exercise\(n == 1 ? "" : "s") · \(done) workout\(done == 1 ? "" : "s") · \(r.mode.label)"
+    }
+}
+
+/// A routine before you start it: its exercises and targets in order, when you last did it, and
+/// Start. Editing lives on the routine's detail screen (Edit).
+struct RoutinePreviewView: View {
+    @EnvironmentObject private var store: Store
+    @EnvironmentObject private var workout: WorkoutController
+    @Environment(\.dismiss) private var dismiss
+    let routineId: UUID
+
+    private var routine: WorkoutRoutine? { store.routines.first { $0.id == routineId } }
+    private var slots: [RoutineExercise] { store.routineExercises.filter { $0.routineId == routineId }.sorted { $0.order < $1.order } }
+
+    var body: some View {
+        if let routine {
+            List {
+                Section {
+                    // Pop back first: the tab's root swaps to the live workout once it starts.
+                    Button { dismiss(); workout.start(routine) } label: {
+                        Label("Start workout", systemImage: "play.fill").frame(maxWidth: .infinity).font(.headline)
+                    }
+                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .disabled(slots.isEmpty)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                } footer: { Text(details(routine)) }
+                Section("Exercises") {
+                    if slots.isEmpty { Text("No exercises yet — tap Edit to add some.").foregroundStyle(.secondary) }
+                    ForEach(Array(slots.enumerated()), id: \.element.id) { i, s in
+                        let ex = store.exercises.first { $0.id == s.exerciseDefinitionId }
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text("\(i + 1)").font(.headline.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 22, alignment: .trailing)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(ex?.name ?? "Exercise")
+                                Text(s.prescription).font(.caption).foregroundStyle(.secondary)
+                                if let m = ex?.muscles, !m.isEmpty { Text(m.joined(separator: ", ")).font(.caption).foregroundStyle(.tertiary) }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle(routine.name)
+            .toolbar { NavigationLink("Edit") { RoutineDetailView(routineId: routineId) } }
+        }
+    }
+
+    private func details(_ r: WorkoutRoutine) -> String {
+        let last = store.sessions.filter { $0.routineId == r.id }.map(\.date).max()
+        return [r.mode.label, last.map { "Last done \($0.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))" } ?? "Not done yet"]
+            .joined(separator: " · ")
     }
 }
 
