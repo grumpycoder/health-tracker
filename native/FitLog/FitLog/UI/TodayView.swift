@@ -30,7 +30,7 @@ struct TodayView: View {
                 MedsTodaySection(siteFor: $siteFor)
             }
             .navigationTitle(Date().formatted(.dateTime.weekday(.wide).month().day()))
-            .toolbar { NavigationLink { AccountView() } label: { Image(systemName: "person.crop.circle") }.accessibilityLabel("Account & sync") }
+            .toolbar { NavigationLink { ProfileView() } label: { Image(systemName: "person.crop.circle") }.accessibilityLabel("Profile, goals & settings") }
             .refreshable { await store.refresh(auth: auth) }
             .injectionSitePicker(for: $siteFor)
             .onChange(of: router.addMeal, initial: true) { _, go in

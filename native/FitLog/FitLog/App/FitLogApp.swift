@@ -90,29 +90,3 @@ struct SignInView: View {
         .padding()
     }
 }
-
-struct AccountView: View {
-    @EnvironmentObject private var auth: Auth
-    @EnvironmentObject private var store: Store
-
-    var body: some View {
-            List {
-                Section("Sync") {
-                    LabeledContent("Last synced", value: store.lastSync?.formatted(date: .abbreviated, time: .shortened) ?? "—")
-                    LabeledContent("Meals", value: "\(store.meals.count)")
-                    LabeledContent("Drinks", value: "\(store.drinks.count)")
-                    LabeledContent("Day logs", value: "\(store.logs.count)")
-                    if let r = store.sync.lastResult { LabeledContent("Last sync", value: r) }
-                    Button(store.syncing ? "Syncing…" : "Sync now") { Task { await store.refresh(auth: auth) } }
-                        .disabled(store.syncing)
-                    if let e = store.error { Text(e).font(.footnote).foregroundStyle(.red) }
-                }
-                Section {
-                    Text("Data is stored on this iPhone and synced with your other devices. Editing arrives in the next update.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                Section { Button("Sign out", role: .destructive) { auth.signOut() } }
-            }
-            .navigationTitle("Account")
-    }
-}

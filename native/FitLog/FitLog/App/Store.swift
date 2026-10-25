@@ -572,6 +572,19 @@ final class Store: ObservableObject {
         return added + filled == 0 ? "Already up to date." : "Imported \(added) day(s)\(filled > 0 ? ", filled waist on \(filled)" : "") from Health."
     }
 
+    // MARK: goals
+
+    /// The synced goals singleton: the latest live row (same rule as the other apps).
+    func goalsRow() -> (id: String, row: Row)? {
+        let live = ((try? rows.rows("GoalSettings")) ?? []).filter { if case .bool(true) = $0["isDeleted"] { false } else { true } }
+        guard let r = live.max(by: { ($0.date("updatedAt") ?? .distantPast) < ($1.date("updatedAt") ?? .distantPast) }),
+              let id = r.string("id") else { return nil }
+        return (id, r)
+    }
+
+    /// Changed fields only, so includeCessationData (not edited on the phone) is never touched.
+    func saveGoals(_ fields: Row) { upsert("GoalSettings", goalsRow()?.id, fields) }
+
     // MARK: medications & reminders (same rules as the MAUI Medication / Reminders pages)
 
     func rescheduleReminders() {
