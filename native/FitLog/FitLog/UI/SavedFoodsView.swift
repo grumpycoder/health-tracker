@@ -78,7 +78,7 @@ private struct FoodMacrosSheet: View {
             }
             .navigationTitle(item.name)
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear { macros = .of([item]) }
+            .onAppear { macros = .of(item) }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

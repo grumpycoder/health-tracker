@@ -247,9 +247,7 @@ struct ItemEditor: View {
             Form {
                 Section {
                     TextField("Name", text: $item.name)
-                    Stepper(value: $item.portion, in: 0.25...20, step: 0.25) {
-                        LabeledContent("Servings", value: item.portion.formatted())
-                    }
+                    ServingsControl(servings: $item.portion)
                 }
                 Section {
                     MacroFields(macros: Binding(get: { Macros.of(item) }, set: { m in
@@ -441,5 +439,39 @@ struct PlateScanSection: View {
         } catch {
             message = "Estimate failed: \(error.localizedDescription)"
         }
+    }
+}
+
+/// Servings: a ¼-step slider for the usual 0.25–4 range, one-tap common amounts, and a number
+/// field for anything above 4 or between steps (0.25–20, like the C# item rules).
+struct ServingsControl: View {
+    @Binding var servings: Double
+    static let sliderRange = 0.25...4.0
+    static let presets: [Double] = [0.5, 1, 1.5, 2]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Servings")
+                Spacer()
+                PadNumberField("1", value: Binding(get: { servings }, set: { if let v = $0 { servings = min(20, max(0.25, v)) } }))
+                    .multilineTextAlignment(.trailing).monospacedDigit().frame(width: 70)
+            }
+            Slider(value: Binding(get: { min(servings, Self.sliderRange.upperBound) },
+                                  set: { servings = ($0 * 4).rounded() / 4 }),
+                   in: Self.sliderRange, step: 0.25) {
+                Text("Servings")
+            } minimumValueLabel: { Text("¼").font(.caption) } maximumValueLabel: { Text("4").font(.caption) }
+            .sensoryFeedback(.selection, trigger: servings)
+            HStack(spacing: 8) {
+                ForEach(Self.presets, id: \.self) { p in
+                    Button(p.formatted()) { servings = p }
+                        .buttonStyle(.bordered).tint(servings == p ? .accentColor : .secondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.vertical, 4)
     }
 }
