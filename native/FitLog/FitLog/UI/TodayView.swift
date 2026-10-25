@@ -19,10 +19,10 @@ struct TodayView: View {
                     }
                     .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                 } header: { Text("Log") }
-                Section { ReadinessCard() } header: { Text("Readiness") }
                 Section {
                     EnergyCard(day: day, caloriesIn: Nutrition.calories(meals, drinks))
                 } header: { Text("Energy balance") }
+                Section { ReadinessCard() } header: { Text("Readiness") }
                 Section {
                     MacroSummary(meals: meals, drinks: drinks, active: store.energy.log(day)?.isActiveDay ?? false)
                 } header: { Text("Today's goals") }
@@ -45,16 +45,14 @@ struct TodayView: View {
     }
 }
 
+/// Icon-only log button; `title` is what VoiceOver reads.
 private func quick(_ title: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
     Button(action: action) {
-        VStack(spacing: 4) {
-            Image(systemName: icon).font(.title3)
-            // Two lines reserved on every button so a wrapped label doesn't make one taller.
-            Text(title).font(.caption).multilineTextAlignment(.center).lineLimit(2, reservesSpace: true).minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity, minHeight: 52)
+        Image(systemName: icon).font(.title2)
+            .frame(maxWidth: .infinity, minHeight: 44)
     }
     .buttonStyle(.bordered)
+    .accessibilityLabel(title)
 }
 
 /// In / out / budget for the day, then one card per rolling window. Grids collapse to stacked

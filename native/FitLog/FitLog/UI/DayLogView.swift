@@ -1,39 +1,47 @@
 import SwiftUI
 
-/// One day's meals and drinks, newest first, grouped by meal type, with the energy card on top.
+/// One day's meals and drinks grouped Breakfast → Lunch → Dinner → Snack → Drinks, each a
+/// collapsible section (collapsed ones stay collapsed across days and launches).
 struct DayLogView: View {
     @EnvironmentObject private var store: Store
     @EnvironmentObject private var auth: Auth
     @State private var day = Day.today
     @State private var editor: EditorTarget?
+    @AppStorage("dayLog.collapsed") private var collapsedRaw = ""
 
     var body: some View {
         NavigationStack {
             let meals = store.meals(on: day), drinks = store.drinks(on: day)
             List {
-                Section {
-                    EnergyCard(day: day, caloriesIn: Nutrition.calories(meals, drinks))
-                }
-                ForEach(MealType.allCases.filter { $0 != .drink }, id: \.self) { type in
+                // Only the non-empty types, worked out up front: a ForEach whose rows are sometimes
+                // empty (an `if` inside) lets List put sections out of order.
+                let types = MealType.allCases.filter { t in t != .drink && meals.contains { $0.mealType == t } }
+                ForEach(types, id: \.self) { type in
                     let rows = meals.filter { $0.mealType == type }
-                    if !rows.isEmpty {
-                        Section {
+                    Section {
+                        if !isCollapsed(type.label) {
                             ForEach(rows) { m in
                                 Button { if let d = store.meal(m.id) { editor = .meal(d) } } label: { MealRow(meal: m) }
                                     .buttonStyle(.plain)
                                     .swipeActions { Button("Delete", role: .destructive) { store.deleteMeal(m.id) } }
                             }
-                        } header: { Label(type.label, systemImage: type.symbol) }
+                        }
+                    } header: {
+                        header(type.label, type.symbol, "\(rows.count) · \(rows.compactMap(\.calories).reduce(0, +)) cal")
                     }
                 }
                 if !drinks.isEmpty {
                     Section {
-                        ForEach(drinks) { d in
-                            Button { if let dd = store.drink(d.id) { editor = .drink(dd) } } label: { DrinkRow(drink: d) }
-                                .buttonStyle(.plain)
-                                .swipeActions { Button("Delete", role: .destructive) { store.deleteDrink(d.id) } }
+                        if !isCollapsed("Drinks") {
+                            ForEach(drinks) { d in
+                                Button { if let dd = store.drink(d.id) { editor = .drink(dd) } } label: { DrinkRow(drink: d) }
+                                    .buttonStyle(.plain)
+                                    .swipeActions { Button("Delete", role: .destructive) { store.deleteDrink(d.id) } }
+                            }
                         }
-                    } header: { Label("Drinks · \(Nutrition.fluidOz(drinks)) oz", systemImage: "drop") }
+                    } header: {
+                        header("Drinks", "drop", "\(drinks.count) · \(Nutrition.fluidOz(drinks)) oz · \(drinks.compactMap(\.calories).reduce(0, +)) cal")
+                    }
                 }
                 if meals.isEmpty && drinks.isEmpty {
                     ContentUnavailableView("Nothing logged", systemImage: "fork.knife", description: Text("No meals or drinks on this day."))
@@ -68,6 +76,28 @@ struct DayLogView: View {
                 }
             }
         }
+    }
+
+    private var collapsed: Set<String> { Set(collapsedRaw.split(separator: ",").map(String.init)) }
+    private func isCollapsed(_ key: String) -> Bool { collapsed.contains(key) }
+
+    /// Tappable section header: name, a summary that stays visible when collapsed, and a chevron.
+    private func header(_ title: String, _ icon: String, _ summary: String) -> some View {
+        Button {
+            var c = collapsed
+            if c.contains(title) { c.remove(title) } else { c.insert(title) }
+            withAnimation { collapsedRaw = c.sorted().joined(separator: ",") }
+        } label: {
+            HStack {
+                Label(title, systemImage: icon)
+                Spacer()
+                Text(summary).monospacedDigit()
+                Image(systemName: "chevron.right").rotationEffect(.degrees(isCollapsed(title) ? 0 : 90))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(isCollapsed(title) ? "Shows \(title.lowercased())" : "Hides \(title.lowercased())")
     }
 
     /// New entries default to the viewed day (at the current time of day when back-filling).
