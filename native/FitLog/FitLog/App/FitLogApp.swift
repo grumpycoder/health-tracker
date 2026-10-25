@@ -1,5 +1,6 @@
 import AuthenticationServices
 import SwiftUI
+import UserNotifications
 
 @main
 struct FitLogApp: App {
@@ -14,6 +15,8 @@ struct FitLogApp: App {
         let st = Store(auth: a)
         _store = StateObject(wrappedValue: st)
         _workout = StateObject(wrappedValue: WorkoutController(store: st))
+        // Set during launch so reminders show while the app is open and a tap is delivered.
+        UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
     }
     @Environment(\.scenePhase) private var phase
 
@@ -27,6 +30,7 @@ struct FitLogApp: App {
             .environmentObject(workout)
             .environmentObject(router)
             .onOpenURL { router.open($0) }
+            .onAppear { NotificationDelegate.shared.onOpen = { [router] in router.tab = 0 } }
             .task(id: auth.isSignedIn) {
                 guard auth.isSignedIn else { return }
                 await store.health.requestAccessAndLoad()

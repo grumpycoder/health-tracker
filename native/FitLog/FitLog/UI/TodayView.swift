@@ -5,6 +5,7 @@ struct TodayView: View {
     @EnvironmentObject private var auth: Auth
     @State private var editor: EditorTarget?
     @EnvironmentObject private var router: Router
+    @State private var siteFor: MedicationSchedule?
 
     var body: some View {
         NavigationStack {
@@ -23,6 +24,7 @@ struct TodayView: View {
                     EnergyCard(day: day, caloriesIn: Nutrition.calories(meals, drinks))
                 } header: { Text("Energy balance") }
                 Section { ReadinessCard() } header: { Text("Readiness") }
+                MedsTodaySection(siteFor: $siteFor)
                 Section {
                     MacroSummary(meals: meals, drinks: drinks, active: store.energy.log(day)?.isActiveDay ?? false)
                 } header: { Text("Today's goals") }
@@ -30,6 +32,7 @@ struct TodayView: View {
             .navigationTitle(Date().formatted(.dateTime.weekday(.wide).month().day()))
             .toolbar { NavigationLink { AccountView() } label: { Image(systemName: "person.crop.circle") }.accessibilityLabel("Account & sync") }
             .refreshable { await store.refresh(auth: auth) }
+            .injectionSitePicker(for: $siteFor)
             .onChange(of: router.addMeal, initial: true) { _, go in
                 guard go else { return }
                 router.addMeal = false

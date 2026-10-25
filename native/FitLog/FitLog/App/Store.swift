@@ -25,6 +25,12 @@ final class Store: ObservableObject {
     /// Stored daily readiness calculations (local only), newest first.
     @Published private(set) var readinessHistory: [ReadinessSnapshot] = []
     @Published private(set) var library = FoodLibrary()
+    @Published private(set) var medSchedules: [MedicationSchedule] = []
+    /// Logged doses, newest first.
+    @Published private(set) var doses: [MedicationEntry] = []
+    @Published private(set) var reminderSettings: [ReminderSetting] = []
+    /// Latest day each routine reminder's task was done (key → day), for skip-when-done.
+    private var reminderDone: [String: Day] = [:]
     /// Foods hidden from suggestions (lowercased), on this device only.
     @Published private(set) var hiddenFoods = Set(UserDefaults.standard.stringArray(forKey: "hiddenFoods") ?? [])
     // Derived once per reload (not per redraw): per-day lookups and the energy history.
@@ -38,6 +44,7 @@ final class Store: ObservableObject {
     let sync: SyncEngine
     let health: HealthService
     let ai: AIClient
+    let reminders = ReminderNotifier()
     private var bag: Set<AnyCancellable> = []
 
     init(auth: Auth) {
@@ -49,6 +56,7 @@ final class Store: ObservableObject {
         // Views observe Store; forward the nested objects' changes (sync status, Health data).
         sync.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &bag)
         health.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &bag)
+        reminders.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &bag)
         reload()
     }
 
@@ -78,6 +86,8 @@ final class Store: ObservableObject {
         var sets: [ExerciseSet] = [], feedback: [ExerciseFeedback] = [], sleep: [SleepEntry] = [], recovery: [RecoveryEntry] = []
         var mealsByDay: [Day: [MealEntry]] = [:], drinksByDay: [Day: [DrinkEntry]] = [:]
         var caloriesByDay: [Day: Int] = [:], library = FoodLibrary()
+        var medSchedules: [MedicationSchedule] = [], doses: [MedicationEntry] = [], reminderSettings: [ReminderSetting] = []
+        var reminderDone: [String: Day] = [:]
 
         init() {}
         init(_ rows: RowStore) throws {
@@ -102,6 +112,20 @@ final class Store: ObservableObject {
                 return r.string("id").map { ($0.lowercased(), r) }
             }
             library = FoodLibrary(meals: meals, drinks: drinks, savedFoods: saved)
+            medSchedules = (try rows.decode("MedicationSchedule") as [MedicationSchedule]).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            doses = (try rows.decode("MedicationEntry") as [MedicationEntry]).sorted { $0.takenAt > $1.takenAt }
+            reminderSettings = (try rows.decode("ReminderSetting") as [ReminderSetting]).sorted { $0.order < $1.order }
+            // What each routine reminder checks for (the MAUI MainLayout skip-when-done rules).
+            func latest(_ type: String, _ key: String, where ok: (Row) -> Bool = { _ in true }) throws -> Day? {
+                try rows.rows(type).filter { r in
+                    if case .bool(true) = r["isDeleted"] { return false }
+                    return ok(r)
+                }.compactMap { $0.string(key).flatMap { s in try? JSONDecoder().decode(Day.self, from: Data("\"\(s)\"".utf8)) } }.max()
+            }
+            reminderDone["measurement"] = body.map(\.date).max()
+            reminderDone["progressPhoto"] = try latest("BodyMeasurement", "date") { !($0.string("photoPath") ?? "").isEmpty }
+            reminderDone["labCheck"] = try latest("LabResult", "date")
+            reminderDone["weeklyReview"] = try latest("WeeklyReview", "weekStart")
         }
     }
 
@@ -129,7 +153,9 @@ final class Store: ObservableObject {
         recovery = s.recovery
         mealsByDay = s.mealsByDay; drinksByDay = s.drinksByDay; caloriesByDay = s.caloriesByDay; library = s.library
         library.hidden = hiddenFoods
+        medSchedules = s.medSchedules; doses = s.doses; reminderSettings = s.reminderSettings; reminderDone = s.reminderDone
         rebuildEnergy()
+        rescheduleReminders()
     }
 
     // MARK: edits — saved locally, then pushed a few seconds later (several quick edits → one sync)
@@ -545,6 +571,42 @@ final class Store: ObservableObject {
         }
         return added + filled == 0 ? "Already up to date." : "Imported \(added) day(s)\(filled > 0 ? ", filled waist on \(filled)" : "") from Health."
     }
+
+    // MARK: medications & reminders (same rules as the MAUI Medication / Reminders pages)
+
+    func rescheduleReminders() {
+        reminders.update(Meds.plan(schedules: medSchedules, doses: doses, settings: reminderSettings, lastDone: reminderDone))
+    }
+
+    var dueDoses: [MedicationSchedule] { Meds.outstanding(medSchedules, doses: doses) }
+
+    func medScheduleRow(_ id: UUID) -> Row? { (try? rows.row("MedicationSchedule", id.uuidString.lowercased())) ?? nil }
+
+    /// New schedules get a random notification id, like the MAUI page.
+    func saveMedSchedule(id: UUID?, fields: Row) {
+        var f = fields
+        if id == nil { f["notificationId"] = .i(Int.random(in: 1...Int(Int32.max))); f["active"] = .bool(true) }
+        upsert("MedicationSchedule", id?.uuidString.lowercased(), f)
+    }
+
+    func deleteMedSchedule(_ id: UUID) { write { try rows.delete("MedicationSchedule", id.uuidString.lowercased()) } }
+
+    /// One-tap log from a schedule: its name and dose, now, at `site` for injections. Returns the dose id.
+    @discardableResult
+    func logDose(_ s: MedicationSchedule, site: String? = nil) -> UUID? {
+        var id: String?
+        write {
+            id = try rows.insert("MedicationEntry", ["name": .string(s.name), "dose": .s(s.dose), "frequency": .string(s.repeat.label),
+                                                     "takenAt": Wire.local(Date()), "injectionSite": .s(site), "reactionNotes": .null])
+        }
+        return id.flatMap(UUID.init(uuidString:))
+    }
+
+    func doseRow(_ id: UUID) -> Row? { (try? rows.row("MedicationEntry", id.uuidString.lowercased())) ?? nil }
+    func saveDose(id: UUID?, fields: Row) { upsert("MedicationEntry", id?.uuidString.lowercased(), fields) }
+    func deleteDose(_ id: UUID) { write { try rows.delete("MedicationEntry", id.uuidString.lowercased()) } }
+
+    func updateReminderSetting(_ id: UUID, _ fields: Row) { upsert("ReminderSetting", id.uuidString.lowercased(), fields) }
 
     // MARK: history
 
