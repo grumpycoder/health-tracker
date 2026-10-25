@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// One day's meals and drinks grouped Breakfast → Lunch → Dinner → Snack → Drinks, each a
-/// collapsible section (collapsed ones stay collapsed across days and launches).
+/// One day's meals grouped by type, most recent first (e.g. Dinner → Lunch → Breakfast, with Snack
+/// wherever its latest entry falls), then Drinks; each a collapsible section (collapsed ones stay
+/// collapsed across days and launches).
 struct DayLogView: View {
     @EnvironmentObject private var store: Store
     @EnvironmentObject private var auth: Auth
@@ -15,7 +16,8 @@ struct DayLogView: View {
             List {
                 // Only the non-empty types, worked out up front: a ForEach whose rows are sometimes
                 // empty (an `if` inside) lets List put sections out of order.
-                let types = MealType.allCases.filter { t in t != .drink && meals.contains { $0.mealType == t } }
+                let latest = Dictionary(meals.filter { $0.mealType != .drink }.map { ($0.mealType, $0.time) }, uniquingKeysWith: max)
+                let types = latest.keys.sorted { (latest[$0]!, $1.rawValue) > (latest[$1]!, $0.rawValue) }
                 ForEach(types, id: \.self) { type in
                     let rows = meals.filter { $0.mealType == type }
                     Section {
