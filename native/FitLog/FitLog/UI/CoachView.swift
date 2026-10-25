@@ -89,6 +89,11 @@ struct CoachView: View {
             if !c.tips.isEmpty {
                 Section("For the rest of today") { numbered(c.tips) }
             }
+            if !c.watching.isEmpty {
+                Section {
+                    ForEach(c.watching, id: \.evidence) { Label($0.evidence, systemImage: "eye").font(.subheadline).foregroundStyle(.secondary) }
+                } header: { Text("Worth watching") } footer: { Text("Not a problem today — doesn't change the status.") }
+            }
         }
     }
 

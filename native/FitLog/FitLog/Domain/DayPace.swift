@@ -21,6 +21,10 @@ struct DayPace: Equatable {
     let proteinTarget: ClosedRange<Int>?
     /// The fixed calorie range for today's day type (reference only — expenditure decides the budget).
     let fixedCalories: ClosedRange<Int>?
+    var fluidsIn = 0
+    var fluidTarget: ClosedRange<Int>? = nil
+    /// Signs from the data that recovery is genuinely off (empty = nothing beyond ordinary variation).
+    var recoveryEvidence: [String] = []
 
     /// End-of-day intake that lands inside the intended deficit.
     var calorieBudget: ClosedRange<Int>? {
@@ -42,6 +46,27 @@ struct DayPace: Equatable {
         guard late, let left = proteinRemaining, let t = proteinTarget else { return false }
         return left > max(25, t.lowerBound / 4)
     }
+    var fluidsRemaining: Int? { fluidTarget.map { max(0, $0.lowerBound - fluidsIn) } }
+    var expectedFluidsByNow: Int? { fluidTarget.map { Int((Double($0.lowerBound) * eatenShare).rounded()) } }
+    /// Late in the day and well short on fluids.
+    var hydrationLow: Bool {
+        guard late, let left = fluidsRemaining, let t = fluidTarget else { return false }
+        return left > t.lowerBound / 4
+    }
+    /// Clearly ahead of the usual pace (≥ 20% over expected-by-now) or already at target — a tip about it is
+    /// the least useful thing to lead with. Being merely on pace with plenty still to go is not "ahead".
+    func wellAhead(_ area: String) -> Bool {
+        func ahead(_ have: Double, _ expected: Int?, _ left: Int?) -> Bool {
+            left == 0 || expected.map { $0 > 0 && have >= Double($0) * 1.2 } ?? false
+        }
+        switch area {
+        case "protein": return ahead(proteinIn, expectedProteinByNow, proteinRemaining)
+        case "hydration": return ahead(Double(fluidsIn), expectedFluidsByNow, fluidsRemaining)
+        case "recovery": return recoveryEvidence.isEmpty
+        default: return false
+        }
+    }
+
     /// Expected intake by now if the day follows your usual pattern (for "on pace" wording).
     var expectedCaloriesByNow: Int? { calorieBudget.map { Int((Double($0.lowerBound + $0.upperBound) / 2 * eatenShare).rounded()) } }
     var expectedProteinByNow: Int? { proteinTarget.map { Int((Double($0.lowerBound) * eatenShare).rounded()) } }
@@ -70,7 +95,7 @@ struct DayPace: Equatable {
         let active = d.energy.log(day)?.isActiveDay ?? false
         let (out, basis) = projectedOut(d, active: active)
         let g = d.goals
-        return DayPace(eatenShare: share, historyDays: shares.count >= 5 ? shares.count : 0,
+        var pace = DayPace(eatenShare: share, historyDays: shares.count >= 5 ? shares.count : 0,
                        caloriesIn: Nutrition.calories(m, dr), proteinIn: Nutrition.protein(m, dr),
                        projectedOut: out, outBasis: basis, deficit: deficit,
                        proteinTarget: g.flatMap { $0.proteinMax > 0 ? $0.proteinMin...max($0.proteinMin, $0.proteinMax) : nil },
@@ -78,6 +103,29 @@ struct DayPace: Equatable {
                            let lo = active ? g.caloriesActiveMin : g.caloriesRestMin, hi = active ? g.caloriesActiveMax : g.caloriesRestMax
                            return hi > 0 ? lo...max(lo, hi) : nil
                        })
+        pace.fluidsIn = Nutrition.fluidOz(dr)
+        if let g, let lo = active ? g.waterActiveMin : g.waterRestMin, let hi = active ? g.waterActiveMax : g.waterRestMax, hi > 0 {
+            pace.fluidTarget = lo...max(lo, hi)
+        }
+        pace.recoveryEvidence = recoveryEvidence(d)
+        return pace
+    }
+
+    /// Recovery signals clearly off the person's norm: a Low/Rest readiness, a readiness flag (temperature,
+    /// breathing), any readiness factor well below norm (score < 50 ≈ 1.25 SD worse), or a check-in you made
+    /// with high fatigue or soreness. One reading a little off doesn't count.
+    static func recoveryEvidence(_ d: Coach.Inputs) -> [String] {
+        var out: [String] = []
+        if let r = d.readinessToday {
+            if r.score < 60 && !r.calibrating { out.append("readiness \(r.score) (\(r.level))") }
+            out += r.flags
+            out += r.factors.filter { $0.score < 50 }.map { "\($0.name): \($0.detail)" }
+        }
+        if let c = d.checkIns.first(where: { $0.date == d.today && !$0.isAuto }) {
+            if (c.fatigueRating ?? 0) >= 7 { out.append("check-in fatigue \(c.fatigueRating!)/10") }
+            if (c.sorenessSeverity ?? 0) >= 6 { out.append("check-in soreness \(c.sorenessSeverity!)/10") }
+        }
+        return out
     }
 
     /// Full-day expenditure: typical resting + the larger of activity so far and your typical activity on

@@ -60,7 +60,7 @@ final class DayPaceTests: XCTestCase {
         let c = try XCTUnwrap(Coach.DailyCheck.parse([
             "synopsis": "Lunch logged; dinner to come.",
             "concerns": [["kind": "calories_low", "severity": "major", "evidence": "700 of 2000"],
-                         ["kind": "protein_low", "severity": "minor", "evidence": "50 of 150 g"]],
+                         ["kind": "protein_low", "severity": "concern", "evidence": "50 of 150 g"]],
             "tips": ["Aim for ~100 g protein across dinner and your snack."]], at: at("13:50"), pace: p))
         XCTAssertEqual(c.tone, "good")
         XCTAssertEqual(c.concerns, [])
@@ -130,14 +130,87 @@ final class DayPaceTests: XCTestCase {
         XCTAssertEqual(c.tone, "mixed")
     }
 
-    // Recovery and note-based concerns aren't intake-gated: the model's judgement stands.
-    func testRecoveryConcernIsKept() throws {
+    // A recovery "concern" needs evidence in the data; without it, it's something to watch and the day stays On track.
+    func testRecoveryConcern_withoutEvidence_isWatchOnly() throws {
         let d = try inputs(todayType: 2, todayActiveSoFar: 150, todayMeals: [("12:30", 700, 50)])
         let p = DayPace.make(d, now: at("13:50"), deficit: deficit)
-        let c = Coach.DailyCheck.parse(["synopsis": "HRV down three nights.",
-                                        "concerns": [["kind": "recovery", "severity": "minor", "evidence": "HRV 38 vs norm 52, 3 nights"]]],
-                                       at: at("13:50"), pace: p)
+        XCTAssertEqual(p.recoveryEvidence, [])
+        let c = try XCTUnwrap(Coach.DailyCheck.parse(["synopsis": "On pace; HRV a touch low last night.",
+            "concerns": [["kind": "recovery", "severity": "concern", "evidence": "HRV 48 vs 52"]]], at: at("13:50"), pace: p))
+        XCTAssertEqual(c.tone, "good")
+        XCTAssertEqual(c.watching.map(\.evidence), ["HRV 48 vs 52"], "kept, shown as something to watch")
+    }
+
+    // ...but a genuine recovery problem in the data still sets the status.
+    func testRecoveryConcern_withEvidence_setsStatus() throws {
+        var d = try inputs(todayType: 2, todayActiveSoFar: 150, todayMeals: [("12:30", 700, 50)])
+        d.readinessToday = Readiness(score: 48, factors: [], flags: ["Wrist temperature +0.8 °C above your norm"], calibrating: false)
+        let p = DayPace.make(d, now: at("13:50"), deficit: deficit)
+        XCTAssertEqual(p.recoveryEvidence, ["readiness 48 (Low)", "Wrist temperature +0.8 °C above your norm"])
+        let c = Coach.DailyCheck.parse(["synopsis": "Readiness is low with a temperature flag.",
+            "concerns": [["kind": "recovery", "severity": "concern", "evidence": "readiness 48, temp +0.8"]]], at: at("13:50"), pace: p)
         XCTAssertEqual(c?.tone, "mixed")
+        let fatigued = try Wire.decoder.decode(RecoveryEntry.self, from: Data("""
+        {"id":"\(UUID().uuidString)","date":"\(today.iso)","recoveryRating":4,"fatigueRating":8,"sorenessSeverity":3,"notes":"heavy legs"}
+        """.utf8))
+        d.readinessToday = nil; d.checkIns = [fatigued]
+        XCTAssertEqual(DayPace.recoveryEvidence(d), ["check-in fatigue 8/10"])
+    }
+
+    // Status agrees with the assessment: only watch items → On track; a "concern" → Mixed; "major" → Off track.
+    func testStatusFollowsSeverity() {
+        func c(_ sev: String) -> Coach.Concern { .init(kind: "other", severity: sev, evidence: "") }
+        XCTAssertEqual(Coach.DailyCheck.status([]), "good")
+        XCTAssertEqual(Coach.DailyCheck.status([c("watch"), c("watch")]), "good")
+        XCTAssertEqual(Coach.DailyCheck.status([c("watch"), c("concern")]), "mixed")
+        XCTAssertEqual(Coach.DailyCheck.status([c("concern"), c("major")]), "poor")
+        XCTAssertEqual(Coach.DailyCheck.severity("minor"), "concern", "older replies")
+    }
+
+    // Fluids ahead of pace at 2 PM: a hydration tip isn't the lead, and with nothing wrong there are at most 2 tips.
+    func testTips_onTrackDay_areProportionalAndOrdered() throws {
+        var d = try inputs(todayType: 2, todayActiveSoFar: 150, todayMeals: [("12:30", 700, 50)])
+        d.goals = try Wire.decoder.decode(GoalSettings.self, from: Data("""
+        {"updatedAt":"2026-10-01T00:00:00","proteinMin":150,"proteinMax":170,"fatMin":0,"fatMax":0,"fiberMin":0,"fiberMax":0,
+         "caloriesRestMin":1900,"caloriesRestMax":2100,"caloriesActiveMin":2200,"caloriesActiveMax":2400,
+         "carbsRestMin":150,"carbsRestMax":200,"carbsActiveMin":200,"carbsActiveMax":250,
+         "waterRestMin":100,"waterRestMax":128,"waterActiveMin":120,"waterActiveMax":150}
+        """.utf8))
+        d.drinks = [today: try (0..<3).map { _ in try Wire.decoder.decode(DrinkEntry.self, from: Data("""
+        {"id":"\(UUID().uuidString)","time":"\(today.iso)T10:00:00","description":"Water","ounces":29}
+        """.utf8)) }]
+        let p = DayPace.make(d, now: at("14:00"), deficit: deficit)
+        XCTAssertEqual(p.fluidsIn, 87)
+        XCTAssertEqual(p.fluidsRemaining, 13)
+        XCTAssertTrue(p.wellAhead("hydration"), "87 oz vs ~33 expected by 2 PM")
+        XCTAssertFalse(p.wellAhead("protein"), "on pace, but 100 g still to go — worth a tip")
+        XCTAssertTrue(Coach.paceSection(p).contains("fluids so far 87 oz, expected by now ≈ 33 oz, target 100-128 oz, remaining to minimum 13 oz (on or ahead of pace)"))
+        let c = try XCTUnwrap(Coach.DailyCheck.parse([
+            "synopsis": "On pace — 100 g protein still to go.",
+            "concerns": [],
+            "tips": [["text": "Keep sipping water.", "area": "hydration", "priority": "high"],
+                     ["text": "Build dinner around ~60 g protein.", "area": "protein", "priority": "normal"],
+                     ["text": "A short walk after dinner.", "area": "training", "priority": "normal"]]], at: at("14:00"), pace: p))
+        XCTAssertEqual(c.tone, "good")
+        XCTAssertEqual(c.tips, ["Build dinner around ~60 g protein.", "A short walk after dinner."],
+                       "an area well ahead sinks to the end; 'high' means nothing with no concerns; capped at 2")
+        XCTAssertEqual(c.remaining, "Left today: 1,300–1,400 kcal · 100 g protein · 13 oz fluids")
+    }
+
+    // With a real concern, its tip leads and up to 3 are kept; plain-string tips (older shape) still work.
+    func testTips_withConcern_leadWithTheFix() throws {
+        let d = try inputs(todayType: 2, todayActiveSoFar: 420, todayMeals: [("12:30", 700, 50), ("17:00", 400, 20)])
+        let p = DayPace.make(d, now: at("21:30"), deficit: deficit)
+        let c = try XCTUnwrap(Coach.DailyCheck.parse([
+            "synopsis": "Protein well short with the day nearly done.",
+            "concerns": [["kind": "protein_low", "severity": "concern", "evidence": "70 of 150 g at 9:30 PM"]],
+            "tips": ["Note how you feel tomorrow.",
+                     ["text": "A 40 g protein shake before bed.", "area": "protein", "priority": "high"],
+                     ["text": "Plan tomorrow's lunch.", "area": "other", "priority": "normal"],
+                     ["text": "Stretch.", "area": "recovery", "priority": "normal"]]], at: at("21:30"), pace: p))
+        XCTAssertEqual(c.tone, "mixed")
+        XCTAssertEqual(c.tips.first, "A 40 g protein shake before bed.")
+        XCTAssertEqual(c.tips.count, 3)
     }
 
     func testWithoutHistory_usesDefaultEatingWindow() throws {

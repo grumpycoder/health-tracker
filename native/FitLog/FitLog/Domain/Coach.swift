@@ -124,31 +124,43 @@ enum Coach {
     Respond with ONLY a JSON object:
     {
       "synopsis": "<2-3 sentences: how today is going so far, judged against PACE (below), not against full-day totals>",
-      "concerns": [{ "kind": "calories_high" | "calories_low" | "protein_low" | "recovery" | "hydration" | "other",
-                     "severity": "minor" | "major", "evidence": "<the specific number or note that shows it>" }],
-      "tips": ["<0-3 specific suggestions for the rest of today, using the REMAINING amounts below when useful>"]
+      "concerns": [{ "kind": "calories_high" | "calories_low" | "protein_low" | "hydration" | "recovery" | "other",
+                     "severity": "watch" | "concern" | "major", "evidence": "<the specific number or note that shows it>" }],
+      "tips": [{ "text": "<one specific suggestion for the rest of today>",
+                 "area": "calories" | "protein" | "hydration" | "recovery" | "training" | "other",
+                 "priority": "high" | "normal" }]
     }
+    STATUS — the app shows "On track" unless there is a "concern" or "major". So:
+    - "watch" = worth keeping an eye on, no action needed today (e.g. HRV a bit under norm for one night).
+    - "concern" = a real problem that calls for action today. "major" = serious.
+    - Normal progress through an unfinished day is NOT a concern. If nothing calls for action, use only "watch" \
+    items or none, and write the synopsis as on track. The synopsis must agree with the severities you choose.
     HOW TO JUDGE AN UNFINISHED DAY — the app has already worked out PACE for you; trust it:
-    - Intake so far is NOT the day's total. Compare it with "expected by now" (from the person's own usual eating \
-    pattern), never with the full-day target. Being under the full-day target before dinner is normal progress, not a \
-    concern.
-    - Calories: the budget is projected full-day expenditure minus the intended deficit. The fixed calorie range is \
-    reference only. Report a calories concern ONLY if PACE says over budget (calories_high) or deficit-too-large \
-    (calories_low).
-    - Protein: report the grams REMAINING to the minimum. Only add protein_low when PACE says target-unlikely.
+    - Intake so far is NOT the day's total. Compare it with "expected by now" (from the person's own usual pattern), \
+    never with the full-day target.
+    - Calories: the budget is projected full-day expenditure minus the intended deficit; the fixed range is reference \
+    only. calories_high only if PACE flags over-budget; calories_low only if it flags deficit-too-large.
+    - Protein and fluids: give the amount still to go. protein_low / hydration only if PACE flags them.
     - Recovery: weigh HRV, sleeping heart rate, sleep and soreness against the person's norm over several nights, \
-    training load and the day type. One reading a little off is NOT a concern; add "recovery" only for a clear, \
-    multi-signal or sustained change, or a note/check-in that says so. A workout isn't expected on a recovery day.
-    - "not logged" means not recorded — never skipped or missed.
+    training load and the day type. Use "concern" only when PACE lists recovery evidence or a note/check-in says so; \
+    otherwise at most "watch". A workout isn't expected on a recovery day.
     - Use TODAY'S NOTES for how the person feels and what the day holds; a note can justify a concern ("other").
+    - "not logged" means not recorded — never skipped or missed.
+    WORDING — an unfinished target is not done: never call it "secured", "locked in", "guaranteed" or "hit" until \
+    the amount so far actually reaches it. Say "on pace", "within reach", or "N g to go".
+    TIPS — proportional and ordered by importance:
+    - "high" only for a tip that addresses a "concern" or "major". Everything else is "normal".
+    - Put the most useful tip first. Don't tip on an area PACE shows on or ahead of pace (e.g. fluids ahead of \
+    expected), unless it's needed to keep a concern from developing.
+    - With no concerns, give at most 2 tips — or none — that help the rest of the day (e.g. how to fit the protein \
+    still to go into dinner). Never manufacture problems or generic advice ("eat more", "stay hydrated").
     - Zero-sugar drinks are not sugary drinks. A small treat is normal. Coach moderation, never elimination.
-    - If nothing is actually wrong, concerns is [] and tips is [] or one light pointer (e.g. the protein left) — \
-    don't invent problems or generic advice ("eat more", "stay hydrated").
     Every claim must trace to a number or entry below.
     """
 
     struct Concern: Codable, Equatable {
         let kind: String
+        /// watch (no effect on status), concern, or major.
         let severity: String
         let evidence: String
     }
@@ -158,36 +170,80 @@ enum Coach {
         /// Derived in code from the vetted concerns: good (on track), mixed, or poor.
         let tone: String
         let synopsis: String
+        /// Most important first.
         let tips: [String]
         var concerns: [Concern]? = nil
-        /// "≈ 1,050–1,150 kcal and 85 g protein left today" — worked out in code.
+        /// "Left today: 1,300–1,400 kcal · 100 g protein" — worked out in code.
         var remaining: String? = nil
 
-        /// Parse the reply and decide the status from concerns the data supports: intake concerns the
-        /// pace doesn't back up (e.g. "low calories" at 1:50 PM with dinner to come) are dropped.
+        /// Things to keep an eye on that don't change the status.
+        var watching: [Concern] { (concerns ?? []).filter { $0.severity == "watch" } }
+
+        /// Parse the reply, vet each concern against the data, decide the status from what survives, and
+        /// order and cap the tips by importance.
         static func parse(_ o: [String: Any], at: Date, pace: DayPace? = nil) -> DailyCheck? {
             guard let s = o["synopsis"] as? String, !s.isEmpty else { return nil }
             let raw = (o["concerns"] as? [[String: Any]] ?? []).map {
-                Concern(kind: ($0["kind"] as? String ?? "other").lowercased(), severity: ($0["severity"] as? String ?? "minor").lowercased(),
+                Concern(kind: ($0["kind"] as? String ?? "other").lowercased(), severity: severity($0["severity"] as? String),
                         evidence: $0["evidence"] as? String ?? "")
             }
-            let kept = raw.filter { supported($0, pace) }
-            return DailyCheck(generatedAt: at, tone: status(kept), synopsis: s,
-                              tips: (o["tips"] as? [String] ?? []).filter { !$0.isEmpty }, concerns: kept, remaining: pace.flatMap(remainingText))
+            let kept = raw.compactMap { vet($0, pace) }
+            return DailyCheck(generatedAt: at, tone: status(kept), synopsis: s, tips: rankTips(o["tips"], concerns: kept, pace: pace),
+                              concerns: kept, remaining: pace.flatMap(remainingText))
         }
 
-        static func supported(_ c: Concern, _ pace: DayPace?) -> Bool {
-            guard let p = pace else { return true }
+        /// Older replies used minor/major.
+        static func severity(_ s: String?) -> String {
+            switch (s ?? "").lowercased() { case "major": "major"; case "watch": "watch"; default: "concern" }
+        }
+
+        /// Intake concerns the pace doesn't support are dropped; a recovery concern without evidence in the
+        /// data (readiness, flags, a factor well off norm, a check-in) is kept only as "watch".
+        static func vet(_ c: Concern, _ pace: DayPace?) -> Concern? {
+            guard let p = pace else { return c }
             switch c.kind {
-            case "calories_high": return p.overBudget
-            case "calories_low": return p.deficitTooLarge
-            case "protein_low": return p.proteinUnlikely
-            default: return true
+            case "calories_high": return p.overBudget ? c : nil
+            case "calories_low": return p.deficitTooLarge ? c : nil
+            case "protein_low": return p.proteinUnlikely ? c : nil
+            case "hydration": return p.hydrationLow ? c : nil
+            case "recovery" where c.severity != "watch" && p.recoveryEvidence.isEmpty:
+                return Concern(kind: c.kind, severity: "watch", evidence: c.evidence)
+            default: return c
             }
         }
 
         static func status(_ concerns: [Concern]) -> String {
-            concerns.isEmpty ? "good" : concerns.contains { $0.severity == "major" } ? "poor" : "mixed"
+            if concerns.contains(where: { $0.severity == "major" }) { return "poor" }
+            return concerns.contains { $0.severity == "concern" } ? "mixed" : "good"
+        }
+
+        /// Tips for a real concern first, then the rest in the model's order; tips about an area that's
+        /// already well ahead go last. At most 2 when nothing needs action, 3 otherwise.
+        static func rankTips(_ value: Any?, concerns: [Concern], pace: DayPace?) -> [String] {
+            let urgentAreas = Set(concerns.filter { $0.severity != "watch" }.map { area(ofConcern: $0.kind) })
+            let tips: [(text: String, rank: Int, i: Int)] = ((value as? [Any]) ?? []).enumerated().compactMap { i, t in
+                let text: String, area: String, high: Bool
+                if let s = t as? String { text = s; area = "other"; high = false }
+                else if let o = t as? [String: Any], let s = o["text"] as? String {
+                    text = s; area = (o["area"] as? String ?? "other").lowercased(); high = (o["priority"] as? String)?.lowercased() == "high"
+                } else { return nil }
+                guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+                let rank = urgentAreas.contains(area) ? 0              // fixes a real concern
+                    : high && !urgentAreas.isEmpty ? 1                 // the model's call, when something is wrong
+                    : pace?.wellAhead(area) == true ? 3                // an area already ahead or done
+                    : 2
+                return (text, rank, i)
+            }
+            let cap = urgentAreas.isEmpty ? 2 : 3
+            return tips.sorted { ($0.rank, $0.i) < ($1.rank, $1.i) }.prefix(cap).map(\.text)
+        }
+
+        static func area(ofConcern kind: String) -> String {
+            switch kind {
+            case "calories_high", "calories_low": "calories"
+            case "protein_low": "protein"
+            default: kind
+            }
         }
 
         static func remainingText(_ p: DayPace) -> String? {
@@ -196,6 +252,7 @@ enum Coach {
                 bits.append(c.upperBound == 0 ? "calorie budget used" : "\(c.lowerBound == c.upperBound ? "" : "\(c.lowerBound.formatted())–")\(c.upperBound.formatted()) kcal")
             }
             if let g = p.proteinRemaining { bits.append(g == 0 ? "protein target met" : "\(g) g protein") }
+            if let f = p.fluidsRemaining, f > 0 { bits.append("\(f) oz fluids") }
             return bits.isEmpty ? nil : "Left today: " + bits.joined(separator: " · ")
         }
     }
@@ -229,7 +286,14 @@ enum Coach {
             t += "  protein so far \(Int(p.proteinIn.rounded())) g" + (p.expectedProteinByNow.map { ", expected by now ≈ \($0) g" } ?? "")
                 + ", target \(pt.lowerBound)-\(pt.upperBound) g, remaining to minimum \(p.proteinRemaining ?? 0) g\n"
         }
-        let flags = [p.overBudget ? "over-budget" : nil, p.deficitTooLarge ? "deficit-too-large" : nil, p.proteinUnlikely ? "protein-target-unlikely" : nil]
+        if let ft = p.fluidTarget {
+            t += "  fluids so far \(p.fluidsIn) oz" + (p.expectedFluidsByNow.map { ", expected by now ≈ \($0) oz" } ?? "")
+                + ", target \(ft.lowerBound)-\(ft.upperBound) oz, remaining to minimum \(p.fluidsRemaining ?? 0) oz"
+                + (p.fluidsIn >= (p.expectedFluidsByNow ?? .max) ? " (on or ahead of pace)" : "") + "\n"
+        }
+        t += "  recovery evidence: \(p.recoveryEvidence.isEmpty ? "none beyond ordinary variation" : p.recoveryEvidence.joined(separator: "; "))\n"
+        let flags = [p.overBudget ? "over-budget" : nil, p.deficitTooLarge ? "deficit-too-large" : nil, p.proteinUnlikely ? "protein-target-unlikely" : nil,
+                     p.hydrationLow ? "fluids-short" : nil]
             .compactMap { $0 }
         t += "  flags: \(flags.isEmpty ? "none — intake is normal progress for an unfinished day" : flags.joined(separator: ", "))\n"
         return t
