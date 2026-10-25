@@ -69,6 +69,11 @@ struct GoalsView: View {
                 ForEach(Self.daily, id: \.0) { range($0.1, "\($0.0)Min", "\($0.0)Max") }
                 LabeledContent("Added sugar ceiling (g)") { int("addedSugarMax") }
             } header: { Text("Daily macros") } footer: { Text("Min – max. 0 turns a target off.") }
+            Section {
+                range("Deficit (kcal)", "deficitMin", "deficitMax")
+            } header: { Text("Daily calorie deficit") } footer: {
+                Text("The Coach's Today check-in budgets calories as your projected burn minus this. Saved on this iPhone only.")
+            }
             Section("Rest days") { ForEach(Self.byDay, id: \.0) { range($0.1, "\($0.0)RestMin", "\($0.0)RestMax") } }
             Section("Workout days") { ForEach(Self.byDay, id: \.0) { range($0.1, "\($0.0)ActiveMin", "\($0.0)ActiveMax") } }
             Section {
@@ -103,6 +108,7 @@ struct GoalsView: View {
     private func load() {
         guard !loaded else { return }
         loaded = true
+        v["deficitMin"] = Double(store.calorieDeficit.lowerBound); v["deficitMax"] = Double(store.calorieDeficit.upperBound)
         guard let r = store.goalsRow()?.row else { return }
         coaching = r.string("coachingGoals") ?? ""
         for k in Self.rangeKeys + ["addedSugarMax"] { v[k] = r.double(k).flatMap { $0 == 0 ? nil : $0 } }
@@ -122,6 +128,7 @@ struct GoalsView: View {
         // C# ints aren't nullable — blank is 0 (off).
         for k in Self.rangeKeys + ["addedSugarMax"] { fields[k] = .i(Int((v[k] ?? 0).rounded())) }
         for (k, _) in Self.body { fields[k] = .d(v[k]) }
+        store.calorieDeficit = Int(v["deficitMin"] ?? 0)...max(Int(v["deficitMin"] ?? 0), Int(v["deficitMax"] ?? 0))
         store.saveGoals(fields)
         saved = true
     }

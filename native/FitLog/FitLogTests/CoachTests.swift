@@ -43,15 +43,15 @@ final class CoachTests: XCTestCase {
 
     func testDailyPromptFocusesOnToday() throws {
         let now = Wire.parse("2026-10-25T14:30:00")!
-        let p = Coach.dailyPrompt(template: nil, try inputs(), now: now)
-        XCTAssertTrue(p.contains("CURRENT TIME OF DAY: the afternoon on Sunday"))
+        let d = try inputs()
+        let p = Coach.dailyPrompt(template: nil, d, now: now, pace: DayPace.make(d, now: now, deficit: 100...200))
+        XCTAssertTrue(p.contains("It is the afternoon on Sunday"))
         XCTAssertTrue(p.contains("USER'S COACHING GOALS (verbatim)"))
         XCTAssertTrue(p.contains("TOTALS SO FAR: 500 kcal, 40 g protein"))
         XCTAssertTrue(p.contains("TODAY'S NOTES (the person's own words):\n(none)"))
-        XCTAssertTrue(p.contains("net so far -2000 kcal"))
-        XCTAssertTrue(p.contains("7-DAY AVERAGE NET: -500 kcal/day over 1 logged days"))
+        XCTAssertTrue(p.contains("7-DAY AVERAGE NET (completed days): -500 kcal/day over 1 logged days"))
         XCTAssertTrue(p.contains("2026-10-23 Fri | unset | not logged"))
         XCTAssertNil(Coach.DailyCheck.parse(["tone": "good"], at: now))
-        XCTAssertEqual(Coach.DailyCheck.parse(["tone": "Good", "synopsis": "On track.", "tips": []], at: now)?.tone, "good")
+        XCTAssertEqual(Coach.DailyCheck.parse(["synopsis": "On track.", "tips": []], at: now)?.tone, "good", "no concerns → On track")
     }
 }

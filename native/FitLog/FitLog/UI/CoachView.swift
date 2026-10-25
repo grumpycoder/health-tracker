@@ -25,7 +25,7 @@ struct CoachStatus: View {
     var body: some View {
         let (text, icon, color): (String, String, Color) = switch status {
         case "on-track": ("On track", "checkmark.circle.fill", .green)
-        case "good": ("Going well", "checkmark.circle.fill", .green)
+        case "good": ("On track", "checkmark.circle.fill", .green)
         case "adjust": ("Adjust", "arrow.triangle.2.circlepath", .orange)
         case "mixed": ("Mixed", "circle.lefthalf.filled", .orange)
         case "poor": ("Off track", "exclamationmark.triangle.fill", .red)
@@ -84,6 +84,7 @@ struct CoachView: View {
             Section {
                 CoachStatus(status: c.tone)
                 Text(c.synopsis)
+                if let r = c.remaining { Text(r).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary) }
             } footer: { Text("Checked in at \(c.generatedAt.formatted(date: .omitted, time: .shortened))") }
             if !c.tips.isEmpty {
                 Section("For the rest of today") { numbered(c.tips) }

@@ -607,13 +607,32 @@ final class Store: ObservableObject {
         defer { coaching = false }
         let data = coachInputs(), now = Date()
         let template = promptOverride(Coach.dailyKey)
-        let prompt = await Task.detached { Coach.dailyPrompt(template: template, data, now: now) }.value
+        let deficit = calorieDeficit
+        let (prompt, pace) = await Task.detached { () -> (String, DayPace) in
+            let pace = DayPace.make(data, now: now, deficit: deficit)
+            return (Coach.dailyPrompt(template: template, data, now: now, pace: pace), pace)
+        }.value
         do {
-            guard let r = try await ai.dailyCheck(prompt) else { return "The AI's reply couldn't be read. Try again." }
+            guard let r = try await ai.dailyCheck(prompt, pace: pace) else { return "The AI's reply couldn't be read. Try again." }
             dailyCheck = r
             if let json = try? JSONEncoder().encode(r) { try? rows.setMeta("dailyCheck", String(decoding: json, as: UTF8.self)) }
             return nil
         } catch { return error.localizedDescription }
+    }
+
+    /// The intended daily deficit (kcal) the check-in budgets for. On this device only — GoalSettings has
+    /// no field for it yet.
+    var calorieDeficit: ClosedRange<Int> {
+        get {
+            let d = UserDefaults.standard
+            let lo = d.object(forKey: "deficitMin") as? Int ?? 100, hi = d.object(forKey: "deficitMax") as? Int ?? 200
+            return min(lo, hi)...max(lo, hi)
+        }
+        set {
+            UserDefaults.standard.set(newValue.lowerBound, forKey: "deficitMin")
+            UserDefaults.standard.set(newValue.upperBound, forKey: "deficitMax")
+            objectWillChange.send()
+        }
     }
 
     var todaysCheck: Coach.DailyCheck? { dailyCheck.flatMap { Day($0.generatedAt) == .today ? $0 : nil } }
