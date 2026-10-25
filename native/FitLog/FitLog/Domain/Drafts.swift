@@ -126,7 +126,7 @@ extension MealType {
 }
 
 /// Every food name the app knows, built like the C# FoodLibrary: saved foods win, then the newest
-/// logged item breakdown, then whole meals by name. Macros are per serving.
+/// logged item breakdown, then whole meals and drinks by name. Macros are per serving.
 struct FoodLibrary {
     private(set) var defaults: [String: MealItem] = [:]     // lowercased name → per-serving item
     private(set) var saved: [String: Row] = [:]             // lowercased name → SavedFoodEntry row
@@ -157,6 +157,9 @@ struct FoodLibrary {
             }
         }
         put(ms.map { $0.macros.item(named: $0.description) })
+        // Drinks by name too (e.g. "Coke Zero", "Water"), newest first; a meal of the same name keeps its macros.
+        put(drinks.sorted { $0.time > $1.time }.filter { lastMeal[$0.description.trimmingCharacters(in: .whitespaces).lowercased()] == nil }
+                .map { $0.macros.item(named: $0.description) })
         put(uses.flatMap { MealItem.parse($0.1) })
         for (id, r) in savedFoods {
             guard let name = r.string("name")?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { continue }

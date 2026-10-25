@@ -49,7 +49,8 @@ private func quick(_ title: String, _ icon: String, _ action: @escaping () -> Vo
     Button(action: action) {
         VStack(spacing: 4) {
             Image(systemName: icon).font(.title3)
-            Text(title).font(.caption).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8)
+            // Two lines reserved on every button so a wrapped label doesn't make one taller.
+            Text(title).font(.caption).multilineTextAlignment(.center).lineLimit(2, reservesSpace: true).minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, minHeight: 52)
     }

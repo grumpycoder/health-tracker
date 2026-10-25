@@ -76,6 +76,15 @@ final class RepeatLastTests: XCTestCase {
     private func meal(_ json: String) -> MealEntry { try! Wire.decoder.decode(MealEntry.self, from: Data(json.utf8)) }
     private func drink(_ json: String) -> DrinkEntry { try! Wire.decoder.decode(DrinkEntry.self, from: Data(json.utf8)) }
 
+    func testLoggedDrinksAreSuggestedByName() {
+        let coke = drink(#"{"id":"00000000-0000-0000-0000-000000000002","time":"2026-10-20T12:00:00","description":"Coke Zero","ounces":12,"calories":0}"#)
+        let water = drink(#"{"id":"00000000-0000-0000-0000-000000000003","time":"2026-10-20T13:00:00","description":"Water","ounces":16}"#)
+        let lib = FoodLibrary(meals: [], drinks: [coke, water], savedFoods: [])
+        XCTAssertEqual(lib.suggest("coke"), ["Coke Zero"])
+        XCTAssertEqual(lib.suggest("wat"), ["Water"])
+        XCTAssertEqual(lib.item(for: "coke zero").calories, 0)
+    }
+
     func testRepeatingADrinkRestoresAllItsItemsAtOneServing() {
         let old = drink(#"{"id":"00000000-0000-0000-0000-000000000001","time":"2026-10-20T07:00:00","description":"Protein shake","ounces":14,"tags":"High protein","itemsJson":"[{\"Name\":\"Whey\",\"Calories\":120,\"Portion\":1.5},{\"Name\":\"Almond milk\",\"Calories\":40,\"Portion\":2},{\"Name\":\"Banana\",\"Calories\":105,\"Portion\":1}]"}"#)
         let saved: Row = ["name": .string("Banana"), "calories": .int(110)]
