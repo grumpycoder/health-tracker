@@ -7,6 +7,7 @@ struct SavedFoodsView: View {
     @State private var filter = ""
     @State private var editing: MealItem?
     @State private var showHidden = false
+    @State private var merging: [String]?
 
     private var foods: [String] {
         let q = filter.trimmingCharacters(in: .whitespaces)
@@ -16,7 +17,19 @@ struct SavedFoodsView: View {
     var body: some View {
         let shown = foods.filter { !store.hiddenFoods.contains($0.lowercased()) }
         let hidden = foods.filter { store.hiddenFoods.contains($0.lowercased()) }
+        let dupes = store.library.duplicateGroups
         List {
+            if !dupes.isEmpty && filter.isEmpty {
+                Section {
+                    ForEach(dupes, id: \.self) { g in
+                        Button { merging = g } label: {
+                            Label(g.joined(separator: " · "), systemImage: "arrow.triangle.merge").foregroundStyle(.primary)
+                        }
+                    }
+                } header: { Text("Possible duplicates (\(dupes.count))") } footer: {
+                    Text("Same food written differently — capitals, commas or word order. Tap to merge into one name.")
+                }
+            }
             Section {
                 if shown.isEmpty { Text(filter.isEmpty ? "No foods logged yet." : "No matches.").foregroundStyle(.secondary) }
                 ForEach(shown, id: \.self) { foodRow($0, hidden: false) }
@@ -40,6 +53,7 @@ struct SavedFoodsView: View {
         .searchable(text: $filter, prompt: "Filter foods")
         .navigationTitle("Saved foods")
         .sheet(item: $editing) { FoodMacrosSheet(item: $0) }
+        .sheet(item: Binding(get: { merging.map(MergeGroup.init) }, set: { merging = $0?.names })) { MergeFoodsSheet(names: $0.names) }
         .safeAreaInset(edge: .bottom) {
             Text("Tap to edit macros · swipe to hide from suggestions or reset to the last log")
                 .font(.caption).foregroundStyle(.secondary).padding(8).frame(maxWidth: .infinity).background(.bar)
@@ -135,5 +149,57 @@ private struct FoodMacrosSheet: View {
 
     private var renameTitle: String {
         "Rename “\(item.name)” to “\(newName)”? This changes \(uses) log\(uses == 1 ? "" : "s")."
+    }
+}
+
+private struct MergeGroup: Identifiable {
+    let names: [String]
+    var id: String { names.joined(separator: "|") }
+}
+
+/// Pick the name to keep for a set of look-alike foods; the others are renamed to it everywhere.
+private struct MergeFoodsSheet: View {
+    @EnvironmentObject private var store: Store
+    @Environment(\.dismiss) private var dismiss
+    let names: [String]
+    @State private var keep = ""
+    @State private var uses: [String: Int] = [:]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    ForEach(names, id: \.self) { n in
+                        Button { keep = n } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(n).foregroundStyle(.primary)
+                                    let u = uses[n] ?? 0
+                                    Text("\(u) log\(u == 1 ? "" : "s")" + (store.library.isSaved(n) ? " · saved macros" : ""))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if keep == n { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                            }
+                        }
+                    }
+                } header: { Text("Keep this name") } footer: {
+                    Text("The others are renamed to it in every meal and drink. Its saved macros are kept if it has them. This can't be undone.")
+                }
+            }
+            .navigationTitle("Merge foods")
+            .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                uses = Dictionary(uniqueKeysWithValues: names.map { ($0, store.foodUseCount($0)) })
+                keep = names.max { (uses[$0] ?? 0, store.library.isSaved($0) ? 1 : 0) < (uses[$1] ?? 0, store.library.isSaved($1) ? 1 : 0) } ?? names[0]
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Merge") { store.mergeFoods(names.filter { $0 != keep }, into: keep); dismiss() }.disabled(keep.isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }

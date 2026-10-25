@@ -246,31 +246,54 @@ final class Store: ObservableObject {
         }
     }
 
-    /// Rename a food in every meal and drink that uses it, then move its saved macros (if the new
-    /// name already has saved macros, those win and the old entry is removed — a merge). `macros`,
-    /// when given, are saved for the new name. Hidden stays hidden. Returns how many logs changed.
+    /// Rename a food in every meal and drink that uses it (a merge if the new name exists).
     @discardableResult
     func renameFood(_ old: String, to new: String, macros: Macros? = nil) -> Int {
-        let target = new.trimmingCharacters(in: .whitespaces)
-        guard !target.isEmpty, target != old else { return 0 }
+        mergeFoods([old], into: new, macros: macros)
+    }
+
+    /// Merge `names` into `keeper`: every meal and drink using one of them (as its name or an item)
+    /// is renamed, and one saved-macros entry is kept — the keeper's own if it has one, else the most
+    /// recently edited of the others — with the rest removed. `macros`, when given, are saved for the
+    /// keeper. An existing keeper keeps its own hidden setting; a brand-new name (a plain rename)
+    /// inherits the old one's. Returns how many logs changed.
+    @discardableResult
+    func mergeFoods(_ names: [String], into keeper: String, macros: Macros? = nil) -> Int {
+        let target = keeper.trimmingCharacters(in: .whitespaces)
+        let olds = names.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && $0 != target }
+        guard !target.isEmpty, !olds.isEmpty else { return 0 }
+        let keeperExists = library.allNames.contains { FoodRename.matches($0, target) && !olds.contains($0) }
         var changed = 0
         write {
             for type in ["MealEntry", "DrinkEntry"] {
                 for r in try rows.rows(type) {
                     if case .bool(true) = r["isDeleted"] { continue }
-                    guard let id = r.string("id"), let c = FoodRename.changes(r, from: old, to: target) else { continue }
-                    try rows.update(type, id, c); changed += 1
+                    guard let id = r.string("id") else { continue }
+                    var row = r, all: Row = [:]
+                    for old in olds {
+                        guard let c = FoodRename.changes(row, from: old, to: target) else { continue }
+                        for (k, v) in c { row[k] = v; all[k] = v }
+                    }
+                    if !all.isEmpty { try rows.update(type, id, all); changed += 1 }
                 }
             }
-            let oldKey = old.trimmingCharacters(in: .whitespaces).lowercased(), newKey = target.lowercased()
-            let oldId = library.savedIds[oldKey], newId = oldKey == newKey ? oldId : library.savedIds[newKey]
-            if let oldId, let newId, oldId != newId { try rows.delete("SavedFoodEntry", oldId) }
-            let keep = newId ?? oldId
-            if let keep { try rows.update("SavedFoodEntry", keep, ["name": .string(target)].merging(macros?.row ?? [:]) { a, _ in a }) }
+            // Saved macros read fresh from the store (not the cached library), so chained edits agree.
+            let wanted = [target] + olds
+            let saved = try rows.rows("SavedFoodEntry").filter { r in
+                if case .bool(true) = r["isDeleted"] { return false }
+                return wanted.contains { FoodRename.matches(r.string("name"), $0) }
+            }
+            let own = saved.first { $0.string("name").map { FoodRename.matches($0, target) } ?? false }
+            let keep = own ?? saved.max { ($0.string("updatedAt") ?? "") < ($1.string("updatedAt") ?? "") }
+            for r in saved where r.string("id") != keep?.string("id") { if let id = r.string("id") { try rows.delete("SavedFoodEntry", id) } }
+            if let id = keep?.string("id") { try rows.update("SavedFoodEntry", id, ["name": .string(target)].merging(macros?.row ?? [:]) { a, _ in a }) }
             else if let macros { try rows.insert("SavedFoodEntry", macros.row.merging(["name": .string(target)]) { a, _ in a }) }
         }
-        if hiddenFoods.remove(old.trimmingCharacters(in: .whitespaces).lowercased()) != nil {
-            hiddenFoods.insert(target.lowercased())
+        let keys = olds.map { $0.lowercased() }
+        if keys.contains(where: hiddenFoods.contains) {
+            let wasHidden = keys.contains(where: hiddenFoods.contains)
+            hiddenFoods.subtract(keys)
+            if !keeperExists && wasHidden { hiddenFoods.insert(target.lowercased()) }
             UserDefaults.standard.set(hiddenFoods.sorted(), forKey: "hiddenFoods")
             library.hidden = hiddenFoods
         }

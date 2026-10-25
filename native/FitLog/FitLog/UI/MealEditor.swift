@@ -123,12 +123,20 @@ struct FoodNameField: View {
 
     var body: some View {
         TextField(title, text: $text).focused($focused).submitLabel(.done)
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
         if focused {
-            let sug = store.library.suggest(text).filter { $0.caseInsensitiveCompare(text) != .orderedSame }
+            let sug = store.library.suggest(text).filter { $0 != trimmed }
             ForEach(sug.prefix(5), id: \.self) { name in
+                let same = FoodLibrary.key(name) == FoodLibrary.key(trimmed)
                 Button { text = name; focused = false; picked(name) } label: {
-                    Label(name, systemImage: "magnifyingglass").foregroundStyle(.primary)
+                    Label(same ? "Use existing “\(name)”" : name, systemImage: same ? "checkmark.circle" : "magnifyingglass")
+                        .foregroundStyle(.primary)
                 }
+            }
+        } else if let existing = store.library.existingSpelling(of: trimmed) {
+            // Typed a known food differently (case, commas, word order): offer the existing name.
+            Button { text = existing; picked(existing) } label: {
+                Label("Use existing “\(existing)”", systemImage: "checkmark.circle")
             }
         }
     }
