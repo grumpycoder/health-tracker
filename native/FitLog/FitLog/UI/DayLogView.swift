@@ -14,6 +14,14 @@ struct DayLogView: View {
         NavigationStack {
             let meals = store.meals(on: day), drinks = store.drinks(on: day)
             List {
+                Section {
+                    HStack(spacing: 10) {
+                        quickLogButton("Meal", "fork.knife") { editor = .meal(newMeal()) }
+                        quickLogButton("Drink", "cup.and.saucer") { editor = .drink(newDrink()) }
+                        quickLogButton("+16 oz water", "drop.fill") { store.logWater(16, at: onViewedDay()) }
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                }
                 // Only the non-empty types, worked out up front: a ForEach whose rows are sometimes
                 // empty (an `if` inside) lets List put sections out of order.
                 let latest = Dictionary(meals.filter { $0.mealType != .drink }.map { ($0.mealType, $0.time) }, uniquingKeysWith: max)

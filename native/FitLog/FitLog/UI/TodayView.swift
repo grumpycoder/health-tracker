@@ -13,9 +13,9 @@ struct TodayView: View {
             List {
                 Section {
                     HStack(spacing: 10) {
-                        quick("Meal", "fork.knife") { var d = MealDraft(); d.time = Date(); editor = .meal(d) }
-                        quick("Drink", "cup.and.saucer") { editor = .drink(DrinkDraft()) }
-                        quick("+16 oz water", "drop.fill") { store.logWater(16) }
+                        quickLogButton("Meal", "fork.knife") { var d = MealDraft(); d.time = Date(); editor = .meal(d) }
+                        quickLogButton("Drink", "cup.and.saucer") { editor = .drink(DrinkDraft()) }
+                        quickLogButton("+16 oz water", "drop.fill") { store.logWater(16) }
                     }
                     .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                 } header: { Text("Log") }
@@ -45,8 +45,8 @@ struct TodayView: View {
     }
 }
 
-/// Icon-only log button; `title` is what VoiceOver reads.
-private func quick(_ title: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
+/// Icon-only log button (Today and Meals); `title` is what VoiceOver reads.
+func quickLogButton(_ title: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
     Button(action: action) {
         Image(systemName: icon).font(.title2)
             .frame(maxWidth: .infinity, minHeight: 44)
