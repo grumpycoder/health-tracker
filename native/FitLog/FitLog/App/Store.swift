@@ -235,7 +235,8 @@ final class Store: ObservableObject {
     }
 
     /// Mark `day` a Workout day, like the C# WorkoutCompleted handler: create the DailyLog if the
-    /// day has none, or set Unset → Workout; any other day type is left alone. DailyLog.Date is
+    /// day has none, or set Unset/Recovery → Workout (a day is Recovery until a workout says
+    /// otherwise); Active Recovery / High Workload are left alone. DailyLog.Date is
     /// unique on the server, so pull first — if the other app already made today's row, update it
     /// instead of inserting a second one (which would make the whole push fail).
     func markWorkoutDay(_ day: Day) async {
@@ -245,7 +246,7 @@ final class Store: ObservableObject {
             return $0.string("date").map { $0.hasPrefix(Self.dayString(day)) } ?? false
         }
         if let existing = rowsForDay.first, let id = existing.string("id") {
-            if (existing.int("dayType") ?? 0) == 0 { write { try rows.update("DailyLog", id, ["dayType": .int(1)]) } }
+            if [0, 2].contains(existing.int("dayType") ?? 0) { write { try rows.update("DailyLog", id, ["dayType": .int(1)]) } }
         } else {
             write { try rows.insert("DailyLog", ["date": Wire.day(day), "dayType": .int(1), "waterOz": .int(0)]) }
         }
@@ -473,7 +474,19 @@ final class Store: ObservableObject {
         }
     }
 
-    func deleteSession(_ id: UUID) { write { try rows.delete("WorkoutSession", id.uuidString.lowercased()) } }
+    /// Deleting the day's last workout turns a Workout day back into Recovery (like the C# service).
+    func deleteSession(_ id: UUID) {
+        let day = sessions.first { $0.id == id }?.date
+        write {
+            try rows.delete("WorkoutSession", id.uuidString.lowercased())
+            guard let day, !sessions.contains(where: { $0.id != id && $0.date == day }) else { return }
+            let log = try rows.rows("DailyLog").first {
+                if case .bool(true) = $0["isDeleted"] { return false }
+                return $0.string("date").map { $0.hasPrefix(Self.dayString(day)) } ?? false
+            }
+            if let log, let logId = log.string("id"), log.int("dayType") == 1 { try rows.update("DailyLog", logId, ["dayType": .int(2)]) }
+        }
+    }
 
     nonisolated static func dayString(_ d: Day) -> String { String(format: "%04d-%02d-%02d", d.y, d.m, d.d) }
 

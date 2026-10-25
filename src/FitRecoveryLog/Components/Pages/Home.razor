@@ -72,7 +72,7 @@
         <div class="daytype-grid">
             @foreach (var dt in DayTypes)
             {
-                <button class="daytype-btn @(_log.DayType == dt ? "selected" : "")"
+                <button class="daytype-btn @(_log.DayType == dt || (dt == DayType.Recovery && _log.DayType == DayType.Unset) ? "selected" : "")"
                         @onclick="() => SetDayType(dt)">
                     @Label(dt)
                 </button>

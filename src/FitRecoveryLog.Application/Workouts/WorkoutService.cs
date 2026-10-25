@@ -23,8 +23,13 @@ public sealed record CompletedWorkoutData(DateOnly Date, Guid? RoutineId, DateTi
 public sealed class WorkoutService
 {
     private readonly IWorkoutRepository _workouts;
+    private readonly IDayTypeService? _days;
 
-    public WorkoutService(IWorkoutRepository workouts) => _workouts = workouts;
+    public WorkoutService(IWorkoutRepository workouts, IDayTypeService? days = null)
+    {
+        _workouts = workouts;
+        _days = days;
+    }
 
     public Task<IReadOnlyList<WorkoutSession>> ListAsync(CancellationToken ct = default) => _workouts.ListAsync(ct);
     public Task<WorkoutSession?> GetAsync(Guid id, CancellationToken ct = default) => _workouts.GetAsync(id, ct);
@@ -146,6 +151,9 @@ public sealed class WorkoutService
         var session = await _workouts.GetAsync(id, ct);
         if (session is null) return Result.Failure("Workout not found.");
         await _workouts.RemoveAsync(id, ct);
+        // The day's last workout is gone: a Workout day goes back to Recovery.
+        if (_days is not null && !(await _workouts.ListAsync(ct)).Any(s => s.Date == session.Date))
+            await _days.ResetWorkoutDayAsync(session.Date, ct);
         return Result.Success();
     }
 

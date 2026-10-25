@@ -4,7 +4,8 @@ using Persistence = FitRecoveryLog.Data;
 namespace FitRecoveryLog.Web.Infrastructure;
 
 /// <summary>Web implementation of the day-type port: marks a date as a workout day by
-/// upserting its daily log via the sync API. Invoked by the WorkoutCompleted handler.</summary>
+/// upserting its daily log via the sync API (invoked by the WorkoutCompleted handler), and
+/// resets it to Recovery when the day's last workout is deleted.</summary>
 public sealed class ApiDayTypeService : IDayTypeService
 {
     private readonly AppState _state;
@@ -20,10 +21,20 @@ public sealed class ApiDayTypeService : IDayTypeService
     {
         var pull = await _state.DataAsync();
         var log = WebSyncClient.Rows<Persistence.DailyLog>(pull).FirstOrDefault(d => d.Date == date);
-        // Leave a deliberately-chosen day type alone; only set it when new or Unset.
-        if (log is not null && log.DayType != Persistence.DayType.Unset) return;
+        // Active Recovery / High Workload are deliberate and left alone; Unset counts as Recovery.
+        if (log is not null && log.DayType is not (Persistence.DayType.Unset or Persistence.DayType.Recovery)) return;
         log ??= new Persistence.DailyLog { Date = date };
         log.DayType = Persistence.DayType.Workout;
+        await _sync.PushAsync(log);
+        _state.Invalidate();
+    }
+
+    public async Task ResetWorkoutDayAsync(DateOnly date, CancellationToken ct = default)
+    {
+        var pull = await _state.DataAsync();
+        var log = WebSyncClient.Rows<Persistence.DailyLog>(pull).FirstOrDefault(d => d.Date == date);
+        if (log?.DayType != Persistence.DayType.Workout) return;
+        log.DayType = Persistence.DayType.Recovery;
         await _sync.PushAsync(log);
         _state.Invalidate();
     }

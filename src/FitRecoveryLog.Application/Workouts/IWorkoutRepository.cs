@@ -12,9 +12,13 @@ public interface IWorkoutRepository
     Task RemoveAsync(Guid id, CancellationToken ct = default);
 }
 
-/// <summary>Cross-aggregate effect: completing a workout marks its date as a workout day on
-/// the daily log. Kept as a focused port so the enum/DailyLog stay out of the workout domain.</summary>
+/// <summary>Cross-aggregate effect on the daily log's day type. A day is Recovery unless a workout
+/// says otherwise (an Unset day counts as Recovery): completing a workout makes an Unset/Recovery
+/// day a Workout day, and deleting the day's last workout makes a Workout day Recovery again.
+/// Active Recovery and High Workload are deliberate choices and are never changed. Kept as a
+/// focused port so the enum/DailyLog stay out of the workout domain.</summary>
 public interface IDayTypeService
 {
     Task MarkWorkoutDayAsync(DateOnly date, CancellationToken ct = default);
+    Task ResetWorkoutDayAsync(DateOnly date, CancellationToken ct = default);
 }

@@ -23,5 +23,6 @@ public class WorkoutCompletedHandlerTests
     {
         public readonly List<DateOnly> Marked = new();
         public Task MarkWorkoutDayAsync(DateOnly date, CancellationToken ct = default) { Marked.Add(date); return Task.CompletedTask; }
+        public Task ResetWorkoutDayAsync(DateOnly date, CancellationToken ct = default) => Task.CompletedTask;
     }
 }

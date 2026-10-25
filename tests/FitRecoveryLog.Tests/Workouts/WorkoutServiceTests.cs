@@ -103,6 +103,27 @@ public class WorkoutServiceTests
         Assert.That(result.IsSuccess, Is.False);
     }
 
+    [Test]
+    public async Task Delete_LastWorkoutOfTheDay_ResetsTheDay()
+    {
+        var days = new FakeDayTypeService();
+        var svc = new WorkoutService(_workouts, days);
+        var first = (await svc.CreateAsync(Day)).Value;
+        var second = (await svc.CreateAsync(Day)).Value;
+
+        await svc.DeleteAsync(first);
+        Assert.That(days.Reset, Is.Empty, "another workout is still on that day");
+        await svc.DeleteAsync(second);
+        Assert.That(days.Reset, Is.EqualTo(new[] { Day }));
+    }
+
+    private sealed class FakeDayTypeService : IDayTypeService
+    {
+        public readonly List<DateOnly> Reset = new();
+        public Task MarkWorkoutDayAsync(DateOnly date, CancellationToken ct = default) => Task.CompletedTask;
+        public Task ResetWorkoutDayAsync(DateOnly date, CancellationToken ct = default) { Reset.Add(date); return Task.CompletedTask; }
+    }
+
     private sealed class FakeWorkoutRepository : IWorkoutRepository
     {
         public readonly Dictionary<Guid, WorkoutSession> Store = new();
