@@ -8,6 +8,8 @@ struct WorkoutRun: Codable, Equatable {
         var weight: Double?
         var duration: Int?
         var completed = false
+        /// When the set was completed — saved as the set's createdAt so history shows the order you did them.
+        var completedAt: Date?
     }
     struct RunExercise: Codable, Equatable, Identifiable {
         var id: UUID { definitionId }
@@ -72,6 +74,7 @@ struct WorkoutRun: Codable, Equatable {
         guard let s = current else { return }
         stopHold(now: now)
         exercises[s.exercise].sets[s.set].completed = true
+        if exercises[s.exercise].sets[s.set].completedAt == nil { exercises[s.exercise].sets[s.set].completedAt = now }
         if let next = nextOpen(from: stepIndex + 1) ?? nextOpen(from: 0) {
             stepIndex = next
             let rest = exercises[s.exercise].restSeconds

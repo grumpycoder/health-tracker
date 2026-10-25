@@ -56,7 +56,7 @@ struct SessionDetailView: View {
                 TextField("Notes", text: $notes, axis: .vertical)
             }
             let groups = Dictionary(grouping: sets, by: \.exerciseDefinitionId)
-            ForEach(groups.keys.sorted { name($0) < name($1) }, id: \.self) { ex in
+            ForEach(performedOrder(groups), id: \.self) { ex in
                 Section {
                     ForEach(groups[ex]!.sorted { $0.setNumber < $1.setNumber }) { s in setRow(s, isDuration: store.exercises.first { $0.id == ex }?.measure == .duration) }
                     if let f = store.feedback.first(where: { $0.workoutSessionId == sessionId && $0.exerciseDefinitionId == ex }) {
@@ -88,6 +88,14 @@ struct SessionDetailView: View {
                 dismiss()
             }
         }
+    }
+
+    /// Exercises in the order you did them: by each one's first logged set, then the routine's order.
+    private func performedOrder(_ groups: [UUID: [ExerciseSet]]) -> [UUID] {
+        let slots = store.routineExercises.filter { $0.routineId == session?.routineId }
+        func slot(_ ex: UUID) -> Int { slots.first { $0.exerciseDefinitionId == ex }?.order ?? .max }
+        func first(_ ex: UUID) -> Date { groups[ex]?.compactMap(\.createdAt).min() ?? .distantFuture }
+        return groups.keys.sorted { (first($0), slot($0), name($0)) < (first($1), slot($1), name($1)) }
     }
 
     private func name(_ id: UUID) -> String { store.exercises.first { $0.id == id }?.name ?? "Exercise" }

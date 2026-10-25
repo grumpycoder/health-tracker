@@ -53,6 +53,8 @@ struct ExerciseSet: Decodable, Identifiable {
     let weight: Double?
     let durationSeconds, restSeconds: Int?
     let completed: Bool
+    /// When the set was logged (both apps write it as the set is done) — gives the performed order.
+    let createdAt: Date?
 }
 
 struct ExerciseFeedback: Decodable, Identifiable {

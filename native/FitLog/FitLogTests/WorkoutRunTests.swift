@@ -26,6 +26,18 @@ final class WorkoutRunTests: XCTestCase {
         XCTAssertEqual(w.steps.map { "\($0.exercise)\($0.set)" }, ["00", "01", "02", "10", "11"])
     }
 
+    func testCompletingASetRecordsWhenItWasDone() {
+        var w = run(0)
+        let t1 = Date(timeIntervalSince1970: 1_000), t2 = Date(timeIntervalSince1970: 2_000)
+        w.jump(to: 1)
+        w.completeCurrent(now: t1)              // did the plank first
+        w.jump(to: 0)
+        w.completeCurrent(now: t2)
+        XCTAssertEqual(w.exercises[1].sets[0].completedAt, t1)
+        XCTAssertEqual(w.exercises[0].sets[0].completedAt, t2)
+        XCTAssertNil(w.exercises[0].sets[1].completedAt)
+    }
+
     func testCircuitOrder() {
         XCTAssertEqual(run(1).steps.map { "\($0.exercise)\($0.set)" }, ["00", "10", "01", "11", "02"])
     }

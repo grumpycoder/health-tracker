@@ -116,7 +116,7 @@ final class WorkoutController: ObservableObject {
                         "workoutSessionId": .string(sessionId), "exerciseDefinitionId": .string(e.definitionId.uuidString.lowercased()),
                         "setNumber": .i(numbers[e.definitionId]), "reps": .i(s.reps), "weight": .d(s.weight),
                         "durationSeconds": .i(s.duration), "restSeconds": .null, "completed": .bool(s.completed),
-                    ])
+                    ], now: s.completedAt ?? end)   // createdAt = when it was done (history orders by it)
                 }
                 let c = e.comment.trimmingCharacters(in: .whitespacesAndNewlines)
                 feedback[e.definitionId] = [   // one per exercise per session — last slot wins, like the domain
