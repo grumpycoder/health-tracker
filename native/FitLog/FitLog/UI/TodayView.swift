@@ -23,11 +23,11 @@ struct TodayView: View {
                 Section {
                     EnergyCard(day: day, caloriesIn: Nutrition.calories(meals, drinks))
                 } header: { Text("Energy balance") }
-                Section { ReadinessCard() } header: { Text("Readiness") }
-                MedsTodaySection(siteFor: $siteFor)
                 Section {
                     MacroSummary(meals: meals, drinks: drinks, active: store.energy.log(day)?.isActiveDay ?? false)
                 } header: { Text("Today's goals") }
+                Section { ReadinessCard() } header: { Text("Readiness") }
+                MedsTodaySection(siteFor: $siteFor)
             }
             .navigationTitle(Date().formatted(.dateTime.weekday(.wide).month().day()))
             .toolbar { NavigationLink { AccountView() } label: { Image(systemName: "person.crop.circle") }.accessibilityLabel("Account & sync") }
