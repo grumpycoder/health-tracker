@@ -38,6 +38,10 @@ final class ReminderNotifier: ObservableObject {
             content.title = a.title
             content.body = a.body
             content.sound = .default
+            if let d = a.dose {
+                content.categoryIdentifier = NotificationDelegate.category(site: d.site)
+                content.userInfo = ["scheduleId": d.scheduleId.uuidString, "day": d.day.iso, "site": d.site ?? ""]
+            }
             let when = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: a.fire)
             try? await center.add(UNNotificationRequest(identifier: a.id, content: content,
                                                         trigger: UNCalendarNotificationTrigger(dateMatching: when, repeats: false)))
@@ -45,15 +49,47 @@ final class ReminderNotifier: ObservableObject {
     }
 }
 
-/// Shows reminders while the app is open, and opens Today (where due doses are) when one is tapped.
+/// Shows reminders while the app is open, logs a dose from a reminder's Log action (in the
+/// background), and otherwise opens Today — with the site picker when "Choose site…" was tapped.
 final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationDelegate()
-    var onOpen: (@MainActor () -> Void)?
+    /// Opens Today; the schedule id asks for its injection-site picker.
+    var onOpen: (@MainActor (UUID?) -> Void)?
+    weak var store: Store?
+
+    private static let log = "log", choose = "choose"
+
+    /// Action titles are fixed per category, so each injection site gets its own ("Log — Left glute").
+    static func category(site: String?) -> String {
+        site.flatMap { Meds.injectionSites.firstIndex(of: $0) }.map { "dose.site.\($0)" } ?? "dose"
+    }
+
+    static func registerCategories() {
+        let choose = UNNotificationAction(identifier: choose, title: "Choose site…", options: [.foreground])
+        let plain = UNNotificationCategory(identifier: "dose", actions: [UNNotificationAction(identifier: log, title: "Log dose")],
+                                           intentIdentifiers: [])
+        let sites = Meds.injectionSites.enumerated().map { i, site in
+            UNNotificationCategory(identifier: "dose.site.\(i)",
+                                   actions: [UNNotificationAction(identifier: log, title: "Log — \(site)"), choose], intentIdentifiers: [])
+        }
+        UNUserNotificationCenter.current().setNotificationCategories(Set([plain] + sites))
+    }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async
         -> UNNotificationPresentationOptions { [.banner, .list, .sound] }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        await MainActor.run { onOpen?() }
+        let info = response.notification.request.content.userInfo
+        let schedule = (info["scheduleId"] as? String).flatMap(UUID.init(uuidString:))
+        switch response.actionIdentifier {
+        case Self.log:
+            guard let schedule, let day = (info["day"] as? String).flatMap(Day.init(iso:)) else { return }
+            let site = (info["site"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            await store?.logDoseFromReminder(schedule, day: day, site: site)
+        case Self.choose:
+            await MainActor.run { onOpen?(schedule) }
+        default:
+            await MainActor.run { onOpen?(nil) }
+        }
     }
 }

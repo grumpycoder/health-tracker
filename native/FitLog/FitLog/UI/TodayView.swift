@@ -33,6 +33,9 @@ struct TodayView: View {
             .toolbar { NavigationLink { ProfileView() } label: { Image(systemName: "person.crop.circle") }.accessibilityLabel("Profile, goals & settings") }
             .refreshable { await store.refresh(auth: auth) }
             .injectionSitePicker(for: $siteFor)
+            // Schedules may still be loading on a cold start from the notification, so retry when they arrive.
+            .onChange(of: router.pickSiteFor, initial: true) { pickSite() }
+            .onChange(of: store.medSchedules.map(\.id)) { pickSite() }
             .onChange(of: router.addMeal, initial: true) { _, go in
                 guard go else { return }
                 router.addMeal = false
@@ -45,6 +48,14 @@ struct TodayView: View {
                 }
             }
         }
+    }
+}
+
+extension TodayView {
+    fileprivate func pickSite() {
+        guard let id = router.pickSiteFor, let s = store.medSchedules.first(where: { $0.id == id }) else { return }
+        router.pickSiteFor = nil
+        siteFor = s
     }
 }
 

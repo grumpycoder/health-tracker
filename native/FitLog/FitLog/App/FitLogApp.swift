@@ -17,6 +17,8 @@ struct FitLogApp: App {
         _workout = StateObject(wrappedValue: WorkoutController(store: st))
         // Set during launch so reminders show while the app is open and a tap is delivered.
         UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
+        NotificationDelegate.shared.store = st
+        NotificationDelegate.registerCategories()
     }
     @Environment(\.scenePhase) private var phase
 
@@ -30,7 +32,7 @@ struct FitLogApp: App {
             .environmentObject(workout)
             .environmentObject(router)
             .onOpenURL { router.open($0) }
-            .onAppear { NotificationDelegate.shared.onOpen = { [router] in router.tab = 0 } }
+            .onAppear { NotificationDelegate.shared.onOpen = { [router] id in router.tab = 0; router.pickSiteFor = id } }
             .task(id: auth.isSignedIn) {
                 guard auth.isSignedIn else { return }
                 await store.health.requestAccessAndLoad()
@@ -48,6 +50,8 @@ struct FitLogApp: App {
 final class Router: ObservableObject {
     @Published var tab = 0
     @Published var addMeal = false
+    /// A dose reminder's "Choose site…": Today opens the site picker for this schedule.
+    @Published var pickSiteFor: UUID?
     func open(_ url: URL) {
         guard url.scheme == "fitlogn" else { return }
         if url.host == "add-meal" { tab = 0; addMeal = true }

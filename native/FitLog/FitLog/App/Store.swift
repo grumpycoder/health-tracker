@@ -615,6 +615,18 @@ final class Store: ObservableObject {
         return id.flatMap(UUID.init(uuidString:))
     }
 
+    /// The Log action on a dose reminder (the app may have just been woken in the background). Reads
+    /// the schedule straight from the database — a cold launch may not have reloaded yet — skips it if
+    /// that day's dose was already logged, then pushes right away rather than after the usual delay.
+    func logDoseFromReminder(_ scheduleId: UUID, day: Day, site: String?) async {
+        let schedules: [MedicationSchedule] = (try? rows.decode("MedicationSchedule")) ?? []
+        guard let s = schedules.first(where: { $0.id == scheduleId }) else { return }
+        let doses: [MedicationEntry] = (try? rows.decode("MedicationEntry")) ?? []
+        if let last = Meds.lastTaken(doses)[s.name.lowercased()], last >= day { return }
+        logDose(s, site: site)
+        await sync.sync()
+    }
+
     func doseRow(_ id: UUID) -> Row? { (try? rows.row("MedicationEntry", id.uuidString.lowercased())) ?? nil }
     func saveDose(id: UUID?, fields: Row) { upsert("MedicationEntry", id?.uuidString.lowercased(), fields) }
     func deleteDose(_ id: UUID) { write { try rows.delete("MedicationEntry", id.uuidString.lowercased()) } }

@@ -105,4 +105,12 @@ final class MedsTests: XCTestCase {
         XCTAssertEqual(plan.map(\.fire), plan.map(\.fire).sorted())
         XCTAssertEqual(Set(plan.map(\.id)).count, plan.count, "ids are unique")
     }
+
+    func testDoseAlertsCarryWhatTheLogActionNeeds() throws {
+        let inj = try schedule("Test C", repeat: .weekly, start: "2026-10-01")   // form 1 = injection; due Thursdays
+        let doses = [try dose("Test C", at: "2026-10-22T08:00:00", site: "Left glute")]
+        let a = try XCTUnwrap(Meds.plan(schedules: [inj], doses: doses, settings: [], lastDone: [:], now: at("2026-10-25T12:00:00")).first)
+        XCTAssertEqual(a.dose, Meds.DoseRef(scheduleId: inj.id, day: Day(y: 2026, m: 10, d: 29), site: "Right glute"))
+        XCTAssertEqual(Day(iso: "2026-10-29"), Day(y: 2026, m: 10, d: 29))
+    }
 }

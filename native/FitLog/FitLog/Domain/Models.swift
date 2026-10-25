@@ -115,6 +115,11 @@ extension Day {
         self.init(y: c.year!, m: c.month!, d: c.day!)
     }
     var iso: String { String(format: "%04d-%02d-%02d", y, m, d) }
+    init?(iso: String) {
+        let p = iso.prefix(10).split(separator: "-").compactMap { Int($0) }
+        guard p.count == 3 else { return nil }
+        self.init(y: p[0], m: p[1], d: p[2])
+    }
 }
 
 /// Encoded as "yyyy-MM-dd", and as a plain object key in dictionaries (readiness snapshots).

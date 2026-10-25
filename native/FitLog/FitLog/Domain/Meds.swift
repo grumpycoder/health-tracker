@@ -156,6 +156,15 @@ enum Meds {
         let title: String
         let body: String
         let fire: Date
+        /// Set on dose reminders so the notification's Log action knows what to log.
+        var dose: DoseRef? = nil
+    }
+
+    /// The dose a reminder is for; `site` is the suggested injection site (nil for non-injections).
+    struct DoseRef: Hashable {
+        let scheduleId: UUID
+        let day: Day
+        let site: String?
     }
 
     /// iOS keeps at most 64 pending notifications per app.
@@ -163,7 +172,7 @@ enum Meds {
 
     /// Upcoming dose reminders as concrete dates (not OS repeats), so a dose already logged today
     /// doesn't still nag, Monthly lands on the right day, and an end date stops them.
-    static func doseAlerts(_ s: MedicationSchedule, lastTaken: Day?, now: Date = Date(), count: Int) -> [Alert] {
+    static func doseAlerts(_ s: MedicationSchedule, lastTaken: Day?, site: String? = nil, now: Date = Date(), count: Int) -> [Alert] {
         let today = Day(now)
         guard s.current(today: today) else { return [] }
         var day = s.startDate
@@ -178,7 +187,8 @@ enum Meds {
             if let end = s.endDate, day > end { break }
             let fire = s.reminderTime.on(day)
             if fire > now && !(lastTaken.map { $0 >= day } ?? false) {
-                out.append(Alert(id: "dose.\(s.id.uuidString).\(day.iso)", title: "Take \(s.name)", body: s.dose ?? "", fire: fire))
+                out.append(Alert(id: "dose.\(s.id.uuidString).\(day.iso)", title: "Take \(s.name)", body: s.dose ?? "", fire: fire,
+                                 dose: DoseRef(scheduleId: s.id, day: day, site: s.form == .injection ? site ?? injectionSites[0] : nil)))
             }
             if s.repeat == .once { break }
             day = step(day, s.repeat)
@@ -216,7 +226,10 @@ enum Meds {
     static func plan(schedules: [MedicationSchedule], doses: [MedicationEntry], settings: [ReminderSetting],
                      lastDone: [String: Day], now: Date = Date()) -> [Alert] {
         let taken = lastTaken(doses)
-        let all = schedules.flatMap { doseAlerts($0, lastTaken: taken[$0.name.lowercased()], now: now, count: 14) }
+        let all = schedules.flatMap { s in
+            doseAlerts(s, lastTaken: taken[s.name.lowercased()], site: s.form == .injection ? suggestedSite(for: s.name, doses: doses) : nil,
+                       now: now, count: 14)
+        }
             + settings.flatMap { routineAlerts($0, lastDone: lastDone[$0.key], now: now, count: 8) }
         return Array(all.sorted { $0.fire < $1.fire }.prefix(maxPending))
     }
