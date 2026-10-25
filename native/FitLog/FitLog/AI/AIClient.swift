@@ -83,6 +83,10 @@ final class AIClient {
         Self.parseObject(try await generate(prompt, jpeg: nil)).flatMap { Coach.Report.parse($0, at: Date()) }
     }
 
+    func dailyCheck(_ prompt: String) async throws -> Coach.DailyCheck? {
+        Self.parseObject(try await generate(prompt, jpeg: nil)).flatMap { Coach.DailyCheck.parse($0, at: Date()) }
+    }
+
     private func generate(_ prompt: String, jpeg: Data?) async throws -> String {
         var req = URLRequest(url: URL(string: "api/v1/ai/generate", relativeTo: Config.apiBase)!)
         req.httpMethod = "POST"

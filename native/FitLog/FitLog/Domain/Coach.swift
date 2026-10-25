@@ -78,6 +78,8 @@ enum Coach {
         var readiness: [Day: Int] = [:]
         var checkIns: [RecoveryEntry] = []
         var body: [BodyMeasurement] = []
+        /// This morning's readiness (Today check-in only).
+        var readinessToday: Readiness?
     }
 
     static func prompt(template: String?, _ d: Inputs) -> String {
@@ -105,6 +107,138 @@ enum Coach {
             if !body.isEmpty { t += "  body goals: \(body.joined(separator: ", "))\n" }
         }
         t += energySection(d) + trainingSection(d) + recoverySection(d) + bodySection(d)
+        return t
+    }
+
+    // MARK: Today check-in
+
+    /// The other apps' "daily_check" prompt (same key, so a saved override applies here too).
+    static let dailyKey = "daily_check"
+
+    static let dailyPrompt = """
+    You are a supportive but honest health coach doing a quick check-in on one person's day so far.
+    CURRENT TIME OF DAY: {timeOfDay} on {dayOfWeek} (exact time in NOW below). Your framing MUST match it — no \
+    start-of-day greeting unless it is actually morning. Judge what's logged UP TO NOW and aim tips at the time that \
+    REMAINS today.
+    Respond with ONLY a JSON object:
+    {
+      "tone": "good" | "mixed" | "poor",
+      "synopsis": "<2-3 sentences on how today is going and why, against the user's goals and today's day type>",
+      "tips": ["<0-3 short, actionable suggestions for the REST of today>"]
+    }
+    GROUNDING — every claim must trace to a number or entry below; don't invent amounts or times.
+    - "not logged" means not recorded, never skipped — don't fault the person for it.
+    - Respect TODAY'S DAY TYPE: targets differ for workout and recovery days, and a workout isn't expected on a \
+    recovery day.
+    - Energy: compare intake with projected calories out and the user's intended deficit; flag a deficit that is \
+    becoming unnecessarily large as much as an overshoot. Projected out is partial until the day ends.
+    - Recovery: raise a concern only when last night's HRV / sleeping heart rate / sleep is clearly off the person's \
+    norm or soreness is high — not for ordinary variation.
+    - Use LAST 7 DAYS to tell a one-off from a pattern.
+    - Zero-sugar drinks are not sugary drinks. A small treat is normal. Coach moderation, never elimination.
+    Be concise and calm. If they're on track, say so and give no tips.
+    """
+
+    struct DailyCheck: Codable, Equatable {
+        let generatedAt: Date
+        let tone: String
+        let synopsis: String
+        let tips: [String]
+
+        static func parse(_ o: [String: Any], at: Date) -> DailyCheck? {
+            guard let s = o["synopsis"] as? String, !s.isEmpty else { return nil }
+            return DailyCheck(generatedAt: at, tone: (o["tone"] as? String ?? "mixed").lowercased(), synopsis: s,
+                              tips: (o["tips"] as? [String] ?? []).filter { !$0.isEmpty })
+        }
+    }
+
+    static func dailyPrompt(template: String?, _ d: Inputs, now: Date) -> String {
+        let hour = Calendar.current.component(.hour, from: now)
+        let part = hour < 5 ? "the middle of the night" : hour < 12 ? "the morning" : hour < 17 ? "the afternoon"
+            : hour < 21 ? "the evening" : "late at night"
+        var t = (template ?? dailyPrompt).replacingOccurrences(of: "{timeOfDay}", with: part)
+            .replacingOccurrences(of: "{dayOfWeek}", with: d.today.date.formatted(.dateTime.weekday(.wide))) + "\n\n"
+        if let g = d.coachingGoals?.trimmingCharacters(in: .whitespacesAndNewlines), !g.isEmpty {
+            t += "USER'S COACHING GOALS (verbatim) — the success criteria; follow them:\n\(g)\n\n"
+        }
+        return t + todayContext(d, now: now)
+    }
+
+    static func todayContext(_ d: Inputs, now: Date) -> String {
+        let day = d.today
+        let typeRaw = d.energy.log(day)?.dayType ?? 0
+        let active = d.energy.log(day)?.isActiveDay ?? false
+        let hm = now.formatted(.dateTime.hour().minute())
+        var t = "NOW: \(day.iso) \(weekday(day)) \(hm)\n"
+        t += "TODAY'S DAY TYPE: \(dayTypes[min(4, max(0, typeRaw))]) (\(active ? "workout" : "rest/recovery")-day targets apply)\n"
+        if let g = d.goals {
+            t += "TODAY'S TARGETS: calories \(active ? g.caloriesActiveMin : g.caloriesRestMin)-\(active ? g.caloriesActiveMax : g.caloriesRestMax), "
+                + "protein \(g.proteinMin)-\(g.proteinMax) g, carbs \(active ? g.carbsActiveMin : g.carbsRestMin)-\(active ? g.carbsActiveMax : g.carbsRestMax) g"
+            if g.fatMax > 0 { t += ", fat \(g.fatMin)-\(g.fatMax) g" }
+            if g.fiberMax > 0 { t += ", fiber \(g.fiberMin)-\(g.fiberMax) g" }
+            if let a = g.addedSugarMax, a > 0 { t += ", added sugar under \(a) g" }
+            if let lo = active ? g.waterActiveMin : g.waterRestMin, let hi = active ? g.waterActiveMax : g.waterRestMax, hi > 0 { t += ", fluids \(lo)-\(hi) oz" }
+            t += "\n"
+        }
+        let m = (d.meals[day] ?? []).sorted { $0.time < $1.time }, dr = (d.drinks[day] ?? []).sorted { $0.time < $1.time }
+        t += "\nLOGGED TODAY:\n"
+        if m.isEmpty && dr.isEmpty { t += "(nothing logged yet)\n" }
+        for x in m {
+            t += "  \(x.time.formatted(.dateTime.hour().minute())) \(x.mealType.label) \"\(x.description)\"" + (x.calories.map { " \($0) kcal" } ?? "")
+                + (x.proteinG.map { ", \(Int($0)) g protein" } ?? "") + "\n"
+        }
+        for x in dr {
+            t += "  \(x.time.formatted(.dateTime.hour().minute())) drink \"\(x.description)\"" + (x.ounces.map { " \(Int($0)) oz" } ?? "")
+                + (x.calories.map { ", \($0) kcal" } ?? "") + ((x.addedSugarG ?? 0) > 0 ? ", \(Int(x.addedSugarG!)) g added sugar" : "") + "\n"
+        }
+        let kin = Nutrition.calories(m, dr)
+        t += "TOTALS SO FAR: \(kin) kcal, \(Int(Nutrition.protein(m, dr))) g protein, \(Int(Nutrition.carbs(m, dr))) g carbs, "
+            + "\(Int(Nutrition.fat(m, dr))) g fat, \(Int(Nutrition.fiber(m, dr))) g fiber, \(Int(Nutrition.addedSugar(m, dr))) g added sugar, "
+            + "\(Nutrition.fluidOz(dr)) oz fluids\n"
+        if let out = d.energy.out(day) {
+            t += "ENERGY: projected out \(out.kcal) kcal (\(out.live ? "Health activity so far + typical resting" : out.fromHealth ? "Apple Health" : "estimate")) → "
+                + "net so far \(kin - out.kcal) kcal\n"
+        }
+        var nets: [Int] = []
+        for i in 1...7 {
+            let p = day.adding(-i), pm = d.meals[p] ?? [], pd = d.drinks[p] ?? []
+            if !(pm.isEmpty && pd.isEmpty), let o = d.energy.out(p) { nets.append(Nutrition.calories(pm, pd) - o.kcal) }
+        }
+        if !nets.isEmpty { t += "7-DAY AVERAGE NET: \(nets.reduce(0, +) / nets.count) kcal/day over \(nets.count) logged days\n" }
+
+        t += "\nLAST NIGHT & READINESS:\n"
+        if let n = d.nights.first(where: { $0.day == day }) {
+            t += "  sleep \(f1(n.sleepHours)) h" + (n.deepRemHours.map { ", deep+REM \(f1($0)) h" } ?? "")
+                + (n.hrvMs.map { ", HRV \(Int($0.rounded())) ms" } ?? "") + (n.sleepingHR.map { ", sleeping HR \(Int($0.rounded())) bpm" } ?? "") + "\n"
+        } else { t += "  (no sleep data for last night)\n" }
+        if let r = d.readinessToday {
+            t += "  readiness \(r.score)/100 (\(r.level))" + (r.calibrating ? " — still calibrating" : "") + "\n"
+            for f in r.factors { t += "    \(f.name): \(f.detail)\n" }
+            for f in r.flags { t += "    flag: \(f)\n" }
+        }
+        if let c = d.checkIns.first(where: { $0.date == day && !$0.isAuto }) {
+            t += "  your check-in: recovery \(c.recoveryRating.map(String.init) ?? "-")/10, fatigue \(c.fatigueRating.map(String.init) ?? "-")/10"
+                + (c.sorenessLocations.map { ", sore: \($0) (\(c.sorenessSeverity ?? 0)/10)" } ?? "") + "\n"
+        }
+
+        t += "\nWORKOUTS (today and the last 3 days):\n"
+        let recent = d.sessions.filter { $0.date >= day.adding(-3) && $0.date <= day }.sorted { $0.date > $1.date }
+        if recent.isEmpty { t += "  (none logged)\n" }
+        for s in recent {
+            let n = s.id.map { id in Set(d.sets.filter { $0.workoutSessionId == id && $0.completed }.map(\.exerciseDefinitionId)).count } ?? 0
+            let hard = s.id.map { id in d.feedback.filter { $0.workoutSessionId == id && $0.difficulty.rawValue >= Difficulty.hard.rawValue }.count } ?? 0
+            t += "  \(s.date == day ? "today" : "\(s.date.iso) \(weekday(s.date))"): \(s.routineId.flatMap { d.routines[$0] } ?? "Workout")"
+                + (s.totalSeconds.map { ", \($0 / 60) min" } ?? "") + ", \(n) exercises" + (hard > 0 ? ", \(hard) rated hard" : "") + "\n"
+        }
+
+        t += "\nLAST 7 DAYS (date | day type | kcal in | protein g | net):\n"
+        for i in 1...7 {
+            let p = day.adding(-i), pm = d.meals[p] ?? [], pd = d.drinks[p] ?? []
+            let type = dayTypes[min(4, max(0, d.energy.log(p)?.dayType ?? 0))]
+            guard !(pm.isEmpty && pd.isEmpty) else { t += "  \(p.iso) \(weekday(p)) | \(type) | not logged\n"; continue }
+            let k = Nutrition.calories(pm, pd)
+            t += "  \(p.iso) \(weekday(p)) | \(type) | \(k) | \(Int(Nutrition.protein(pm, pd))) | \(d.energy.out(p).map { String(k - $0.kcal) } ?? "?")\n"
+        }
         return t
     }
 

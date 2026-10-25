@@ -28,6 +28,8 @@ final class Store: ObservableObject {
     /// The last coaching review (kept on this device until the next one).
     @Published private(set) var coachReport: Coach.Report?
     @Published private(set) var coaching = false
+    /// The last Today check-in (shown only on the day it was made).
+    @Published private(set) var dailyCheck: Coach.DailyCheck?
     @Published private(set) var medSchedules: [MedicationSchedule] = []
     /// Logged doses, newest first.
     @Published private(set) var doses: [MedicationEntry] = []
@@ -60,6 +62,7 @@ final class Store: ObservableObject {
         sync.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &bag)
         health.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &bag)
         reminders.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &bag)
+        dailyCheck = (try? rows.meta("dailyCheck")).flatMap { $0 }.flatMap { try? JSONDecoder().decode(Coach.DailyCheck.self, from: Data($0.utf8)) }
         coachReport = (try? rows.meta("coachReport")).flatMap { $0 }.flatMap { try? JSONDecoder().decode(Coach.Report.self, from: Data($0.utf8)) }
         reload()
     }
@@ -582,15 +585,7 @@ final class Store: ObservableObject {
     func runCoach() async -> String? {
         coaching = true
         defer { coaching = false }
-        let data = Coach.Inputs(
-            today: .today, goals: goals, coachingGoals: goalsRow()?.row.string("coachingGoals"),
-            meals: mealsByDay, drinks: drinksByDay, energy: energy, sessions: sessions,
-            routines: Dictionary(routines.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),
-            exercises: Dictionary(exercises.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }),
-            sets: sets, feedback: feedback, nights: nights.map(\.metrics),
-            readiness: Dictionary(readinessHistory.filter { $0.algorithmVersion == Readiness.algorithmVersion }.map { ($0.day, $0.result.score) },
-                                  uniquingKeysWith: { a, _ in a }),
-            checkIns: recovery, body: body)
+        let data = coachInputs()
         let template = promptOverride(Coach.promptKey)
         let prompt = await Task.detached { Coach.prompt(template: template, data) }.value
         do {
@@ -599,6 +594,35 @@ final class Store: ObservableObject {
             if let json = try? JSONEncoder().encode(r) { try? rows.setMeta("coachReport", String(decoding: json, as: UTF8.self)) }
             return nil
         } catch { return error.localizedDescription }
+    }
+
+    /// Today's check-in: how the day is going and what to do with the rest of it.
+    func runDailyCheck() async -> String? {
+        coaching = true
+        defer { coaching = false }
+        let data = coachInputs(), now = Date()
+        let template = promptOverride(Coach.dailyKey)
+        let prompt = await Task.detached { Coach.dailyPrompt(template: template, data, now: now) }.value
+        do {
+            guard let r = try await ai.dailyCheck(prompt) else { return "The AI's reply couldn't be read. Try again." }
+            dailyCheck = r
+            if let json = try? JSONEncoder().encode(r) { try? rows.setMeta("dailyCheck", String(decoding: json, as: UTF8.self)) }
+            return nil
+        } catch { return error.localizedDescription }
+    }
+
+    var todaysCheck: Coach.DailyCheck? { dailyCheck.flatMap { Day($0.generatedAt) == .today ? $0 : nil } }
+
+    private func coachInputs() -> Coach.Inputs {
+        Coach.Inputs(
+            today: .today, goals: goals, coachingGoals: goalsRow()?.row.string("coachingGoals"),
+            meals: mealsByDay, drinks: drinksByDay, energy: energy, sessions: sessions,
+            routines: Dictionary(routines.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),
+            exercises: Dictionary(exercises.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }),
+            sets: sets, feedback: feedback, nights: nights.map(\.metrics),
+            readiness: Dictionary(readinessHistory.filter { $0.algorithmVersion == Readiness.algorithmVersion }.map { ($0.day, $0.result.score) },
+                                  uniquingKeysWith: { a, _ in a }),
+            checkIns: recovery, body: body, readinessToday: readiness)
     }
 
     // MARK: goals
