@@ -68,6 +68,10 @@ struct DayLogView: View {
                     } label: { Image(systemName: "plus") }
                     .accessibilityLabel("Add meal or drink")
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink { SavedFoodsView() } label: { Image(systemName: "books.vertical") }
+                        .accessibilityLabel("Saved foods")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack {
                         Button { day = day.adding(-1) } label: { Image(systemName: "chevron.left") }

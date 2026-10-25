@@ -85,6 +85,15 @@ final class RepeatLastTests: XCTestCase {
         XCTAssertEqual(lib.item(for: "coke zero").calories, 0)
     }
 
+    func testHiddenFoodsAreLeftOutOfSuggestionsOnly() {
+        let coke = drink(#"{"id":"00000000-0000-0000-0000-000000000004","time":"2026-10-20T12:00:00","description":"Coke Zero","ounces":12}"#)
+        var lib = FoodLibrary(meals: [], drinks: [coke], savedFoods: [])
+        lib.hidden = ["coke zero"]
+        XCTAssertTrue(lib.suggest("coke").isEmpty)
+        XCTAssertEqual(lib.allNames, ["Coke Zero"], "still listed on the Saved foods screen")
+        XCTAssertNotNil(lib.lastDrink["coke zero"], "repeat-last still works")
+    }
+
     func testRepeatingADrinkRestoresAllItsItemsAtOneServing() {
         let old = drink(#"{"id":"00000000-0000-0000-0000-000000000001","time":"2026-10-20T07:00:00","description":"Protein shake","ounces":14,"tags":"High protein","itemsJson":"[{\"Name\":\"Whey\",\"Calories\":120,\"Portion\":1.5},{\"Name\":\"Almond milk\",\"Calories\":40,\"Portion\":2},{\"Name\":\"Banana\",\"Calories\":105,\"Portion\":1}]"}"#)
         let saved: Row = ["name": .string("Banana"), "calories": .int(110)]

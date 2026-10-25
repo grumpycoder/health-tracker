@@ -134,7 +134,13 @@ struct FoodLibrary {
     /// Newest entry per (lowercased) meal / drink name — for "repeat last time".
     private(set) var lastMeal: [String: MealEntry] = [:]
     private(set) var lastDrink: [String: DrinkEntry] = [:]
-    var names: [String] { defaults.values.map(\.name).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending } }
+    /// Lowercased names hidden from suggestions (kept on this device, like the web and MAUI apps).
+    var hidden: Set<String> = []
+    /// Every known food, hidden ones included (the Saved foods screen).
+    var allNames: [String] { defaults.values.map(\.name).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending } }
+    /// What suggestions offer.
+    var names: [String] { allNames.filter { !hidden.contains($0.lowercased()) } }
+    func isSaved(_ name: String) -> Bool { saved[name.trimmingCharacters(in: .whitespaces).lowercased()] != nil }
 
     init() {}
 

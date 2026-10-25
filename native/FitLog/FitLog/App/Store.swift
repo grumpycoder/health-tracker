@@ -25,6 +25,8 @@ final class Store: ObservableObject {
     /// Stored daily readiness calculations (local only), newest first.
     @Published private(set) var readinessHistory: [ReadinessSnapshot] = []
     @Published private(set) var library = FoodLibrary()
+    /// Foods hidden from suggestions (lowercased), on this device only.
+    @Published private(set) var hiddenFoods = Set(UserDefaults.standard.stringArray(forKey: "hiddenFoods") ?? [])
     // Derived once per reload (not per redraw): per-day lookups and the energy history.
     @Published private(set) var energy = EnergyHistory(logs: [], body: [], sessions: [])
     @Published private(set) var caloriesByDay: [Day: Int] = [:]
@@ -126,6 +128,7 @@ final class Store: ObservableObject {
         sleepEntries = s.sleep
         recovery = s.recovery
         mealsByDay = s.mealsByDay; drinksByDay = s.drinksByDay; caloriesByDay = s.caloriesByDay; library = s.library
+        library.hidden = hiddenFoods
         rebuildEnergy()
     }
 
@@ -223,6 +226,20 @@ final class Store: ObservableObject {
             if let id = library.savedIds[name.lowercased()] { try rows.update("SavedFoodEntry", id, fields) }
             else { try rows.insert("SavedFoodEntry", fields) }
         }
+    }
+
+    /// Hide a food from suggestions, or show it again. Its logs and saved macros are untouched.
+    func toggleHidden(_ name: String) {
+        let k = name.trimmingCharacters(in: .whitespaces).lowercased()
+        if hiddenFoods.remove(k) == nil { hiddenFoods.insert(k) }
+        UserDefaults.standard.set(hiddenFoods.sorted(), forKey: "hiddenFoods")
+        library.hidden = hiddenFoods
+    }
+
+    /// Drop a food's saved macros so it goes back to its most recent log (no-op if it has none).
+    func resetFood(_ name: String) {
+        guard let id = library.savedIds[name.trimmingCharacters(in: .whitespaces).lowercased()] else { return }
+        write { try rows.delete("SavedFoodEntry", id) }
     }
 
     var latestWeightLbs: Double? { body.filter { $0.weightLbs != nil }.max { $0.date < $1.date }?.weightLbs }
