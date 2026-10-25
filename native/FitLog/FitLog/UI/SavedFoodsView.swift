@@ -100,13 +100,13 @@ private struct FoodMacrosSheet: View {
     @State private var uses = 0
 
     private var newName: String { name.trimmingCharacters(in: .whitespaces) }
-    private var renaming: Bool { !newName.isEmpty && newName != item.name }
+    private var renaming: Bool { !newName.isEmpty && newName.foodNameCased != item.name }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Name", text: $name).autocorrectionDisabled()
+                    TextField("Name", text: $name).autocorrectionDisabled().textInputAutocapitalization(.words)
                 } header: { Text("Name") } footer: {
                     if renaming {
                         let merge = store.library.allNames.contains { $0.caseInsensitiveCompare(newName) == .orderedSame && $0.caseInsensitiveCompare(item.name) != .orderedSame }

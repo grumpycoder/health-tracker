@@ -219,7 +219,7 @@ final class Store: ObservableObject {
 
     /// Create or update the saved food with this name (per-serving macros).
     func saveFood(_ item: MealItem) {
-        let name = item.name.trimmingCharacters(in: .whitespaces)
+        let name = item.name.foodNameCased
         guard !name.isEmpty else { return }
         write {
             let fields = Macros.of(item).row.merging(["name": .string(name)]) { a, _ in a }
@@ -259,7 +259,7 @@ final class Store: ObservableObject {
     /// inherits the old one's. Returns how many logs changed.
     @discardableResult
     func mergeFoods(_ names: [String], into keeper: String, macros: Macros? = nil) -> Int {
-        let target = keeper.trimmingCharacters(in: .whitespaces)
+        let target = keeper.foodNameCased
         let olds = names.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && $0 != target }
         guard !target.isEmpty, !olds.isEmpty else { return 0 }
         let keeperExists = library.allNames.contains { FoodRename.matches($0, target) && !olds.contains($0) }

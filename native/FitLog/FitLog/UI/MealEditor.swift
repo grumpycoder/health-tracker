@@ -122,7 +122,7 @@ struct FoodNameField: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        TextField(title, text: $text).focused($focused).submitLabel(.done)
+        TextField(title, text: $text).focused($focused).submitLabel(.done).textInputAutocapitalization(.words)
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         if focused {
             let sug = store.library.suggest(text).filter { $0 != trimmed }
@@ -174,7 +174,7 @@ struct ItemsSection: View {
             }
             .onDelete { idx in items.remove(atOffsets: idx); onChange() }
             HStack {
-                TextField("Add an item (e.g. whole milk)", text: $adding).submitLabel(.done).onSubmit(add)
+                TextField("Add an item (e.g. whole milk)", text: $adding).textInputAutocapitalization(.words).submitLabel(.done).onSubmit(add)
                 Button("Add", action: add).disabled(adding.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             HStack {
@@ -254,7 +254,7 @@ struct ItemEditor: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Name", text: $item.name)
+                    TextField("Name", text: $item.name).textInputAutocapitalization(.words)
                     ServingsControl(servings: $item.portion)
                 }
                 Section {

@@ -112,6 +112,16 @@ final class RepeatLastTests: XCTestCase {
         XCTAssertFalse(lib.suggest("eggs scr").contains("Egg salad"))
     }
 
+    func testFoodNamesAreTitleCasedWithoutTouchingDeliberateCapitals() {
+        XCTAssertEqual("protein shake with whole milk".foodNameCased, "Protein Shake with Whole Milk")
+        XCTAssertEqual("  coke zero ".foodNameCased, "Coke Zero")
+        XCTAssertEqual("BBQ chicken".foodNameCased, "BBQ Chicken")
+        XCTAssertEqual("McDonald's fries".foodNameCased, "McDonald's Fries")
+        XCTAssertEqual("2% milk, 8 oz".foodNameCased, "2% Milk, 8 oz")
+        XCTAssertEqual("the stir-fry".foodNameCased, "The Stir-Fry")
+        XCTAssertEqual("eggs and toast".foodNameCased, "Eggs and Toast")
+    }
+
     func testHiddenFoodsAreLeftOutOfSuggestionsOnly() {
         let coke = drink(#"{"id":"00000000-0000-0000-0000-000000000004","time":"2026-10-20T12:00:00","description":"Coke Zero","ounces":12}"#)
         var lib = FoodLibrary(meals: [], drinks: [coke], savedFoods: [])

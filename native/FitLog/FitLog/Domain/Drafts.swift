@@ -39,11 +39,11 @@ struct MealDraft {
         var r = macros.row
         r["time"] = Wire.local(time)
         r["mealType"] = .int(Int64(mealType.rawValue))
-        r["description"] = .string(description.trimmingCharacters(in: .whitespaces))
+        r["description"] = .string(description.foodNameCased)
         r["portionNote"] = .s(portionNote.isEmpty ? nil : portionNote)
         r["satiety"] = .int(Int64(satiety.rawValue))
         r["qualityStars"] = .i(stars)
-        r["itemsJson"] = .s(MealItem.serialize(items))
+        r["itemsJson"] = .s(MealItem.serialize(items.map { var i = $0; i.name = i.name.foodNameCased; return i }))
         if id == nil, let t = carriedTags { r["tags"] = .string(t) }
         return r
     }
@@ -91,10 +91,10 @@ struct DrinkDraft {
     var row: Row {
         var r = macros.row
         r["time"] = Wire.local(time)
-        r["description"] = .string(description.trimmingCharacters(in: .whitespaces))
+        r["description"] = .string(description.foodNameCased)
         r["ounces"] = .d(ounces)
         r["sugarCount"] = .i(sugarCount)
-        r["itemsJson"] = .s(MealItem.serialize(items))
+        r["itemsJson"] = .s(MealItem.serialize(items.map { var i = $0; i.name = i.name.foodNameCased; return i }))
         if id == nil, let t = carriedTags { r["tags"] = .string(t) }
         return r
     }

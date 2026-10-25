@@ -176,3 +176,25 @@ enum FoodRename {
         return out.isEmpty ? nil : out
     }
 }
+
+extension String {
+    /// Food names in title case: "protein shake with whole milk" → "Protein Shake with Whole Milk".
+    /// Only all-lowercase words change, so "BBQ", "McDonald's" or "iced LATTE" keep their capitals;
+    /// words with digits ("2%", "16oz") and units (oz, g, tbsp…) stay as typed, and small joining
+    /// words stay lowercase unless they start the name. Hyphenated parts are cased separately.
+    var foodNameCased: String {
+        let small: Set<String> = ["a", "an", "and", "or", "of", "with", "w/", "in", "on", "the", "to", "for", "&"]
+        let units: Set<String> = ["oz", "fl", "g", "mg", "kg", "ml", "l", "lb", "lbs", "tsp", "tbsp", "cal", "kcal"]
+        func cap(_ w: Substring) -> String {
+            guard let f = w.first, w == w.lowercased(), !w.contains(where: \.isNumber) else { return String(w) }
+            return f.uppercased() + w.dropFirst()
+        }
+        var first = true
+        return trimmingCharacters(in: .whitespaces).split(separator: " ", omittingEmptySubsequences: false).map { word -> String in
+            defer { if !word.isEmpty { first = false } }
+            let bare = word.lowercased().trimmingCharacters(in: .punctuationCharacters)
+            if word.isEmpty || units.contains(bare) || (!first && small.contains(word.lowercased())) { return String(word) }
+            return word.split(separator: "-", omittingEmptySubsequences: false).map(cap).joined(separator: "-")
+        }.joined(separator: " ")
+    }
+}
